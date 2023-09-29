@@ -1,10 +1,5 @@
 """
-==========
-Spike2Data
-==========
-
-.. currentmodule:: extraction
-
+Spike data extraction utility, the main workhorse of this package.
 """
 from __future__ import annotations
 
@@ -188,7 +183,6 @@ class SpikeData:
         Class for reading and storing data from a Spike2 file.
 
         .. versionchanged:: 1.16.0
-        Non-scalar `start` and `stop` are now supported.
 
         Parameters:
         -----------

@@ -1,8 +1,4 @@
 """
-=========
-spk2py_io
-=========
-
 Functions for saving/writing to h5 files using h5py.
 """
 from __future__ import annotations

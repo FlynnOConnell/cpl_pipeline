@@ -1,8 +1,16 @@
-Usage
-=====
-.. py:currentmodule:: spk2extract
+.. _api:
 
-.. automodule:: spk2extract
+API Reference
+=============
+
+.. currentmodule:: spk2extract
+
+SpikeData
+---------
+
+.. autoclass:: SpikeData
     :members:
     :undoc-members:
-    :show-inheritance:
+    :inherited-members:
+
+

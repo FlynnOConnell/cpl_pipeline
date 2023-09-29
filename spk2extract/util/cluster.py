@@ -1,3 +1,6 @@
+"""
+Cluster and extract function utilities.
+"""
 from __future__ import annotations
 
 import logging
@@ -6,14 +9,9 @@ from pathlib import Path
 import numpy as np
 from numba import jit
 from numba.typed import List
-from scipy import linalg
 from scipy.interpolate import interp1d
 from scipy.signal import butter
 from scipy.signal import sosfilt
-from scipy.spatial.distance import mahalanobis
-from scipy.stats import chi2
-from sklearn.decomposition import PCA
-from sklearn.mixture import GaussianMixture
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
