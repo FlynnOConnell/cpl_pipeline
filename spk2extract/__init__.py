@@ -13,4 +13,4 @@ I recommend exploring the docstrings using
 TAB-completion and introspection capabilities.
 
 """
-from . import * # noqa (API import)
+from .extraction import SpikeData, UnitData # noqa (API import)
