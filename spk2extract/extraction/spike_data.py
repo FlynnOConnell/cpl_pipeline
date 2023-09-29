@@ -20,19 +20,6 @@ logger = configure_logger(__name__, logfile, level=logging.DEBUG)
 UnitData = namedtuple("UnitData", ["spikes", "times"])
 
 
-def __get_base_filename__(
-    name_data: SpikeData | dict,
-) -> str:
-    """
-    Extract the base filename from a SpikeData object.
-    """
-    return (
-        name_data["metadata"]["filename"]
-        .replace("_preinfusion", "")
-        .replace("_postinfusion", "")
-    )
-
-
 def __save_spikedata_to_h5(spike_data: SpikeData, filename: str | Path) -> None:
     """
     Save data to h5 file.
@@ -156,23 +143,68 @@ def __save_merged_to_h5(merged_spike_data: dict, filename: str | Path):
 
 class SpikeData:
     """
-    Container class for Spike2 data.
+     Class for reading and storing data from a Spike2 file.
 
-    Can be used as:
-    - A dictionary, where the keys are the channel names and the values are the waveforms (LFP + Unit).
+    Parameters:
+    -----------
+    filepath : Path | str
+        The full path to the Spike2 file, including filename + extension.
+    exclude : tuple, optional
+        A tuple of channel names to exclude from the data. Default is empty tuple.
+
+    Attributes:
+    -----------
+    exclude : tuple
+        A tuple of channel names to exclude from the data.
+    filename : Path
+        The full path to the Spike2 file, including filename + extension.
+    sonfile : SonFile
+        The SonFile object from the sonpy library.
+    unit : dict
+        A dictionary of unit channels, where the keys are the channel names and the values are the waveforms.
+    time_base : float
+        Everything in the file is quantified by the underlying clock tick (64-bit).
+        All values in the file are stored, set and returned in ticks.
+        You need to read this value to interpret times in seconds.
+    max_time : float
+        The last time-point in the array, in ticks.
+    max_channels : int
+        The number of channels in the file.
+    bitrate : int
+        Whether the file is 32bit (old) or 64bit (new).
+    recording_length : float
+        The total recording length, in seconds.
+
+    Notes
+    -----
+
+    This class can be used as if it were several different types of objects:
+    - A dictionary, where the keys are the channel names and the values are the waveforms.
     - A list, where the elements are the channel names.
-    - A boolean, where True means the file is empty and False means it is not.
     - A string, where the string is the filename stem.
 
-    """
+    Examples
+    --------
+    >>> from spk2extract import SpikeData
+    >>> from pathlib import Path
+    >>> smr_path = Path().home() / "data" / "smr"
+    >>> files = [file for file in smr_path.glob("*.smr")]
+    >>> assert len(files) > 0
+    >>> data = SpikeData(files[0])
+    >>> data
+    'rat1-2021-03-24_0001'
+    >>> data["LFP1"]
+    UnitData(spikes=array([[ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,
+                0.00000000e+00,  0.00000000e+00,  0.00000000e+00],), times=array([...]))
 
-    @staticmethod
-    def __validate_same_metadata__(meta1, meta2):
-        for key in meta1:
-            if key not in ["filename", "infusion", "max_time", "recording_length"]:
-                if meta1[key] != meta2[key]:
-                    return False
-        return True
+    >>> data["LFP1"].spikes
+    array([[ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,]])
+    >>> data["LFP1"].times
+    array([0.00000000e+00,  0.00000000e+00,  0.00000000e+00,])
+    >>> data["LFP1"].spikes.shape
+    (1, 3)
+
+    """
 
     def __init__(
         self,
@@ -484,13 +516,12 @@ class SpikeData:
 
 if __name__ == "__main__":
     path_test = Path().home() / "data" / "smr"
-    path_combined = Path().home() / "data" / "combined"
-    path_combined.mkdir(exist_ok=True, parents=True)
-    files = [f for f in path_test.glob("*.smr")]
-
-    for file in files:
-        data = SpikeData(
-            file,
+    test_paths_combined = Path().home() / "data" / "combined"
+    test_paths_combined.mkdir(exist_ok=True, parents=True)
+    test_files = [file for file in path_test.glob("*.smr")]
+    for testfile in test_files:
+        testdata = SpikeData(
+            testfile,
             ("Respirat", "RefBrain", "Sniff"),
         )
-        __save_spikedata_to_h5(data, file.with_suffix(".h5"))
+        __save_spikedata_to_h5(testdata, testfile.with_suffix(".h5"))
