@@ -33,7 +33,7 @@ def write_h5(filename: str, unit_dict: dict):
             unit_group.create_dataset(key, data=data)
 
 
-def read_group(group: h5py.Group) -> dict:
+def __read_group(group: h5py.Group) -> dict:
     """
     Read a single HDF5 group and return a dictionary containing the data.
 
@@ -52,7 +52,7 @@ def read_group(group: h5py.Group) -> dict:
         data[attr_name] = attr_value
     for key, item in group.items():
         if isinstance(item, h5py.Group):
-            data[key] = read_group(item)
+            data[key] = __read_group(item)
         elif isinstance(item, h5py.Dataset):
             data[key] = item[()]
     return data
@@ -77,5 +77,5 @@ def read_h5(filename: str | Path) -> dict:
     >>> data = read_h5('input.h5')
     """
     with h5py.File(filename, "r") as f:
-        data = read_group(f)
+        data = __read_group(f)
     return data
