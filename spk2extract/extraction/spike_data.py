@@ -182,8 +182,6 @@ class SpikeData:
         """
         Class for reading and storing data from a Spike2 file.
 
-        .. versionchanged:: 1.16.0
-
         Parameters:
         -----------
         filepath : Path | str
@@ -295,9 +293,6 @@ class SpikeData:
                     filtered_segment,
                     sampling_rate,
                 )
-
-                # Dejitter the spike times
-                # slices, spike_times = dejitter(spike_times, sampling_rate, sampling_rate)
 
                 # Create a FinalUnitData namedtuple with the concatenated spikes and times
                 final_unit_data = UnitData(spikes=slices, times=spike_times)
@@ -491,24 +486,11 @@ if __name__ == "__main__":
     path_test = Path().home() / "data" / "smr"
     path_combined = Path().home() / "data" / "combined"
     path_combined.mkdir(exist_ok=True, parents=True)
-    files = [f for f in path_test.glob("*.h5")]
+    files = [f for f in path_test.glob("*.smr")]
 
-    # # load the h5
-    data = []
     for file in files:
-        data.append(__load_spk2_from_h5(file))
-
-    # merge the data
-    merged_data = __merge_spk2_from_dict(data[0], data[1])
-
-    # save the merged data
-    basename = __get_base_filename__(merged_data)
-    fname = path_combined / (basename + ".h5")
-    __save_merged_to_h5(merged_data, fname)
-    # for file in files:
-    #     data = SpikeData(
-    #         file,
-    #         ("Respirat", "RefBrain", "Sniff"),
-    #     )
-    #     save_spike_data_to_h5(data, file.with_suffix(".h5"))
-    x = 5
+        data = SpikeData(
+            file,
+            ("Respirat", "RefBrain", "Sniff"),
+        )
+        __save_spikedata_to_h5(data, file.with_suffix(".h5"))
