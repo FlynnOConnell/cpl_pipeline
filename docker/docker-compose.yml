@@ -1,0 +1,15 @@
+version: "3.7"
+services:
+  spk2py-env:
+    build:
+      args:
+        - username=spk_user
+        - uid=1000
+        - gid=100
+      context: ..
+      dockerfile: docker/Dockerfile
+    volumes:
+      - ..:/home/spk_user/app
+    init: true
+    stdin_open: true
+    tty: true

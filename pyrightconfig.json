@@ -1,0 +1,37 @@
+{
+  "include": [
+    "spk2extract/**/*.py",
+  ],
+
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.vscode",
+    "**/.git",
+    "**/.DS_Store",
+    "**/*.pyc",
+    "**/*.pyo",
+  ],
+
+  "ignore": [
+    "docs/**",
+    "ci/**",
+    "docker/**",
+  ],
+
+  "defineConstant": {
+    "DEBUG": true
+  },
+
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false,
+
+  "pythonVersion": "3.9",
+  "pythonPlatform": "Linux",
+
+  "executionEnvironments": [
+    {
+      "root": "spk2extract"
+    }
+  ]
+}

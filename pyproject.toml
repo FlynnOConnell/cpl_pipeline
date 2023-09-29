@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spk2extract"
+version = "0.0.1"
+# TODO: add `license-files` once PEP 639 is accepted (see meson-python#88)
+license = {file = "LICENSE.txt"}
+
+description = "Spike extraction utilities for python"
+authors = [{name = "Flynn O'Connell"}]
+maintainers = [
+    {name = "Flynn O'Connell", email="Flynnoconnell@gmail.com"},
+]
+keywords = ["spike sorting", "spike extraction", "spike detection", "spike sorting validation"]
+platforms = ["any"]
+requires-python = ">=3.9,<3.10"
+readme = "README.md"
+classifiers = [
+    'Intended Audience :: Science/Research',
+    'Intended Audience :: Developers',
+    'License :: OSI Approved :: GNU License',
+    'Programming Language :: Python',
+    'Programming Language :: Python :: 3',
+    'Programming Language :: Python :: 3.9',
+    'Programming Language :: Python :: 3 :: Only',
+    'Programming Language :: Python :: Implementation :: CPython',
+    'Topic :: Software Development',
+    'Topic :: Scientific/Engineering',
+    'Typing :: Typed',
+    'Operating System :: Microsoft :: Windows',
+    'Operating System :: POSIX',
+    'Operating System :: Unix',
+    'Operating System :: MacOS',
+]
+
+[project.urls]
+homepage = "https://www.github.com/Flynnoconnell/spk2extract"
+source = "https://www.github.com/Flynnoconnell/spk2extract"
+
+[tool.pyright]
+include = ["spk2extract"]
+exclude = [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.vscode",
+    "**/.git",
+    "**/.DS_Store",
+    "**/*.pyc",
+    "**/*.pyo",
+]
+
+ignore = [
+    "docs/**",
+    "ci/**",
+    "docker/**",
+]
+defineConstant = { DEBUG = true }
+reportMissingImports = true
+reportMissingTypeStubs = false
+
+pythonVersion = "3.9"
+pythonPlatform = "Linux"
+executionEnvironments = [
+  { root = "spk2extract" }
+]
