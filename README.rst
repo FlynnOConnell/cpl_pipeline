@@ -3,6 +3,8 @@ spk2extract
 ==================
 
 Data extraction pipeline for spike2 electrophysiological data.
+This primarily relies on the [CED](https://ced.co.uk/) [SonPy](https://github.com/divieira/sonpy) library, which
+is ill-documented and is a thin C++ wrapper around code that we will never see.
 
 Understanding the Spike2 Data Types
 -----------------------------------
