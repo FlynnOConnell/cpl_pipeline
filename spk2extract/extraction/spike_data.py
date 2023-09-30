@@ -260,7 +260,7 @@ class SpikeData:
         self.unit = {}
         self.sampling_rates = {}
         self.metadata = self.bundle_metadata()
-        self.process_units()
+        self.extract()
 
     def __repr__(self):
         return f"{self.filename.stem}"
@@ -278,7 +278,7 @@ class SpikeData:
         else:
             raise KeyError(f"{key} not found in SpikeData object.")
 
-    def process_units(
+    def extract(
         self,
     ):
         """
