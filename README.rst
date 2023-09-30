@@ -2,6 +2,10 @@
 spk2extract
 ==================
 
+.. image:: https://readthedocs.org/projects/spk2extract/badge/?version=latest
+    :target: https://spk2extract.readthedocs.io/en/latest/?badge=latest
+    :alt: ReadTheDocs
+
 Data extraction pipeline for spike2 electrophysiological data.
 This primarily relies on the [CED](https://ced.co.uk/) [SonPy](https://github.com/divieira/sonpy) library, which
 is ill-documented and is a thin C++ wrapper around code that we will never see.
