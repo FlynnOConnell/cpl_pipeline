@@ -13,11 +13,14 @@ I recommend exploring the docstrings using
 TAB-completion and introspection capabilities.
 
 """
-from .extraction import SpikeData, UnitData     # noqa (API import)
-from .util import *                             # noqa (API import)
-from .gui import *                              # noqa (API import)
+from .extraction import SpikeData, UnitData  # noqa (API import)
+from .gui import *  # noqa (API import)
+from .util import *  # noqa (API import)
+from .version import version as __version__  # noqa (API import)
+from .defaults import defaults  # noqa (API import)
 
+version = __version__
 # Documentation inclusions
-__all__ = ["SpikeData", "UnitData", "extract_waveforms", "dejitter", "filter_signal", "write_h5", "read_h5",]
-
-__version__ = "0.1.0"
+__all__ = ["SpikeData", "UnitData", "extract_waveforms", "dejitter", "filter_signal", "defaults", "version", "gui"]
+__name__ = "spk2extract"
+__author__ = "Flynn OConnell"
