@@ -11,7 +11,7 @@ import h5py
 import numpy as np
 from sonpy import lib as sp
 
-from spk2extract.logging.logger_config import configure_logger
+from spk2extract.spk_log.logger_config import configure_logger
 from spk2extract.util import extract_waveforms, filter_signal
 
 logfile = Path().home() / "data" / "spike_data.log"

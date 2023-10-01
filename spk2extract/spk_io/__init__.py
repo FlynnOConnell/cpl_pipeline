@@ -1,5 +1,4 @@
 from .server import ssh_connect
-from .spk_io import read_h5, write_h5
 from .utils import (
     get_spk2extract_path,
     search_for_ext,

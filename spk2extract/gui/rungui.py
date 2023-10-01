@@ -581,9 +581,6 @@ class RunWindow(QDialog):
                 print("could not load ops file")
                 print(e)
 
-    def load_db(self):
-        print("loading db")
-
     def stdout_write(self):
         cursor = self.textEdit.textCursor()
         cursor.movePosition(cursor.End)

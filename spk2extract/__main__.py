@@ -42,19 +42,6 @@ def parse_args(parser: argparse.ArgumentParser):
 
 
 def main():
-    # # args, ops = parse_args(
-    #     add_args(argparse.ArgumentParser(description="spk2extract parameters")))
-    # if args.version:
-    #     print("spk2extract v{}".format(version))
-    # elif args.single_plane and args.ops:
-    #     pass
-    # elif len(args.db) > 0:
-    #     db = np.load(args.db, allow_pickle=True).item()
-    #     # from spk2extract import run_s2e
-    #     # run_s2p(ops, db)
-    #     print("not implemented yet")
-    #     pass
-    # else:
     from spk2extract import gui
     gui.run()
 

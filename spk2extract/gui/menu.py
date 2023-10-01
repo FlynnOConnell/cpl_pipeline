@@ -7,7 +7,7 @@ from pkg_resources import iter_entry_points
 
 from . import io
 from . import rungui
-from spk2extract.io.utils import get_spk2extract_path
+from spk2extract.spk_io.utils import get_spk2extract_path
 
 
 def mainmenu(parent):

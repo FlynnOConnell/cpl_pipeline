@@ -3,7 +3,8 @@ import numpy as np
 
 from qtpy.QtWidgets import QFileDialog, QMessageBox
 
-from .. import io
+from .. import spk_io
+
 
 def load_dialog(parent):
     dlg_kwargs = {
@@ -14,6 +15,7 @@ def load_dialog(parent):
     name = QFileDialog.getOpenFileName(**dlg_kwargs)
     parent.fname = name[0]
     load_proc(parent)
+
 
 def load_dialog_folder(parent):
     dlg_kwargs = {
@@ -40,7 +42,7 @@ def load_folder(parent):
         return
 
     # create a combined folder to hold iscell and redcell
-    output = io.combined(save_folder, save=False)
+    output = spk_io.combined(save_folder, save=False)
     parent.basename = os.path.join(parent.fname, "combined")
     load_to_GUI(parent, parent.basename, output)
     parent.loaded = True

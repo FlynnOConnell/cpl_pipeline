@@ -3,9 +3,8 @@ import sys, os, time, glob
 try:
     import paramiko
     HAS_PARAMIKO = True
-except ImportError as e:
+except ModuleNotFoundError as e:
     paramiko = None
-    print("Could not import paramiko. SSH connections will not be available.")
     HAS_PARAMIKO = False
 
 
