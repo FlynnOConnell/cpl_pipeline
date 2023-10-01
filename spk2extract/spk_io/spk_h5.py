@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import h5py
+import numpy as np
 
 
 def write_h5(filename: str, unit_dict: dict):
@@ -27,6 +28,31 @@ def write_h5(filename: str, unit_dict: dict):
         for key, data in unit_dict.items():
             unit_group.create_dataset(key, data=data)
 
+
+def write_complex_h5(filename, metadata, metadata_dicts, data):
+    with h5py.File(filename, "w") as f:
+        # Save metadata (any simple type supported by HDF5)
+        metadata_grp = f.create_group("metadata")
+        for key, value in metadata.items():
+            metadata_grp.attrs[key] = value
+
+        # Save metadata dictionaries
+        metadata_dict_grp = f.create_group("metadata_dicts")
+        for dict_name, dict_data in metadata_dicts.items():
+            sub_group = metadata_dict_grp.create_group(dict_name)
+            for key, value in dict_data.items():
+                str_key = (
+                    str(key) if not isinstance(key, tuple) else ",".join(map(str, key))
+                )
+                sub_group.attrs[
+                    str_key
+                ] = value  # this value can be int, float, str, etc.
+
+        # Save data dictionaries
+        data_grp = f.create_group("data")
+        for data_key, data_value in data.items():
+            str_key = ",".join(map(str, data_key))
+            data_grp.create_dataset(str_key, data=np.array(data_value))
 
 def __read_group(group: h5py.Group) -> dict:
     """
