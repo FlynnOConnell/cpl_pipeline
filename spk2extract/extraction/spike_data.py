@@ -6,51 +6,31 @@ from __future__ import annotations
 import logging
 from collections import namedtuple
 from pathlib import Path
+from typing import Any
 
 import h5py
 import numpy as np
 from sonpy import lib as sp
 
+import spk2extract
 from spk2extract.spk_log.logger_config import configure_logger
 from spk2extract.util import extract_waveforms, filter_signal
 
-logfile = Path().home() / "data" / "spike_data.log"
-logger = configure_logger(__name__, logfile, level=logging.DEBUG)
-
 UnitData = namedtuple("UnitData", ["spikes", "times"])
 
-
-
-def __save_spikedata_to_h5(spike_data: SpikeData, filename: str | Path) -> None:
+class SonfileException(BaseException):
     """
-    Save data to h5 file.
-
-    Parameters
-    ----------
-    spike_data : SpikeData
-        The SpikeData instance to save.
-    filename : str or Path
-        The filename to save to.
-
-    Returns
-    -------
-    None
+    Exception for sonfile being wrong filetype.
     """
-    with h5py.File(filename, "w") as f:
-        metadata_grp = f.create_group("metadata")
-        for key, value in spike_data.metadata.items():
-            metadata_grp.attrs[key] = value
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
 
-        sampling_rate_group = f.create_group("sampling_rates")
-        for channel, sample_rate in spike_data.sampling_rates.items():
-            sampling_rate_group.attrs[channel] = sample_rate
+    def __str__(self):
+        return f"{self.message}"
 
-        unit_grp = f.create_group("unit")
-        for channel, unit_data in spike_data.unit.items():
-            channel_grp = unit_grp.create_group(channel)
-            channel_grp.create_dataset("spikes", data=unit_data.spikes)
-            channel_grp.create_dataset("times", data=unit_data.times)
-    logger.debug(f"Saved data successfully to {filename}")
+    def __repr__(self):
+        return f"{self.message}"
 
 
 # Function to load a SpikeData instance from a h5 file
@@ -125,26 +105,71 @@ def __merge_spk2_from_dict(spike_data_dict1, spike_data_dict2):
     return merged_spike_data
 
 
-def __save_merged_to_h5(merged_spike_data: dict, filename: str | Path):
+def write_complex_h5(
+    filename: Path | str,
+    metadata_file: dict,
+    metadata_channel: dict[Any],
+    data: dict,
+):
     """
-    Save to h5 merge.
+    Creates a h5 file specific to the spike2 dataset.
+
+    There is a group for metadata, metadata_dict, data, and sampling_rates.
+
+    .. note::
+
+        The metadata_file group contains metadata for the entire file, i.e. the bandpass filter frequencies.
+        The metadata_channel group contains metadata for each channel, i.e. the channel type, sampling rate.
+        Data contains the actual data, i.e. the waveforms and spike times.
+
+    Parameters
+    ----------
+    filename : str or Path
+        The filename to save to.
+    metadata_file : dict
+        A dictionary containing the simple str metadata.
+    metadata_channel : dict
+        A dictionary containing the metadata dictionaries.
+    data : dict
+        A dictionary containing the data.
+
+    Returns
+    -------
+    None
+
     """
     with h5py.File(filename, "w") as f:
-        metadata_grp = f.create_group("metadata")
-        for key, value in merged_spike_data["metadata"].items():
-            metadata_grp.attrs[key] = value
+        # Save metadata (any simple type supported by HDF5)
+        metadata_file_grp = f.create_group("metadata_file")
+        for key, value in metadata_file.items():
+            metadata_file_grp.attrs[key] = value
 
-        unit_grp = f.create_group("unit")
-        for channel, unit_data in merged_spike_data["unit"].items():
-            channel_grp = unit_grp.create_group(channel)
-            channel_grp.create_dataset("spikes", data=unit_data.spikes)
-            channel_grp.create_dataset("times", data=unit_data.times)
-    logger.debug(f"Saved merged data successfully to {filename}")
+        # Save metadata dictionaries
+        metadata_channel_grp = f.create_group("metadata_channel")
+        for dict_name, dict_data in metadata_channel.items():
+            sub_group = metadata_channel_grp.create_group(dict_name)
+            for key, value in dict_data.items():
+                str_key = (
+                    str(key) if not isinstance(key, tuple) else ",".join(map(str, key))
+                )
+                sub_group.attrs[
+                    str_key
+                ] = value  # this value can be int, float, str, etc.
 
+        # Save data dictionaries
+        data_grp = f.create_group("data")
+        for data_key, data_value in data.items():
+            sub_group = data_grp.create_group(data_key)
+            # Convert the namedtuple to a dict to store in the h5 file as a subgroup
+            # The leading _ in _asdict() is to prevent named conflicts, not to indicate privacy
+            # See: https://docs.python.org/3/library/collections.html#collections.somenamedtuple._asdict
+            for field_name, field_value in data_value._asdict().items():
+                sub_group.create_dataset(field_name, data=np.array(field_value))
+    return None
 
 class SpikeData:
     """
-     Class for reading and storing data from a Spike2 file.
+    Class for reading and storing data from a Spike2 file.
 
     Parameters:
     -----------
@@ -178,7 +203,6 @@ class SpikeData:
 
     Notes
     -----
-
     This class can be used as if it were several different types of objects:
     - A dictionary, where the keys are the channel names and the values are the waveforms.
     - A list, where the elements are the channel names.
@@ -251,6 +275,7 @@ class SpikeData:
             The total recording length, in seconds.
 
         """
+        self.logger = configure_logger(__name__, spk2extract.log_dir, level=logging.DEBUG)
         self._bandpass_low = 300
         self._bandpass_high = 3000
         self.errors = {}
@@ -258,10 +283,14 @@ class SpikeData:
         self.empty = False
         self.filename = Path(filepath)
         self.sonfile = sp.SonFile(str(self.filename), True)
+        try:
+            self.sonfile.GetChannelUnits(0)
+        except TypeError:
+            raise SonfileException(f"{self.filename.stem} is not a valid .smr file.")
         self.bitrate = 32 if self.sonfile.is32file() else 64
-        self.unit = {}
-        self.sampling_rates = {}
-        self.metadata = self.bundle_metadata()
+        self.metadata_channel = {}
+        self.data = {}
+        self.metadata_file = self.bundle_metadata()
 
     def __repr__(self):
         return f"{self.filename.stem}"
@@ -274,8 +303,8 @@ class SpikeData:
         return self.empty
 
     def __getitem__(self, key):
-        if key in self.unit:
-            return self.unit[key]
+        if key in self.data:
+            return self.data[key]
         else:
             raise KeyError(f"{key} not found in SpikeData object.")
 
@@ -283,14 +312,14 @@ class SpikeData:
         self,
     ):
         """
-        Main workhorse of this package; extracts unit data from the Spike2 file.
+        Main workhorse of this class; extracts unit data from the Spike2 file.
 
         This function uses the sonpy library to extract unit data from the Spike2 file. It converts all the
         intrinsic data stored in the spike2 file into convenient Python objects, such as dictionaries, namedtuples
         and properties. SonPy is a python wrapper for the CED C++ library, the sonpy library is not well documented
         and the CED C++ library is not open source.
         """
-        logger.debug(f"Extracting ADC channels from {self.filename.stem}")
+        self.logger.debug(f"Extracting ADC channels from {self.filename.stem}")
 
         for idx in range(self.max_channels):
             title = self.sonfile.GetChannelTitle(idx)
@@ -299,11 +328,10 @@ class SpikeData:
                 and title not in self.exclude
                 and "LFP" not in title
             ):
-                logger.debug(f"Processing {title}")
+                self.logger.debug(f"Processing {title}")
                 sampling_rate = np.round(
                     1 / (self.sonfile.ChannelDivide(idx) * self.time_base), 2
                 )
-                self.sampling_rates[title] = sampling_rate
 
                 # Extract and filter waveforms for this chunk
                 waveforms = self.sonfile.ReadFloats(idx, int(2e9), 0)
@@ -331,7 +359,62 @@ class SpikeData:
                 final_unit_data = UnitData(spikes=slices, times=spike_times)
 
                 # Store this namedtuple in the self.unit dictionary
-                self.unit[title] = final_unit_data
+                self.data[title] = final_unit_data
+                self.metadata_channel[title] = {
+                    "sampling_rate": sampling_rate,
+                    "channel_type": "unit",
+                    "channel_number": idx + 1,
+                    "channel_title": title,
+                    "channel_units": self.sonfile.GetChannelUnits(idx),
+                    "channel_divide": self.sonfile.ChannelDivide(idx),
+                    "channel_interval": self.channel_interval(idx),
+                    "channel_sample_period": self.channel_sample_period(idx),
+                    "channel_num_ticks": self.channel_num_ticks(idx),
+                    "channel_max_ticks": self.channel_max_ticks(idx),
+                    "channel_max_time": self.channel_max_time(idx),
+                }
+
+        self.logger.debug(f"Finished extracting ADC channels from {self.filename.stem}")
+
+    def save(self, overwrite_existing=False) -> Path:
+        """
+        Save the data to a h5 file in the users h5 directory.
+
+        The resulting h5 file will be saved to the data/h5 directory with the corresponding filename.
+        The h5 file will contain:
+        1) Metadata specific to the file, such as the bandpass filter frequencies.
+            - 'metadata_file'
+        2) Metadata specific to each channel, such as the channel type and sampling rate.
+            - 'metadata_channel'
+        3) The actual data, i.e. the waveforms and spike times.
+            - 'data'
+
+        Parameters
+        ----------
+        overwrite_existing : bool, optional
+            Whether to overwrite an existing file with the same name. Default is False.
+
+        Returns
+        -------
+        filename : Path
+            The filename that the data was saved to.
+
+        """
+        from spk2extract import spk2dir # prevent circular import
+        h5path = spk2dir / "h5" / self.filename.stem
+        h5path = h5path.with_suffix(".h5")
+        if not h5path.parent.exists():
+            h5path.parent.mkdir(exist_ok=True, parents=True)
+        if h5path.exists() and not overwrite_existing:
+            self.logger.info(f"{h5path} already exists. Set overwrite_existing=True to overwrite. Skipping h5 write.")
+            pass
+        try:
+            write_complex_h5(h5path, self.metadata_file, self.metadata_channel, self.data,)
+            self.logger.info(f"Saved data to {h5path}")
+        except Exception as e:
+            self.logger.error(f"Error writing h5 file: {e}")
+            raise e
+        return self.filename
 
     def channel_interval(self, channel: int):
         """
@@ -516,12 +599,12 @@ class SpikeData:
 
 if __name__ == "__main__":
     path_test = Path().home() / "data" / "smr"
-    test_paths_combined = Path().home() / "data" / "combined"
-    test_paths_combined.mkdir(exist_ok=True, parents=True)
     test_files = [file for file in path_test.glob("*.smr")]
     for testfile in test_files:
         testdata = SpikeData(
             testfile,
             ("Respirat", "RefBrain", "Sniff"),
         )
-        __save_spikedata_to_h5(testdata, testfile.with_suffix(".h5"))
+        testdata.extract()
+        testdata.save()
+        x = 5
