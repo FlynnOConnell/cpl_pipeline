@@ -8,7 +8,7 @@ from qtpy import QtGui, QtCore
 from qtpy.QtWidgets import QDialog, QLineEdit, QLabel, QPushButton, QWidget, QGridLayout, QButtonGroup, QComboBox, QTextEdit, QFileDialog
 
 from . import io
-from .. import defaults
+from ..defaults import defaults
 
 # type in h5py key
 class TextChooser(QDialog):
@@ -50,7 +50,7 @@ class RunWindow(QDialog):
         # initial ops values
         self.opsfile = parent.opsuser
         self.ops_path = os.fspath(
-            pathlib.Path.home().joinpath(".spk2extract").joinpath("ops").absolute())
+            pathlib.Path.home().joinpath("autosort").joinpath("h5").absolute())
         try:
             self.reset_ops()
             print("loaded default ops")
@@ -310,7 +310,7 @@ class RunWindow(QDialog):
         self.binlabel = QLabel("")
         self.layout.addWidget(self.binlabel, 19, 0, 1, cw)
         self.runButton = QPushButton("RUN SUITE2P")
-        self.runButton.clicked.connect(self.run_S2P)
+        self.runButton.clicked.connect(self.run_s2e)
         n0 = 22
         self.layout.addWidget(self.runButton, n0, 0, 1, 1)
         self.runButton.setEnabled(False)
@@ -483,7 +483,7 @@ class RunWindow(QDialog):
                                   (len(self.opslist) - self.f - 1))
                 self.f += 1
                 if self.f < len(self.opslist):
-                    self.run_S2P()
+                    self.run_s2e()
         elif not self.error:
             cursor.insertText("Interrupted by user (not finished)\n")
         else:

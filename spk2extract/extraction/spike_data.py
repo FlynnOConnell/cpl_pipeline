@@ -20,6 +20,7 @@ logger = configure_logger(__name__, logfile, level=logging.DEBUG)
 UnitData = namedtuple("UnitData", ["spikes", "times"])
 
 
+
 def __save_spikedata_to_h5(spike_data: SpikeData, filename: str | Path) -> None:
     """
     Save data to h5 file.
@@ -193,6 +194,7 @@ class SpikeData:
     >>> data = SpikeData(files[0])
     >>> data
     'rat1-2021-03-24_0001'
+    >>> data.extract()
     >>> data["LFP1"]
     UnitData(spikes=array([[ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,
                 0.00000000e+00,  0.00000000e+00,  0.00000000e+00],), times=array([...]))
@@ -260,7 +262,6 @@ class SpikeData:
         self.unit = {}
         self.sampling_rates = {}
         self.metadata = self.bundle_metadata()
-        self.extract()
 
     def __repr__(self):
         return f"{self.filename.stem}"
@@ -508,7 +509,6 @@ class SpikeData:
             "time_base": self.time_base,
             "max_time": self.max_ticks,
             "recording_length": self.max_time,
-            "infusion": "pre" if self.preinfusion else "post",
             "filename": self.filename.stem,
             "exclude": self.exclude,
         }

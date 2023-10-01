@@ -4,28 +4,26 @@ import numpy as np
 from qtpy.QtWidgets import QFileDialog, QMessageBox
 
 from .. import spk_io
-
+from spk2extract import SpikeData
 
 def load_dialog(parent):
     dlg_kwargs = {
         "parent": parent,
-        "caption": "Open stat.npy",
-        "filter": "stat.npy",
+        "caption": "Open .smr file",
+        "filter": ".smr",
     }
     name = QFileDialog.getOpenFileName(**dlg_kwargs)
     parent.fname = name[0]
     load_proc(parent)
 
-
 def load_dialog_folder(parent):
     dlg_kwargs = {
         "parent": parent,
-        "caption": "Open folder with planeX folders",
+        "caption": "Open folder with .smr files",
     }    
     name = QFileDialog.getExistingDirectory(**dlg_kwargs)
     parent.fname = name
     load_folder(parent)
-
 
 def load_folder(parent):
     print(parent.fname)
@@ -48,9 +46,21 @@ def load_folder(parent):
     parent.loaded = True
     print(parent.fname)
 
+def load_smr(parent):
+    dlg_kwargs = {
+        "parent": parent,
+        "caption": "Open .smr file",
+        "filter": ".smr",
+    }
+    name = QFileDialog.getOpenFileName(**dlg_kwargs)
+    basename, fname = os.path.split(str(name))
+    parent.fname = name[0]
+    spike_data = SpikeData(parent.fname)
+    spike_data.extract()
+    load_smr_to_GUI(parent, basename, spike_data)
+
 
 def load_files(name):
-    """ give stat.npy path and load all needed files for suite2p """
     try:
         stat = np.load(name, allow_pickle=True)
         ypix = stat[0]["ypix"]
@@ -125,6 +135,16 @@ def load_proc(parent):
         Text = "Incorrect files, choose another?"
         load_again(parent, Text)
 
+def load_smr_to_GUI(parent, basename, output):
+    parent.basename = basename
+    parent.data = output
+    if hasattr(parent, 'plotWidgets'):
+        for key, plot_item in parent.plotWidgets.items():
+            plot_item.clear()
+            if key in parent.data:
+                plot_item.plot(parent.data[key])
+    else:
+        parent.make_graphics()
 
 def load_to_GUI(parent, basename, procs):
     stat, ops, Fcell, Fneu, Spks, iscell, probcell, redcell, probredcell, hasred = procs
@@ -172,8 +192,6 @@ def save_merge(parent):
     np.save(os.path.join(parent.basename, "iscell.npy"), iscell)
 
     parent.notmerged = np.ones(parent.iscell.size, "bool")
-
-
 
 def load_again(parent, Text):
     tryagain = QMessageBox.question(parent, "ERROR", Text,

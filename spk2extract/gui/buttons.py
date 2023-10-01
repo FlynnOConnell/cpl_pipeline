@@ -31,7 +31,6 @@ def make_selection(parent):
     parent.ntop = 40
     parent.topedit.setFixedWidth(35)
     parent.topedit.setAlignment(QtCore.Qt.AlignRight)
-    parent.topedit.returnPressed.connect(parent.top_number_chosen)
     parent.l0.addWidget(parent.topedit, 0, 11, 1, 1)
 
 
