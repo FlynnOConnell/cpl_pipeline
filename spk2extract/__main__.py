@@ -43,8 +43,8 @@ def parse_args(parser: argparse.ArgumentParser):
 
 def main():
     from spk2extract import gui
-    return gui.run()
+    gui.run()
 
 
 if __name__ == "__main__":
-    xyz = main()
+    main()
