@@ -1,8 +1,10 @@
-import os, pathlib, shutil, sys, warnings
+import os
+import pathlib
+import sys
+import warnings
 
-import numpy as np
 import pyqtgraph as pg
-from qtpy import QtGui, QtCore, QtWidgets
+from qtpy import QtGui, QtCore
 from qtpy.QtWidgets import (
     QMainWindow,
     QScrollArea,
@@ -11,13 +13,10 @@ from qtpy.QtWidgets import (
     QWidget,
     QGridLayout,
     QCheckBox,
-    QLineEdit,
     QLabel,
-    QTabWidget,
 )
 
-from spk2extract.gui import menu, io, buttons, graphics, traces, views
-from ..defaults import defaults
+from spk2extract.gui import menu, io, buttons, traces, views
 
 
 class MainWindow(QMainWindow):
@@ -80,18 +79,13 @@ class MainWindow(QMainWindow):
             "colormap": "hsv",
         }
         self.colors = {"RGB": 0, "cols": 0, "colorbar": []}
-        self.plotItems = {}
 
         # --------- MAIN WIDGET LAYOUT ---------------------
         cwidget = QWidget()
         self.l0 = QGridLayout()
         cwidget.setLayout(self.l0)
         self.setCentralWidget(cwidget)
-        b0 = self.make_buttons()
-        self.make_graphics(b0)
-        if statfile is not None:
-            self.fname = statfile
-            io.load_proc(self)
+        self.b0 = self.make_buttons()
         self.setAcceptDrops(True)
         self.show()
 
@@ -156,7 +150,7 @@ class MainWindow(QMainWindow):
         b0 = traces.make_buttons(self, b0)
         return b0
 
-    def make_graphics(self, b0):
+    def make_graphics(self):
         ##### -------- MAIN PLOTTING AREA ---------- #####
         self.scroll = QScrollArea()
         self.scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
@@ -168,8 +162,9 @@ class MainWindow(QMainWindow):
         self.scroll_content = QWidget()
         self.vlayout = QVBoxLayout()
 
-        self.plotWidgets = {}  # store the plotWidgets
-        if self.data:
+        self.plotWidgets = {}
+        if self.loaded:
+            # First, set up the plots
             for key in self.data.unit.keys():
                 p = pg.PlotWidget()
                 p.setMouseEnabled(x=True, y=False)
@@ -184,10 +179,8 @@ class MainWindow(QMainWindow):
             self.scroll_content.setLayout(self.vlayout)
             self.scroll.setWidget(self.scroll_content)
 
-            self.l0.addWidget(self.scroll, 1, 2, b0 - 1, 30)
-            self.plotWidgetsCreated = True
-        else:
-            self.plotWidgetsCreated = False
+            self.l0.addWidget(self.scroll, 1, 2, self.b0 - 1, 30)
+            traces.plot_multiple_traces(self)
 
     def keyPressEvent(self, event):
         if self.loaded:
@@ -282,8 +275,6 @@ class MainWindow(QMainWindow):
 
     def update_plot(self):
         traces.plot_multiple_traces(self)
-        self.p1.show()
-        self.win.show()
         self.show()
 
 

@@ -14,20 +14,19 @@ from spk2extract import SpikeData
 
 def mainmenu(parent):
     main_menu = parent.menuBar()
+    load_s2e_folder = QAction("Set s2e folder", parent)
+    load_s2e_folder.triggered.connect(lambda: io.load_dialog_folder(parent))
 
     # load folder of processed data
-    loadFolder = QAction("&Load raw .smr file", parent)
-    loadFolder.setShortcut("Ctrl+L")
-    loadFolder.triggered.connect(lambda: io.load_smr(parent))
-    parent.addAction(loadFolder)
+    load_raw_smr = QAction("&Load raw .smr file", parent)
+    load_raw_smr.setShortcut("Ctrl+L")
+    load_raw_smr.triggered.connect(lambda: io.load_smr(parent))
+    parent.addAction(load_raw_smr)
 
-    # make mainmenu!
     main_menu = parent.menuBar()
     file_menu = main_menu.addMenu("&File")
-    file_menu.addAction(loadFolder)
+    file_menu.addAction(load_raw_smr)
 
-def load_raw_spike2(filepath):
-    s2 = SpikeData(filepath,)
 
 def run_s2e(parent):
     RW = rungui.RunWindow(parent)

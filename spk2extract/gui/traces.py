@@ -6,9 +6,9 @@ from pyqtgraph import PlotItem
 
 # Update plot_multiple_traces
 def plot_multiple_traces(parent):
-    for key in parent.data.keys():
+    for key in parent.data.data.keys():
         p = parent.plotWidgets[key]  # get corresponding PlotWidget
-        p.clear()  # clear previous plots
+        p.clear()
 
         unit_data = parent.data[key]
         spikes = np.array(unit_data.spikes)  # assuming spikes is a 2D array
