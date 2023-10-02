@@ -14,11 +14,6 @@ TAB-completion and introspection capabilities.
 
 """
 from platformdirs import *
-    # user_data_dir,
-    # user_cache_dir,
-    # user_config_dir,
-    # user_log_dir,
-  # noqa (API import)
 
 from spk2extract.defaults import defaults  # noqa (API import)
 from spk2extract.extraction import SpikeData, UnitData  # noqa (API import)
