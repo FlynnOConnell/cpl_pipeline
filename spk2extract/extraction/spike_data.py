@@ -15,6 +15,7 @@ from sonpy import lib as sp
 import spk2extract
 from spk2extract.spk_log.logger_config import configure_logger
 from spk2extract.util import extract_waveforms, filter_signal
+from spk2extract.util.cluster import detect_spikes
 
 UnitData = namedtuple("UnitData", ["spikes", "times"])
 
@@ -283,10 +284,13 @@ class SpikeData:
         self.empty = False
         self.filename = Path(filepath)
         self.sonfile = sp.SonFile(str(self.filename), True)
-        try:
-            self.sonfile.GetChannelUnits(0)
-        except TypeError:
-            raise SonfileException(f"{self.filename.stem} is not a valid .smr file.")
+        if self.sonfile.GetOpenError() != 0:
+            if self.filename.suffix != ".smr":
+                raise SonfileException(f"{self.filename} is not a valid file. \n"
+                                       f"Extension {self.filename.suffix} is not valid.")
+            else:
+                raise SonfileException(f"{self.filename} is not a valid file, though it does contain the correct extension. \n"
+                                       f"Double check the file contains valid data.")
         self.bitrate = 32 if self.sonfile.is32file() else 64
         self.metadata_channel = {}
         self.data = {}
@@ -333,7 +337,7 @@ class SpikeData:
                     1 / (self.sonfile.ChannelDivide(idx) * self.time_base), 2
                 )
 
-                # Extract and filter waveforms for this chunk
+                # noinspection PyArgumentList
                 waveforms = self.sonfile.ReadFloats(idx, int(2e9), 0)
 
                 # Ensure the Nyquist-Shannon sampling theorem is satisfied
@@ -350,10 +354,14 @@ class SpikeData:
                 )
 
                 # Extract spikes and times from the filtered segment
-                slices, spike_times = extract_waveforms(
+                slices, spike_times, thresh = detect_spikes(
                     filtered_segment,
+                    [0.5, 1.0],
                     sampling_rate,
+                    # spike_snapshot,
                 )
+                slices = np.array(slices)
+                spike_times = np.array(spike_times)
 
                 # Create a FinalUnitData namedtuple with the concatenated spikes and times
                 final_unit_data = UnitData(spikes=slices, times=spike_times)
@@ -606,5 +614,4 @@ if __name__ == "__main__":
             ("Respirat", "RefBrain", "Sniff"),
         )
         testdata.extract()
-        testdata.save()
-        x = 5
+        testdata.save(overwrite_existing=True)
