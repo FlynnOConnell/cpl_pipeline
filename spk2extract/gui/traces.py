@@ -94,8 +94,8 @@ class QRangeSlider(QWidget):
             painter.drawEllipse(QPoint(self.get_pos(control), self.height() // 2), 5, 5)
 
 class MultiLine(pg.GraphicsObject):
-    def __init__(self, x, y):
-        pg.GraphicsObject.__init__(self)
+    def __init__(self, x, y, *args, **kwargs):
+        pg.GraphicsObject.__init__(self, *args)
         self.x = x
         self.y = y
         self.generate_picture()

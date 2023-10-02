@@ -6,6 +6,7 @@ import warnings
 import numpy as np
 import pyqtgraph as pg
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPalette, QColor
 from PyQt5.QtWidgets import QSlider, QComboBox
 from qtpy import QtGui, QtCore
 from qtpy.QtWidgets import (
@@ -15,35 +16,50 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QGridLayout,
-    QCheckBox,
-    QLabel,
 )
 
 from spk2extract.gui import menu, traces
 from spk2extract.gui.traces import MultiLine, QRangeSlider, DataPreparationThread
 
 
+def set_deep_ocean_theme(app):
+    palette = QPalette()
+
+    # Set color roles from your Deep Ocean color scheme
+    palette.setColor(QPalette.Window, QColor("#0F111A"))
+    palette.setColor(QPalette.WindowText, QColor("#8F93A2"))
+    palette.setColor(QPalette.Base, QColor("#181A1F"))
+    palette.setColor(QPalette.ToolTipBase, QColor("#181A1F"))
+    palette.setColor(QPalette.ToolTipText, QColor("#8F93A2"))
+    palette.setColor(QPalette.AlternateBase, QColor("#191A21"))
+    palette.setColor(QPalette.Text, QColor("#4B526D"))
+    palette.setColor(QPalette.Button, QColor("#191A21"))
+    palette.setColor(QPalette.ButtonText, QColor("#8F93A2"))
+    palette.setColor(QPalette.BrightText, QColor("#FFFFFF"))
+    palette.setColor(QPalette.Highlight, QColor("#1F2233"))
+    palette.setColor(QPalette.HighlightedText, QColor("#FFFFFF"))
+    palette.setColor(QPalette.Disabled, QPalette.Text, QColor("#464B5D"))
+    palette.setColor(QPalette.Disabled, QPalette.ButtonText, QColor("#464B5D"))
+
+    app.setPalette(palette)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super(MainWindow, self).__init__()
+
         self.factor = 0
-        pg.setConfigOptions(imageAxisOrder="row-major")
         self.data_thread = None
+        self.data = {}
+        self.loaded = False
+        self.plotWidgets = {}
+        pg.setConfigOptions(imageAxisOrder="row-major")
 
         # -----------------------------------------------
         # set main window properties
-        self.data = {}
-        self.setGeometry(50, 50, 1500, 800)
         self.setWindowTitle("spk2extract")
-        import spk2extract
-
-        s2e_dir = pathlib.Path(spk2extract.__file__).parent
-        icon_path = os.fspath(s2e_dir.joinpath("logo", "logo.png"))
-        app_icon = QtGui.QIcon()
-        app_icon.addFile(icon_path, QtCore.QSize(32, 32))
-
-        self.setWindowIcon(app_icon)
-        self.setStyleSheet("QMainWindow {background: #0F111A; color: #8F93A2; border: 1px solid #4B526D;}")
+        self.setGeometry(50, 50, 1500, 800)
+        self.boldfont = QtGui.QFont("Arial", 10, QtGui.QFont.Bold)
         self.stylePressed = (
             "QPushButton {Text-align: left; "
             "background-color: rgb(100,50,100); "
@@ -59,21 +75,18 @@ class MainWindow(QMainWindow):
             "background-color: rgb(50,50,50); "
             "color:gray;}"
         )
-        self.loaded = False
 
         # -----------------------------------------------
         # load user settings
+
         main_dir = pathlib.Path.home().joinpath(".clustersort")
         if not os.path.isdir(main_dir):
             # TODO: add warning that user_dir is being created to logs
             pass
         main_dir.mkdir(exist_ok=True)
-        config_file = main_dir / "config.INI"
-
-        menu.mainmenu(self)
-        self.boldfont = QtGui.QFont("Arial", 10, QtGui.QFont.Bold)
 
         # --------- MAIN WIDGET LAYOUT ---------------------
+        menu.mainmenu(self)
         cwidget = QWidget()
         self.l0 = QGridLayout()
         cwidget.setLayout(self.l0)
@@ -93,25 +106,13 @@ class MainWindow(QMainWindow):
         self.data_thread.data_ready.connect(self.update_npy_plot)
         self.data_thread.start()
 
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls():
-            event.accept()
-        else:
-            event.ignore()
-
     def make_graphics(self):
-        ##### -------- MAIN PLOTTING AREA ---------- #####
-        self.scroll = QScrollArea()
-        self.scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.scroll = QScrollArea(self)
         self.scroll.setWidgetResizable(True)
-
-        self.scroll.setStyleSheet("QScrollArea {border: none;}")
 
         self.scroll_content = QWidget()
         self.vlayout = QVBoxLayout()
 
-        self.plotWidgets = {}
         if self.loaded:
             # First, set up the plots
             for key in self.data.unit.keys():
@@ -122,7 +123,6 @@ class MainWindow(QMainWindow):
                 self.vlayout.addWidget(p)
                 self.plotWidgets[key] = p
 
-            self.scroll_content.setStyleSheet("background: #0F111A;")
             self.scroll_content.setLayout(self.vlayout)
             self.scroll.setWidget(self.scroll_content)
 
@@ -130,26 +130,23 @@ class MainWindow(QMainWindow):
             traces.plot_multiple_traces(self)
 
     def make_graphics_npy(self):
-        ##### -------- MAIN PLOTTING AREA ---------- #####
+
         self.downsample_box = QComboBox()
         self.downsample_box.addItem("0x")  # No downsampling
         for i in range(1, 7):
             self.downsample_box.addItem(f"{i * 10}x")
         self.downsample_box.currentIndexChanged.connect(self.update_downsample_factor)
+        self.downsample_box.setToolTip("Downsample factor")
         self.l0.addWidget(self.downsample_box, 0, 2, 1, 1)
-        # self.vlayout.addWidget(self.downsample_box)
 
-        self.scroll = QScrollArea()
-        self.scroll.setStyleSheet("background-color: transparent; border: none;")
-        self.scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOn)
-        self.scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.scroll = QScrollArea(self)
         self.scroll.setWidgetResizable(True)
         
         self.scroll_content = QWidget()
         self.vlayout = QVBoxLayout()
 
-        self.plotWidgets = {}
-        p = pg.PlotWidget(useOpenGL=True)
+        self.plot = pg.PlotWidget(useOpenGL=True)
+        p = self.plot
         p.setMouseEnabled(x=True, y=False)
         p.enableAutoRange(x=True, y=True)
         p.setTitle(f"Plot for npy")
@@ -193,11 +190,7 @@ class MainWindow(QMainWindow):
             end_idx = self.npy.shape[0] - 1
 
         x = np.arange(self.npy.shape[1])
-
-        if self.factor == 0:
-            sub_npy = self.npy[start_idx:end_idx, :]
-        else:
-            sub_npy = self.npy[start_idx : end_idx : self.factor, :]
+        sub_npy = self.npy[start_idx:end_idx, :]
 
         multi_line = MultiLine(x, sub_npy)
         p.addItem(multi_line)
@@ -206,9 +199,16 @@ class MainWindow(QMainWindow):
     def update_downsample_factor(self):
         factor_str = self.downsample_box.currentText()
         self.factor = int(factor_str.rstrip('x'))
-        self.update_npy_plot()
+        p = self.plotWidgets["npy"]
+        p.clear()
+        # Redraw plot with new downsampling factor
+        # Avoiding ValueError: slice step cannot be zero
+        if self.factor != 0:
+            p.addItem(MultiLine(np.arange(self.npy.shape[1]), self.npy[::self.factor, :]))
+        else:
+            p.addItem(MultiLine(np.arange(self.npy.shape[1]), self.npy))
 
-def run(statfile=None):
+def run():
     warnings.filterwarnings("ignore")
     app = QApplication(sys.argv)
     import spk2extract
@@ -217,6 +217,8 @@ def run(statfile=None):
     icon_path = os.path.join(s2ppath, "docs", "_static", "favicon.ico")
     app_icon = QtGui.QIcon()
     app_icon.addFile(icon_path, QtCore.QSize(32, 32))
+
+    set_deep_ocean_theme(app)
 
     app.setWindowIcon(app_icon)
     GUI = MainWindow()
