@@ -1,20 +1,143 @@
 import numpy as np
+import pyqtgraph as pg
+from PyQt5.QtCore import QPoint, Qt, pyqtSignal
+from PyQt5.QtGui import QPen, QPainter
+from PyQt5.QtWidgets import QWidget
+from pyqtgraph.Qt import QtGui, QtCore
 from qtpy import QtGui, QtCore
-from qtpy.QtWidgets import QLabel, QComboBox, QPushButton, QLineEdit, QCheckBox
-from pyqtgraph import PlotItem
 
+from PyQt5.QtCore import QThread, pyqtSignal
+import numpy as np
+
+
+class DataPreparationThread(QThread):
+    data_ready = pyqtSignal(np.ndarray, np.ndarray)
+
+    def __init__(self, npy, start_idx, end_idx):
+        super(DataPreparationThread, self).__init__()
+        self.npy = npy
+        self.start_idx = start_idx
+        self.end_idx = end_idx
+
+    def run(self):
+        sub_npy = self.npy[self.start_idx:self.end_idx, :]
+        x = np.arange(sub_npy.shape[1])
+        self.data_ready.emit(x, sub_npy)
+
+class QRangeSlider(QWidget):
+    range_changed = pyqtSignal(int, int)
+
+    def __init__(self, min_val=0, max_val=100, *args, **kwargs):
+        super(QRangeSlider, self).__init__(*args, **kwargs)
+
+        self.min_val = min_val
+        self.max_val = max_val
+        self.left_value = self.min_val
+        self.right_value = self.max_val
+
+        self.pressed_control = None
+        self.hover_control = None
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.pressed_control = self.get_control(event.pos())
+            self.click_offset = self.get_pos(self.pressed_control) - event.pos().x()
+
+    def mouseMoveEvent(self, event):
+        if self.pressed_control:
+            value = self.pixel_to_value(
+                event.pos().x() + self.click_offset, self.pressed_control
+            )
+            self.set_value(value, self.pressed_control)
+
+    def mouseReleaseEvent(self, event):
+        self.pressed_control = None
+
+    def get_control(self, pos):
+        left_pos = self.get_pos("left")
+        right_pos = self.get_pos("right")
+
+        if abs(left_pos - pos.x()) < abs(right_pos - pos.x()):
+            return "left"
+        else:
+            return "right"
+
+    def get_pos(self, control):
+        if control == "left":
+            return self.value_to_pixel(self.left_value)
+        return self.value_to_pixel(self.right_value)
+
+    def value_to_pixel(self, val):
+        return int(self.width() * (val - self.min_val) / (self.max_val - self.min_val))
+
+    def pixel_to_value(self, pos, control):
+        return self.min_val + (pos / self.width()) * (self.max_val - self.min_val)
+
+    def set_value(self, val, control):
+        if control == "left":
+            self.left_value = max(min(val, self.right_value), self.min_val)
+        else:
+            self.right_value = min(max(val, self.left_value), self.max_val)
+        self.range_changed.emit(self.left_value, self.right_value)
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+    
+        # Draw the background line
+        painter.setPen(QPen(Qt.gray, 1))
+        painter.drawLine(0, self.height() // 2, self.width(), self.height() // 2)
+    
+        for control, color in [("left", Qt.red), ("right", Qt.green)]:
+            painter.setPen(QPen(color, 3))
+            painter.drawEllipse(QPoint(self.get_pos(control), self.height() // 2), 5, 5)
+
+class MultiLine(pg.GraphicsObject):
+    def __init__(self, x, y):
+        pg.GraphicsObject.__init__(self)
+        self.x = x
+        self.y = y
+        self.generate_picture()
+
+    def generate_picture(self):
+        self.picture = QtGui.QPicture()
+        p = QtGui.QPainter(self.picture)
+        p.setPen(pg.mkPen("w"))
+
+        for i in range(self.y.shape[0]):
+            path = pg.arrayToQPath(self.x, self.y[i])
+            p.drawPath(path)
+
+        p.end()
+
+    def paint(self, p, *args):
+        p.drawPicture(0, 0, self.picture)
+
+    def boundingRect(self):
+        return QtCore.QRectF(self.picture.boundingRect())
+
+def plot_npy_trace(parent):
+    p = parent.plotWidgets["npy"]
+    p.clear()
+
+    num_waveforms, num_points = parent.npy.shape
+    x = np.arange(num_points)
+
+    multi_line = MultiLine(x, parent.npy)
+    p.addItem(multi_line)
+    p.autoRange()
 
 # Update plot_multiple_traces
 def plot_multiple_traces(parent):
     for key in parent.data.data.keys():
-        p = parent.plotWidgets[key]  # get corresponding PlotWidget
+        p = parent.plotWidgets[key]
         p.clear()
 
         unit_data = parent.data[key]
         spikes = np.array(unit_data.spikes)  # assuming spikes is a 2D array
         times = np.array(unit_data.times)  # assuming times is a 1D array
 
-        # Repeat the times to match the spikes, assuming spikes has shape (n_spikes, n_points)
         times = np.repeat(times[:, np.newaxis], spikes.shape[1], axis=1)
 
         # Make a single 1D array for both spikes and times
@@ -22,118 +145,3 @@ def plot_multiple_traces(parent):
         times = times.flatten()
 
         p.plot(times, spikes, pen="w")
-
-
-
-def make_buttons(parent, b0):
-    # combo box to decide what kind of activity to view
-    qlabel = QLabel(parent)
-    qlabel.setText("<font color='white'>Activity mode:</font>")
-    parent.l0.addWidget(qlabel, b0, 0, 1, 1)
-    parent.comboBox = QComboBox(parent)
-    parent.comboBox.setFixedWidth(100)
-    parent.l0.addWidget(parent.comboBox, b0 + 1, 0, 1, 1)
-    parent.comboBox.addItem("F")
-    parent.comboBox.addItem("Fneu")
-    parent.comboBox.addItem("F - 0.7*Fneu")
-    parent.comboBox.addItem("deconvolved")
-    parent.activityMode = 3
-    parent.comboBox.setCurrentIndex(parent.activityMode)
-
-    # up/down arrows to resize view
-    parent.level = 1
-    parent.arrowButtons = [
-        QPushButton(u" \u25b2"),
-        QPushButton(u" \u25bc"),
-    ]
-    parent.arrowButtons[0].clicked.connect(lambda: expand_trace(parent))
-    parent.arrowButtons[1].clicked.connect(lambda: collapse_trace(parent))
-    b = 0
-    for btn in parent.arrowButtons:
-        btn.setMaximumWidth(22)
-        btn.setFont(QtGui.QFont("Arial", 11, QtGui.QFont.Bold))
-        btn.setStyleSheet(parent.styleUnpressed)
-        parent.l0.addWidget(btn, b0 + b, 1, 1, 1, QtCore.Qt.AlignRight)
-        b += 1
-
-    parent.pmButtons = [QPushButton(" +"), QPushButton(" -")]
-    parent.pmButtons[0].clicked.connect(lambda: expand_scale(parent))
-    parent.pmButtons[1].clicked.connect(lambda: collapse_scale(parent))
-    b = 0
-    parent.sc = 2
-    for btn in parent.pmButtons:
-        btn.setMaximumWidth(22)
-        btn.setFont(QtGui.QFont("Arial", 11, QtGui.QFont.Bold))
-        btn.setStyleSheet(parent.styleUnpressed)
-        parent.l0.addWidget(btn, b0 + b, 1, 1, 1)
-        b += 1
-    # choose max # of cells plotted
-    parent.l0.addWidget(
-        QLabel("<font color='white'>max # plotted:</font>"),
-        b0 + 2,
-        0,
-        1,
-        1,
-    )
-    b0 += 3
-    parent.ncedit = QLineEdit(parent)
-    parent.ncedit.setValidator(QtGui.QIntValidator(0, 400))
-    parent.ncedit.setText("40")
-    parent.ncedit.setFixedWidth(35)
-    parent.ncedit.setAlignment(QtCore.Qt.AlignRight)
-    parent.ncedit.returnPressed.connect(lambda: nc_chosen(parent))
-    parent.l0.addWidget(parent.ncedit, b0, 0, 1, 1)
-    # traces CHECKBOX
-    parent.l0.setVerticalSpacing(4)
-    parent.checkBoxt = QCheckBox("raw fluor [V]")
-    parent.checkBoxt.setStyleSheet("color: cyan;")
-    parent.checkBoxt.toggled.connect(lambda: traces_on(parent))
-    parent.tracesOn = True
-    parent.checkBoxt.toggle()
-    parent.l0.addWidget(parent.checkBoxt, b0, 7, 1, 2)
-    return b0
-
-
-def expand_scale(parent):
-    parent.sc += 0.5
-    parent.sc = np.minimum(10, parent.sc)
-    plot_multiple_traces(parent)
-    parent.show()
-
-
-def collapse_scale(parent):
-    parent.sc -= 0.5
-    parent.sc = np.maximum(0.5, parent.sc)
-    plot_multiple_traces(parent)
-    parent.show()
-
-
-def expand_trace(parent):
-    parent.level += 1
-    parent.level = np.minimum(5, parent.level)
-    parent.win.ci.layout.setRowStretchFactor(1, parent.level)
-    #parent.p1.zoom_plot()
-
-
-def collapse_trace(parent):
-    parent.level -= 1
-    parent.level = np.maximum(1, parent.level)
-    parent.win.ci.layout.setRowStretchFactor(1, parent.level)
-    #parent.p1.zoom_plot()
-
-
-def nc_chosen(parent):
-    if parent.loaded:
-        plot_multiple_traces(parent)
-        parent.show()
-
-def traces_on(parent):
-    state = parent.checkBoxt.isChecked()
-    if parent.loaded:
-        if state:
-            parent.tracesOn = True
-        else:
-            parent.tracesOn = False
-        plot_multiple_traces(parent)
-        parent.win.show()
-        parent.show()

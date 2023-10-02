@@ -1,7 +1,8 @@
 import os, time
+import numpy as np
 
 from qtpy.QtWidgets import QFileDialog, QMessageBox
-from spk2extract import SpikeData, user_data_dir
+from spk2extract import SpikeData
 
 
 def load_smr(parent):
@@ -17,12 +18,29 @@ def load_smr(parent):
     spike_data.extract()
     load_smr_to_GUI(parent, basename, spike_data)
 
+def load_npy(parent):
+    dlg_kwargs = {
+        "parent": parent,
+        "caption": "Open .npy file",
+        "filter": ".npy",
+    }
+    name = QFileDialog.getOpenFileName(**dlg_kwargs)
+    basename, fname = os.path.split(str(name))
+    parent.fname = name[0]
+    data = np.load(parent.fname)
+    load_npy_to_GUI(parent, basename, data)
 
 def load_smr_to_GUI(parent, basename, output):
     parent.basename = basename
     parent.data = output
     parent.loaded = True
     parent.make_graphics()
+
+def load_npy_to_GUI(parent, basename, output):
+    parent.basename = basename
+    parent.npy = output
+    parent.loaded = True
+    parent.make_graphics_npy()
 
 def load_again(parent, Text):
     tryagain = QMessageBox.question(parent, "ERROR", Text,

@@ -7,15 +7,16 @@ from pkg_resources import iter_entry_points
 
 from . import io
 from . import rungui
-from spk2extract.spk_io.utils import get_spk2extract_path
-from spk2extract.extraction import SpikeData
-from spk2extract import SpikeData
 
 
 def mainmenu(parent):
     main_menu = parent.menuBar()
     load_s2e_folder = QAction("Set s2e folder", parent)
     load_s2e_folder.triggered.connect(lambda: io.load_dialog_folder(parent))
+
+    load_npy = QAction("Load .npy data", parent)
+    load_npy.setShortcut("Ctrl+L")
+    load_npy.triggered.connect(lambda: io.load_npy(parent))
 
     # load folder of processed data
     load_raw_smr = QAction("&Load raw .smr file", parent)
@@ -25,6 +26,8 @@ def mainmenu(parent):
 
     main_menu = parent.menuBar()
     file_menu = main_menu.addMenu("&File")
+    load_menu = file_menu.addMenu("&Load")
+    load_menu.addAction(load_npy)
     file_menu.addAction(load_raw_smr)
 
 
