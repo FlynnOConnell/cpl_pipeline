@@ -15,6 +15,7 @@ data to hdf5 files.
    Installation <install>
    Usage Guide <usage>
    Api <api/index>
+   Preprocessing <preprocessing>
 
 .. _quickstart:
 
