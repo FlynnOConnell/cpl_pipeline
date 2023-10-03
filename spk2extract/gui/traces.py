@@ -1,13 +1,10 @@
 import numpy as np
 import pyqtgraph as pg
-from PyQt5.QtCore import QPoint, Qt, pyqtSignal
-from PyQt5.QtGui import QPen, QPainter
-from PyQt5.QtWidgets import QWidget
 from pyqtgraph.Qt import QtGui, QtCore
-from qtpy import QtGui, QtCore
-
-from PyQt5.QtCore import QThread, pyqtSignal
-import numpy as np
+from PyQt6 import QtGui, QtCore
+from PyQt6.QtCore import QPoint, Qt, pyqtSignal, QThread
+from PyQt6.QtGui import QPen, QPainter
+from PyQt6.QtWidgets import QWidget
 
 
 class DataPreparationThread(QThread):
@@ -23,6 +20,7 @@ class DataPreparationThread(QThread):
         sub_npy = self.npy[self.start_idx:self.end_idx, :]
         x = np.arange(sub_npy.shape[1])
         self.data_ready.emit(x, sub_npy)
+
 
 class QRangeSlider(QWidget):
     range_changed = pyqtSignal(int, int)

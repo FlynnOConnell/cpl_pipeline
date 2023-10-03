@@ -1,7 +1,7 @@
 import os, time
 import numpy as np
 
-from qtpy.QtWidgets import QFileDialog, QMessageBox
+from PyQt5.QtWidgets import QFileDialog, QMessageBox
 from spk2extract import SpikeData
 
 

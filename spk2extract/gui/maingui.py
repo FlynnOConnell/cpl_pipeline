@@ -8,8 +8,8 @@ import pyqtgraph as pg
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPalette, QColor
 from PyQt5.QtWidgets import QSlider, QComboBox
-from qtpy import QtGui, QtCore
-from qtpy.QtWidgets import (
+from PyQt5 import QtGui, QtCore
+from PyQt5.QtWidgets import (
     QMainWindow,
     QScrollArea,
     QApplication,
@@ -221,7 +221,7 @@ def run():
     set_deep_ocean_theme(app)
 
     app.setWindowIcon(app_icon)
-    GUI = MainWindow()
+    MainWindow()
     ret = app.exec_()
     sys.exit(ret)
 

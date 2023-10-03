@@ -4,8 +4,8 @@ from datetime import datetime
 
 import numpy as np
 
-from qtpy import QtGui, QtCore
-from qtpy.QtWidgets import QDialog, QLineEdit, QLabel, QPushButton, QWidget, QGridLayout, QButtonGroup, QComboBox, QTextEdit, QFileDialog
+from PyQt6 import QtGui, QtCore
+from PyQt6.QtWidgets import QDialog, QLineEdit, QLabel, QPushButton, QWidget, QGridLayout, QButtonGroup, QComboBox, QTextEdit, QFileDialog
 
 from . import io
 from ..defaults import defaults

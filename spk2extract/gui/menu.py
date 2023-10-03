@@ -1,8 +1,8 @@
 """
 Copyright © 2023 Howard Hughes Medical Institute, Authored by Carsen Stringer and Marius Pachitariu.
 """
-from qtpy import QtGui
-from qtpy.QtWidgets import QAction, QMenu
+from PyQt5 import QtGui
+from PyQt5.QtWidgets import QMenu, QAction
 from pkg_resources import iter_entry_points
 
 from . import io
