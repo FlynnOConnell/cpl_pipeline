@@ -18,6 +18,11 @@ dependencies:
   - scikit-learn
   - scikit-image
   - matplotlib
+  - datashader
+  - pyqt6
+  - pyqtgraph
+  - pyopenssl
+  - pyqt-stubs
 
 # Image and IO
   - h5py
@@ -33,7 +38,7 @@ dependencies:
   - spin
 
 # For type annotations
-  - typing_extensions>=4.2.0  # needed for python < 3.10
+  - typing_extensions>=4.2.0
   - mypy=1.5.1
   - black
 
@@ -46,4 +51,5 @@ dependencies:
   - pip:
     - sonpy
     - termcolor
+    - PyQt6
 
