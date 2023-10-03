@@ -37,7 +37,7 @@ def _get_spk_caller():
 #         return getattr(sys.stdout, name)
 
 
-class _VispyFormatter(logging.Formatter):
+class _SpkFormatter(logging.Formatter):
     """Formatter that optionally prepends caller"""
 
     def __init__(self):
@@ -54,7 +54,7 @@ class _VispyFormatter(logging.Formatter):
         return out
 
 
-class _VispyStreamHandler(logging.StreamHandler):
+class _SpkStreamHandler(logging.StreamHandler):
     """Stream handler allowing matching and recording
 
     This handler has two useful optional additions:
@@ -62,7 +62,7 @@ class _VispyStreamHandler(logging.StreamHandler):
         1. Recording emitted messages.
         2. Performing regexp substring matching.
 
-    Prepending of traceback information is done in _VispyFormatter.
+    Prepending of traceback information is done in _spk2eFormatter.
     """
 
     def __init__(self):
@@ -113,8 +113,8 @@ class _VispyStreamHandler(logging.StreamHandler):
 
 
 logger = logging.getLogger('spk')
-_lf = _VispyFormatter()
-_lh = _VispyStreamHandler()  # needs _lf to exist
+_lf = _SpkFormatter()
+_lh = _SpkStreamHandler()  # needs _lf to exist
 logger.addHandler(_lh)
 
 logging_types = dict(debug=logging.DEBUG, info=logging.INFO,
@@ -144,7 +144,7 @@ def set_log_level(verbose, match=None, return_old=False):
     If ``verbose=='debug'``, then the ``spk`` method emitting the log
     message will be prepended to each log message, which is useful for
     debugging. If ``verbose=='debug'`` or ``match is not None``, then a
-    small performance overhead is added. Thus it is suggested to only use
+    small performance overhead is added. Thus, it is suggested to only use
     these options when performance is not crucial.
 
     """
