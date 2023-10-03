@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import logging
 import sys
-import termcolor
 from pathlib import Path
+import termcolor
+
 
 def colored_formatter(message: str, log_method: str):
     color = "white"
