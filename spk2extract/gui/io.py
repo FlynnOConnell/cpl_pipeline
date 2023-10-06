@@ -4,6 +4,14 @@ import numpy as np
 from PyQt5.QtWidgets import QFileDialog, QMessageBox
 from spk2extract import SpikeData
 
+def select_base_folder(parent):
+    dlg_kwargs = {
+        "parent": parent,
+        "caption": "Select base folder",
+        "options": QFileDialog.DontUseNativeDialog,
+    }
+    name = QFileDialog.getExistingDirectory(**dlg_kwargs)
+    parent.base_path = name
 
 def load_smr(parent):
     dlg_kwargs = {

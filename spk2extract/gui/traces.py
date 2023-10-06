@@ -1,10 +1,10 @@
 import numpy as np
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtGui, QtCore
-from PyQt6 import QtGui, QtCore
-from PyQt6.QtCore import QPoint, Qt, pyqtSignal, QThread
-from PyQt6.QtGui import QPen, QPainter
-from PyQt6.QtWidgets import QWidget
+from PyQt5 import QtGui, QtCore
+from PyQt5.QtCore import QPoint, Qt, pyqtSignal, QThread
+from PyQt5.QtGui import QPen, QPainter
+from PyQt5.QtWidgets import QWidget
 
 
 class DataPreparationThread(QThread):
@@ -82,11 +82,11 @@ class QRangeSlider(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
-    
+
         # Draw the background line
         painter.setPen(QPen(Qt.gray, 1))
         painter.drawLine(0, self.height() // 2, self.width(), self.height() // 2)
-    
+
         for control, color in [("left", Qt.red), ("right", Qt.green)]:
             painter.setPen(QPen(color, 3))
             painter.drawEllipse(QPoint(self.get_pos(control), self.height() // 2), 5, 5)
