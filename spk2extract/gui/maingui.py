@@ -5,6 +5,7 @@ import warnings
 
 import numpy as np
 import pyqtgraph as pg
+import vispy
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPalette, QColor
 from PyQt5.QtWidgets import (
@@ -24,9 +25,11 @@ from PyQt5.QtWidgets import (
     QWidget,
     QGridLayout,
 )
+from vispy import scene
+from vispy.scene import visuals
 
 from spk2extract.gui import menu, traces
-from spk2extract.gui.traces import MultiLine, QRangeSlider, DataPreparationThread
+from spk2extract.gui.traces import MultiLine, QRangeSlider, DataPreparationThread, VispyCanvas
 
 
 def set_deep_ocean_theme(app):
@@ -141,6 +144,10 @@ class MainWindow(QMainWindow):
         self.analyze_button.setToolTip("Analyze selected file and channel")
         self.analyze_button.clicked.connect(self.pull_channel_data)
 
+        self.vispy_button = QPushButton("Vispy")
+        self.vispy_button.setToolTip("Run Vispy")
+        self.vispy_button.clicked.connect(self.plot_vispy)
+
         # Add widgets to top_layout
         self.top_layout.addWidget(self.file_selector, 0, 0)
         self.top_layout.addWidget(self.channel_selector, 0, 1)
@@ -148,6 +155,7 @@ class MainWindow(QMainWindow):
         self.top_layout.addWidget(self.cluster_selector, 0, 2)
         self.top_layout.addWidget(self.single_cluster_selector, 0, 3)
         self.top_layout.addWidget(self.analyze_button, 0, 4)
+        self.top_layout.addWidget(self.vispy_button, 0, 5)
 
         # Set stretch factors
         self.top_layout.setColumnStretch(0, 1)
@@ -188,6 +196,13 @@ class MainWindow(QMainWindow):
 
     def update_plot(self, event):
         pass
+
+    def plot_vispy(self):
+        vispy.use("PyQt5")
+        self.pull_channel_data()
+        canvas = VispyCanvas(self)
+        canvas.plot()
+        canvas.run()
 
     def plot_type(self):
         types = ["raw", "clusters", "isi"]
@@ -433,7 +448,6 @@ class MainWindow(QMainWindow):
         self.downsample_box.currentIndexChanged.connect(self.update_downsample_factor)
         self.downsample_box.setToolTip("Downsample factor")
         self.top_layout.addWidget(self.downsample_box, 0, 2, 1, 1)
-        plotmin = self.npy.min()
 
         self.scroll = QScrollArea(self)
         self.scroll.setWidgetResizable(True)
@@ -441,11 +455,12 @@ class MainWindow(QMainWindow):
         self.scroll_content = QWidget()
         self.vlayout = QVBoxLayout()
 
-        self.plot = pg.PlotWidget(useOpenGL=True, experimental=True)
+        self.plot = pg.PlotWidget(useOpenGL=True,)
         p = self.plot
         p.setMouseEnabled(x=False, y=True)
         p.enableAutoRange(x=False, y=True)
         p.setTitle(f"Plot for npy")
+
         self.vlayout.addWidget(p)
         self.plotWidgets["npy"] = p
         self.scroll_content.setLayout(self.vlayout)

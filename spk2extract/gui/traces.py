@@ -1,10 +1,48 @@
 import numpy as np
 import pyqtgraph as pg
+import vispy
 from pyqtgraph.Qt import QtGui, QtCore
 from PyQt5 import QtGui, QtCore
 from PyQt5.QtCore import QPoint, Qt, pyqtSignal, QThread
 from PyQt5.QtGui import QPen, QPainter
 from PyQt5.QtWidgets import QWidget
+from vispy import scene
+
+
+class VispyCanvas:
+    def __init__(self, parent):
+        self.parent = parent
+        self.canvas = scene.SceneCanvas(keys="interactive", show=True)
+
+    def plot(self):
+        view = self.canvas.central_widget.add_view()
+        view.camera = "panzoom"
+
+        start_idx = 10
+        end_idx = 990
+        sub_npy = self.parent.npy[start_idx:end_idx, :]
+
+        n_waveforms, n_samples = sub_npy.shape
+        for i in range(n_waveforms):
+            y_values = sub_npy[i, :]
+            x_values = np.arange(n_samples)
+            pos = np.column_stack([x_values, y_values])
+            line = scene.visuals.Line(pos=pos, color="white", parent=view.scene)
+
+        # Set up axis and grid lines
+        x_axis = scene.AxisWidget(orientation="bottom")
+        x_axis.stretch = (1, 0.1)
+        grid = self.canvas.central_widget.add_grid()
+        grid.add_widget(x_axis, row=1, col=0)
+        x_axis.link_view(view)
+
+        y_axis = scene.AxisWidget(orientation="left")
+        y_axis.stretch = (0.1, 1)
+        grid.add_widget(y_axis, row=0, col=1)
+        y_axis.link_view(view)
+
+    def run(self):
+        self.canvas.app.run()
 
 
 class DataPreparationThread(QThread):
@@ -17,7 +55,7 @@ class DataPreparationThread(QThread):
         self.end_idx = end_idx
 
     def run(self):
-        sub_npy = self.npy[self.start_idx:self.end_idx, :]
+        sub_npy = self.npy[self.start_idx : self.end_idx, :]
         x = np.arange(sub_npy.shape[1])
         self.data_ready.emit(x, sub_npy)
 
@@ -91,6 +129,7 @@ class QRangeSlider(QWidget):
             painter.setPen(QPen(color, 3))
             painter.drawEllipse(QPoint(self.get_pos(control), self.height() // 2), 5, 5)
 
+
 class MultiLine(pg.GraphicsObject):
     def __init__(self, x, y, *args, **kwargs):
         pg.GraphicsObject.__init__(self, *args)
@@ -115,6 +154,7 @@ class MultiLine(pg.GraphicsObject):
     def boundingRect(self):
         return QtCore.QRectF(self.picture.boundingRect())
 
+
 def plot_npy_trace(parent):
     p = parent.plotWidgets["npy"]
     p.clear()
@@ -125,6 +165,7 @@ def plot_npy_trace(parent):
     multi_line = MultiLine(x, parent.npy)
     p.addItem(multi_line)
     p.autoRange()
+
 
 # Update plot_multiple_traces
 def plot_multiple_traces(parent):
