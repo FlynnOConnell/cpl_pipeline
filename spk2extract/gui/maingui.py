@@ -6,17 +6,9 @@ import warnings
 import numpy as np
 import pyqtgraph as pg
 import vispy
-from PyQt5.QtCore import Qt
+from PyQt5 import QtGui, QtCore, QtWidgets
+from PyQt5.QtCore import Qt, pyqtSignal, QThread
 from PyQt5.QtGui import QPalette, QColor
-from PyQt5.QtWidgets import (
-    QSlider,
-    QComboBox,
-    QToolBar,
-    QSplitter,
-    QTextEdit,
-    QPushButton,
-)
-from PyQt5 import QtGui, QtCore
 from PyQt5.QtWidgets import (
     QMainWindow,
     QScrollArea,
@@ -24,12 +16,24 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QGridLayout,
+    QLabel,
+    QProgressBar,
 )
-from vispy import scene
-from vispy.scene import visuals
+from PyQt5.QtWidgets import (
+    QSlider,
+    QComboBox,
+    QPushButton,
+)
 
-from spk2extract.gui import menu, traces
-from spk2extract.gui.traces import MultiLine, QRangeSlider, DataPreparationThread, VispyCanvas
+from spk2extract.gui import menu
+from spk2extract.gui.traces import (
+    QRangeSlider,
+    WaveformPlot,
+    PlotDialog,
+    ClusterSelectors,
+    DataLoader,
+)
+from spk2extract.gui.widgets import MultiSelectionDialog
 
 
 def set_deep_ocean_theme(app):
@@ -57,111 +61,72 @@ def set_deep_ocean_theme(app):
 class MainWindow(QMainWindow):
     def __init__(self):
         super(MainWindow, self).__init__()
-        from pathlib import Path
-
-        # Flags
-        self.__file_selector_populated = False
-        self.__channel_selector_populated = False
-        self.__cluster_selector_populated = False
-        self.__single_cluster_selector_populated = False
-
-        self.__updating_file_selector = False
-        self.__updating_channel_selector = False
-        self.__updating_cluster_selector = False
-        self.__updating_single_cluster_selector = False
-
-        # Prepopulating vars
         self.factor = 0
         self.data_thread = None
         self.data = {}
         self.loaded = False
         self.plotWidgets = {}
-        self.base_path = Path().home() / "clustersort"
+
+        # Load data directory container
+        self.base_path = pathlib.Path().home() / "clustersort"
+        self.data_thread = DataLoader(str(self.base_path))
+        self.data_thread.dataLoaded.connect(self.update_data)
+
+        self.loading_label = QLabel("Loading...")
+        self.loading_spinner = QProgressBar()
+        self.loading_spinner.setRange(0, 0)  # Indeterminate progress
 
         pg.setConfigOptions(imageAxisOrder="row-major")
         self.setWindowTitle("spk2extract")
         self.setGeometry(50, 50, 1500, 800)
-        self.boldfont = QtGui.QFont("Arial", 10, QtGui.QFont.Bold)
-        self.stylePressed = (
-            "QPushButton {Text-align: left; "
-            "background-color: rgb(100,50,100); "
-            "color:white;}"
-        )
-        self.styleUnpressed = (
-            "QPushButton {Text-align: left; "
-            "background-color: rgb(50,50,50); "
-            "color:white;}"
-        )
-        self.styleInactive = (
-            "QPushButton {Text-align: left; "
-            "background-color: rgb(50,50,50); "
-            "color:gray;}"
-        )
 
-        main_dir = pathlib.Path.home().joinpath("clustersort")
-        if not os.path.isdir(main_dir):
-            # TODO: add warning that user_dir is being created to logs
-            pass
-        main_dir.mkdir(exist_ok=True)
-
-        # --------- MAIN WIDGET LAYOUT ---------------------
-        # Create main layout as QVBoxLayout
         self.mainLayout = QVBoxLayout()
-
         top_area = QWidget()
         self.top_layout = QGridLayout()
 
-        # Create ComboBox and Button for top area
-        self.file_selector = QComboBox()
-        self.file_selector.setToolTip("Select a file")
-        self.file_selector.currentIndexChanged.connect(self.update_file_selector)
-        self.file_selector.currentIndexChanged.connect(self.on_file_selected)
+        # Initially add loading widgets
+        self.top_layout.addWidget(self.loading_label, 0, 0)
+        self.top_layout.addWidget(self.loading_spinner, 0, 1)
 
-        self.channel_selector = QComboBox()
-        self.channel_selector.setToolTip("Select a channel")
-        self.channel_selector.currentIndexChanged.connect(self.update_channel_selector)
-        self.channel_selector.currentIndexChanged.connect(self.on_channel_selected)
-
-        self.cluster_selector = QComboBox()
-        self.cluster_selector.setToolTip("Select a cluster")
-        self.cluster_selector.currentIndexChanged.connect(self.update_cluster_selector)
-        self.cluster_selector.currentIndexChanged.connect(self.on_cluster_selected)
-
-        self.single_cluster_selector = QComboBox()
-        self.single_cluster_selector.setToolTip("Select a single cluster")
-        self.single_cluster_selector.currentIndexChanged.connect(
-            self.update_single_cluster_selector
-        )
-        self.single_cluster_selector.activated.connect(
-            self.reupdate_single_cluster_selector
+        self.file_selector = ClusterSelectors(self.get_files)
+        self.channel_selector = ClusterSelectors(self.get_channels)
+        self.cluster_selector = ClusterSelectors(self.get_clusters)
+        self.single_cluster_selector = MultiSelectionDialog(self.get_single_clusters)
+        self.single_cluster_selector_label = QPushButton("Select Clusters")
+        self.single_cluster_selector_label.clicked.connect(
+            self.open_multi_select_dialog
         )
 
-        self.plot_type_selector = QComboBox()
-        self.plot_type_selector.setToolTip("Type")
-        self.plot_type_selector.currentIndexChanged.connect(self.plot_type)
+        self.file_selector.data_changed.connect(self.channel_selector.populate)
+        self.file_selector.data_changed.connect(self.cluster_selector.populate)
+        self.file_selector.data_changed.connect(self.single_cluster_selector.populate)
 
-        self.analyze_button = QPushButton("Analyze")
-        self.analyze_button.setToolTip("Analyze selected file and channel")
-        self.analyze_button.clicked.connect(self.pull_channel_data)
+        self.channel_selector.data_changed.connect(self.cluster_selector.populate)
+        self.channel_selector.data_changed.connect(
+            self.single_cluster_selector.populate
+        )
 
-        self.vispy_button = QPushButton("Vispy")
-        self.vispy_button.setToolTip("Run Vispy")
-        self.vispy_button.clicked.connect(self.plot_vispy)
+        self.cluster_selector.data_changed.connect(
+            self.single_cluster_selector.populate
+        )
 
-        # Add widgets to top_layout
-        self.top_layout.addWidget(self.file_selector, 0, 0)
-        self.top_layout.addWidget(self.channel_selector, 0, 1)
-        # self.top_layout.addWidget(self.plot_type_selector, 0, 2)
-        self.top_layout.addWidget(self.cluster_selector, 0, 2)
-        self.top_layout.addWidget(self.single_cluster_selector, 0, 3)
-        self.top_layout.addWidget(self.analyze_button, 0, 4)
-        self.top_layout.addWidget(self.vispy_button, 0, 5)
+        self.file_selector.populate()
+        self.channel_selector.populate()
+        self.cluster_selector.populate()
+        self.single_cluster_selector.populate()
+
+        self.vispy_button = QPushButton("View")
+        self.vispy_button.clicked.connect(self.draw_plots)
+        self.vispy_button.setSizePolicy(
+            QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Fixed
+        )
+        self.clear_button = QPushButton("Clear")
 
         # Set stretch factors
-        self.top_layout.setColumnStretch(0, 1)
-        self.top_layout.setColumnStretch(1, 1)
-        self.top_layout.setColumnStretch(2, 1)
-        self.top_layout.setColumnStretch(3, 1)
+        self.top_layout.setColumnStretch(0, 0)
+        self.top_layout.setColumnStretch(1, 0)
+        self.top_layout.setColumnStretch(2, 0)
+        self.top_layout.setColumnStretch(3, 0)
 
         top_area.setLayout(self.top_layout)
         top_area.setFixedHeight(80)
@@ -184,261 +149,128 @@ class MainWindow(QMainWindow):
         cwidget = QWidget()
         cwidget.setLayout(self.mainLayout)
         self.setCentralWidget(cwidget)
-
         menu.mainmenu(self)
-
         self.setAcceptDrops(True)
-        self.update_file_selector()
-        self.update_channel_selector()
-        self.update_cluster_selector()
-        self.update_single_cluster_selector()
         self.show()
 
-    def update_plot(self, event):
-        pass
+    def debug(self):
+        x = 5
+        y = self.base_path
 
-    def plot_vispy(self):
-        vispy.use("PyQt5")
-        self.pull_channel_data()
-        canvas = VispyCanvas(self)
-        canvas.plot()
-        canvas.run()
+    def get_current_channel_path(self):
+        return (
+            self.base_path
+            / self.file_selector.currentText()
+            / "Data"
+            / self.channel_selector.currentText()
+        )
 
-    def plot_type(self):
-        types = ["raw", "clusters", "isi"]
-        for t in types:
-            pass
-        return types[self.plot_type_selector.currentIndex()]
+    def get_current_cluster_group_path(self):
+        return self.get_current_channel_path() / self.cluster_selector.currentText()
 
-    def update_file_selector(self):
-        if self.__updating_file_selector:
-            return
+    def update_data(self, data):
+        self.top_layout.removeWidget(self.loading_label)
+        self.top_layout.removeWidget(self.loading_spinner)
+        self.loading_label.deleteLater()
+        self.loading_spinner.deleteLater()
 
-        self.__updating_file_selector = True
+        self.top_layout.addWidget(self.file_selector, 0, 0)
+        self.top_layout.addWidget(self.channel_selector, 0, 1)
+        self.top_layout.addWidget(self.cluster_selector, 0, 2)
+        self.top_layout.addWidget(self.single_cluster_selector_label, 0, 3)
+        self.top_layout.addWidget(self.vispy_button, 0, 4)
 
-        if not self.__file_selector_populated:
-            self.file_selector.clear()
+        self.data = data
+        self.file_selector.populate()
 
-            if not self.base_path:
-                self.file_selector.addItem("Please set a base path")
-            else:
-                self.file_selector.addItem("Select a file")
-                for foldername in sorted(os.listdir(self.base_path)):
-                    folder_path = os.path.join(self.base_path, foldername)
-                    if os.path.isdir(folder_path):
-                        self.file_selector.addItem(foldername)
-            self.__file_selector_populated = True
-        self.__updating_file_selector = False
+    def handle_single_cluster_selection(self, selected_clusters):
+        paths = [
+            self.get_current_cluster_group_path() / cluster
+            for cluster in selected_clusters
+        ]
+        for path in paths:
+            cluster_npy = path / "cluster_spikes.npy"
+            data = np.load(cluster_npy)
+            self.plotWidgets[path.name] = self.get_vispy(data, path.name)
 
-    def on_file_selected(self):
-        """When a file is selected, update the channel selector"""
+    def open_multi_select_dialog(
+        self,
+    ):
+        dialog = MultiSelectionDialog(self.get_single_clusters)
+        dialog.selection_made.connect(self.handle_single_cluster_selection)
+        dialog.resize(200, min(400, len(self.get_single_clusters()) * 20 + 50))
+        dialog.move(self.frameGeometry().center() - dialog.rect().center())
+        dialog.exec_()
+
+    def draw_plots(self):
+        plot_dialog = PlotDialog(self.plotWidgets)
+        plot_dialog.exec_()
+
+    def clear_plots(self):
+        for key in self.plotWidgets.keys():
+            self.bottom_layout.removeWidget(self.plotWidgets[key])
+        self.plotWidgets = {}
+
+    def get_files(self):
+        return sorted(self.data.keys())
+
+    def get_channels(self):
         selected_file = self.file_selector.currentText()
-        if selected_file != "Select a file":
-            self.update_channel_selector()
-            self.update_cluster_selector()
-            self.update_single_cluster_selector()
+        if not selected_file:
+            return []
+        return sorted(self.data[selected_file].keys())
 
-    def on_channel_selected(self):
-        """When a channel is selected, update the cluster selector"""
+    def get_clusters(self):
         selected_file = self.file_selector.currentText()
         selected_channel = self.channel_selector.currentText()
-        if selected_file and selected_channel != "Select a file":
-            self.update_cluster_selector()
-            self.update_single_cluster_selector()
+        if not selected_file or not selected_channel:
+            return []
+        # To get only the 'n_clusters' and not the .npy file paths
+        all_keys = self.data[selected_file][selected_channel].keys()
+        cluster_keys = [k for k in all_keys if "_clusters" in k]
+        return sorted(cluster_keys)
 
-    def on_cluster_selected(self):
-        """When a channel is selected, update the cluster selector"""
+    def get_single_clusters(self):
         selected_file = self.file_selector.currentText()
         selected_channel = self.channel_selector.currentText()
         selected_cluster = self.cluster_selector.currentText()
-        if selected_file and selected_channel and selected_cluster != "Select a file":
-            self.update_single_cluster_selector()
+        if not selected_file or not selected_channel or not selected_cluster:
+            return []
+        return sorted(
+            self.data[selected_file][selected_channel][selected_cluster].keys()
+        )
 
-    def update_channel_selector(self):
-        if self.__channel_selector_populated:
-            return
-        if self.__updating_channel_selector:
-            return
+    def get_current_channel_data(self):
+        selected_file = self.file_selector.currentText()
+        selected_channel = self.channel_selector.currentText()
+        if not selected_file or not selected_channel:
+            return []
+        return self.data[selected_file][selected_channel]
 
-        self.__updating_channel_selector = True
-        self.channel_selector.clear()
+    def get_vispy(self, data=None, title="") -> WaveformPlot:
+        vispy.use("PyQt5")
+        return WaveformPlot(self, data, plot_title=title)
 
-        # If no file is chosen, populate with "Select a file"
-        if (
-            not self.file_selector.currentText()
-            or self.file_selector.currentText() == "Select a file"
-        ):
-            self.channel_selector.addItem("Select a file")
-        else:
-            self.channel_selector.addItem("Select a channel")
-            data_folder_path = (
-                self.base_path / self.file_selector.currentText() / "Data"
-            )
-            if data_folder_path.is_dir():
-                for channel in sorted(os.listdir(data_folder_path)):
-                    channel_path = data_folder_path / channel
-                    if channel_path.is_dir():
-                        self.channel_selector.addItem(channel)
-                self.__channel_selector_populated = True
-        self.__updating_channel_selector = False
-
-    def update_cluster_selector(self):
-        if self.__cluster_selector_populated:
-            return
-        if self.__updating_cluster_selector:
-            return
-
-        self.__updating_cluster_selector = True
-        self.cluster_selector.clear()
-
-        # No file chosen, "select a file"
-        if (
-            not self.file_selector.currentText()
-            or self.file_selector.currentText() == "Select a file"
-        ):
-            self.cluster_selector.addItem("Select a file")
-
-        # No channel chosen, "select a channel"
-        elif (
-            self.channel_selector.currentText()
-            == "Select a channel"  # this doesn't occur when a file is chosen, it's still ''
-            or not self.channel_selector.currentText()
-        ):
-            self.cluster_selector.clear()
-            self.cluster_selector.addItem("Select a channel")
-        else:
-            self.cluster_selector.clear()
-            self.cluster_selector.addItem("Select a cluster")
-            channel_folder_path = (
-                self.base_path
-                / self.file_selector.currentText()
-                / "Data"
-                / self.channel_selector.currentText()
-            )
-            if channel_folder_path.is_dir():
-                for cluster in sorted(os.listdir(channel_folder_path)):
-                    channel_path = channel_folder_path / cluster
-                    if channel_path.is_dir():
-                        self.cluster_selector.addItem(cluster)
-                self.__cluster_selector_populated = True
-        self.__updating_cluster_selector = False
-
-    def update_single_cluster_selector(self):
-        if self.__single_cluster_selector_populated:
-            return
-        if self.__updating_single_cluster_selector:
-            return
-
-        self.__updating_single_cluster_selector = True
-        self.single_cluster_selector.clear()
-
-        # No file chosen, "select a file"
-        if (
-            not self.file_selector.currentText()
-            or self.file_selector.currentText() == "Select a file"
-        ):
-            self.single_cluster_selector.addItem("Select a file")
-
-        # No channel chosen, "select a channel"
-        elif (
-            self.channel_selector.currentText()
-            == "Select a channel"  # this doesn't occur when a file is chosen, it's still ''
-            or not self.channel_selector.currentText()
-        ):
-            self.single_cluster_selector.clear()
-            self.single_cluster_selector.addItem("Select a channel")
-
-        # No cluster chosen, "select a cluster"
-        elif (
-            self.cluster_selector.currentText()
-            == "Select a cluster"  # this doesn't occur when a file is chosen, it's still ''
-            or not self.cluster_selector.currentText()
-        ):
-            self.single_cluster_selector.clear()
-            self.single_cluster_selector.addItem("Select a cluster")
-        else:
-            self.single_cluster_selector.addItem("Select a single cluster")
-            cluster_folder_path = (
-                self.base_path
-                / self.file_selector.currentText()
-                / "Data"
-                / self.channel_selector.currentText()
-                / self.cluster_selector.currentText()
-            )
-            if cluster_folder_path.is_dir():
-                for this_cluster in sorted(os.listdir(cluster_folder_path)):
-                    channel_path = cluster_folder_path / this_cluster
-                    if channel_path.is_dir():
-                        self.single_cluster_selector.addItem(this_cluster)
-                self.__single_cluster_selector_populated = True
-        self.__updating_single_cluster_selector = False
-
-    def reupdate_single_cluster_selector(self):
-        self.single_cluster_selector.clear()
+    def pull_channel_data(self):
         cluster_folder_path = (
             self.base_path
             / self.file_selector.currentText()
             / "Data"
             / self.channel_selector.currentText()
             / self.cluster_selector.currentText()
+            / self.single_cluster_selector.currentText()
         )
-        if cluster_folder_path.is_dir():
-            for this_cluster in sorted(os.listdir(cluster_folder_path)):
-                channel_path = cluster_folder_path / this_cluster
-                if channel_path.is_dir():
-                    self.single_cluster_selector.addItem(this_cluster)
-
-    def pull_channel_data(self):
-        cluster_folder_path = (
-                self.base_path
-                / self.file_selector.currentText()
-                / "Data"
-                / self.channel_selector.currentText()
-                / self.cluster_selector.currentText()
-                / self.single_cluster_selector.currentText()
-        )
+        cluster_path = self.selected_cluster_path
         if os.path.exists(cluster_folder_path):
             for file in os.listdir(cluster_folder_path):
                 if file.endswith(".npy") and file.startswith("cluster_spikes"):
                     self.npy = np.load(os.path.join(cluster_folder_path, file))
                     self.loaded = True
-                    self.make_graphics_npy()
-                    self.start_data_thread()
                     break
 
-    def start_data_thread(self):
-        if self.data_thread is not None:
-            self.data_thread.quit()
-            self.data_thread.wait()
-
-        start_idx = int(self.range_slider.left_value)
-        end_idx = int(self.range_slider.right_value)
-        self.data_thread = DataPreparationThread(self.npy, start_idx, end_idx)
-        self.data_thread.data_ready.connect(self.update_npy_plot)
-        self.data_thread.start()
-
-    def make_graphics(self):
-        self.scroll = QScrollArea(self)
-        self.scroll.setWidgetResizable(True)
-
-        self.scroll_content = QWidget()
-        self.vlayout = QVBoxLayout()
-
-        if self.loaded:
-            # First, set up the plots
-            for key in self.data.unit.keys():
-                p = pg.PlotWidget()
-                p.setMouseEnabled(x=True, y=False)
-                p.enableAutoRange(x=True, y=True)
-                p.setTitle(f"Plot for key: {key}")
-                self.vlayout.addWidget(p)
-                self.plotWidgets[key] = p
-
-            self.scroll_content.setLayout(self.vlayout)
-            self.scroll.setWidget(self.scroll_content)
-
-            self.layout_plot_info.addWidget(self.scroll, 1, 2, self.b0 - 1, 30)
-            traces.plot_multiple_traces(self)
+    @staticmethod
+    def get_npy(self, path):
+        return np.load(path)
 
     def make_graphics_npy(self):
         self.downsample_box = QComboBox()
@@ -455,7 +287,9 @@ class MainWindow(QMainWindow):
         self.scroll_content = QWidget()
         self.vlayout = QVBoxLayout()
 
-        self.plot = pg.PlotWidget(useOpenGL=True,)
+        self.plot = pg.PlotWidget(
+            useOpenGL=True,
+        )
         p = self.plot
         p.setMouseEnabled(x=False, y=True)
         p.enableAutoRange(x=False, y=True)
@@ -488,41 +322,6 @@ class MainWindow(QMainWindow):
         self.vlayout.addWidget(self.range_slider)
         self.vlayout.addStretch()
         self.update_npy_plot()
-
-    def update_npy_plot(
-        self,
-    ):
-        p = self.plotWidgets["npy"]
-        p.clear()
-
-        start_idx = int(self.range_slider.left_value)
-        end_idx = int(self.range_slider.right_value)
-
-        # If start and end indices are not set, initialize to full range
-        if start_idx is None or end_idx is None or start_idx >= end_idx:
-            start_idx = 0
-            end_idx = self.npy.shape[0] - 1
-
-        x = np.arange(self.npy.shape[1])
-        sub_npy = self.npy[start_idx:end_idx, :]
-
-        multi_line = MultiLine(x, sub_npy)
-        p.addItem(multi_line)
-        p.autoRange()
-
-    def update_downsample_factor(self):
-        factor_str = self.downsample_box.currentText()
-        self.factor = int(factor_str.rstrip("x"))
-        p = self.plotWidgets["npy"]
-        p.clear()
-        # Redraw plot with new downsampling factor
-        # Avoiding ValueError: slice step cannot be zero
-        if self.factor != 0:
-            p.addItem(
-                MultiLine(np.arange(self.npy.shape[1]), self.npy[:: self.factor, :])
-            )
-        else:
-            p.addItem(MultiLine(np.arange(self.npy.shape[1]), self.npy))
 
 
 def run():

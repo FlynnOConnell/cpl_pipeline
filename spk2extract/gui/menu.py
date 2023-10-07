@@ -1,9 +1,7 @@
 """
 Copyright © 2023 Howard Hughes Medical Institute, Authored by Carsen Stringer and Marius Pachitariu.
 """
-from PyQt5 import QtGui
 from PyQt5.QtWidgets import QMenu, QAction
-from pkg_resources import iter_entry_points
 
 from . import io
 from . import rungui
@@ -20,15 +18,13 @@ def mainmenu(parent):
     load_npy.triggered.connect(lambda: io.load_npy(parent))
 
     # load folder of processed data
-    load_raw_smr = QAction("&Load raw .smr file", parent)
-    load_raw_smr.setShortcut("Ctrl+L")
-    load_raw_smr.triggered.connect(lambda: io.load_smr(parent))
+    debug = QAction("Debug", parent)
+    debug.triggered.connect(lambda: parent.debug())
 
     file_menu = main_menu.addMenu("&File")
+    main_menu.addAction(debug)
     load_menu = file_menu.addMenu("&Load")
     load_menu.addAction(load_s2e_folder)
-    load_menu.addAction(load_npy)
-    load_menu.addAction(load_raw_smr)
 
 
 def run_s2e(parent):
