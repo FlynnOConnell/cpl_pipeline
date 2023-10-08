@@ -10,19 +10,22 @@ from typing import Any
 
 import h5py
 import numpy as np
+from scipy.signal import decimate
 from sonpy import lib as sp
 
 import spk2extract
 from spk2extract.spk_log.logger_config import configure_logger
-from spk2extract.util import extract_waveforms, filter_signal
+from spk2extract.util import filter_signal
 from spk2extract.util.cluster import detect_spikes
 
 UnitData = namedtuple("UnitData", ["spikes", "times"])
+
 
 class SonfileException(BaseException):
     """
     Exception for sonfile being wrong filetype.
     """
+
     def __init__(self, message):
         self.message = message
         super().__init__(self.message)
@@ -111,6 +114,7 @@ def write_complex_h5(
     metadata_file: dict,
     metadata_channel: dict[Any],
     data: dict,
+    events: list | np.ndarray = None,
 ):
     """
     Creates a h5 file specific to the spike2 dataset.
@@ -133,6 +137,8 @@ def write_complex_h5(
         A dictionary containing the metadata dictionaries.
     data : dict
         A dictionary containing the data.
+    events : list or np.ndarray, optional
+        A list of events, where each event is a tuple of (event_name, event_time). Default is None.
 
     Returns
     -------
@@ -161,12 +167,28 @@ def write_complex_h5(
         data_grp = f.create_group("data")
         for data_key, data_value in data.items():
             sub_group = data_grp.create_group(data_key)
-            # Convert the namedtuple to a dict to store in the h5 file as a subgroup
-            # The leading _ in _asdict() is to prevent named conflicts, not to indicate privacy
-            # See: https://docs.python.org/3/library/collections.html#collections.somenamedtuple._asdict
-            for field_name, field_value in data_value._asdict().items():
-                sub_group.create_dataset(field_name, data=np.array(field_value))
+            if check_substring_content(data_key, "u") and not check_substring_content(
+                data_key, "lfp"
+            ):
+                # Convert the namedtuple to a dict to store in the h5 file as a subgroup
+                # The leading _ in _asdict() is to prevent named conflicts, not to indicate privacy
+                # See: https://docs.python.org/3/library/collections.html#collections.somenamedtuple._asdict
+                for field_name, field_value in data_value._asdict().items():
+                    sub_group.create_dataset(field_name, data=field_value)
+
+            elif check_substring_content(data_key, "lfp"):
+                sub_group.create_dataset(data_key, data=np.array(data_value))
+
+        if events is not None:
+            event_grp = f.create_group("event")
+            event_grp.create_dataset("Event", data=events)
     return None
+
+
+def check_substring_content(main_string, substring):
+    """Checks if any combination of the substring is in the main string."""
+    return substring.lower() in main_string.lower()
+
 
 class SpikeData:
     """
@@ -219,7 +241,7 @@ class SpikeData:
     >>> data = SpikeData(files[0])
     >>> data
     'rat1-2021-03-24_0001'
-    >>> data.extract()
+    >>> data.get_waves()
     >>> data["LFP1"]
     UnitData(spikes=array([[ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,
                 0.00000000e+00,  0.00000000e+00,  0.00000000e+00],), times=array([...]))
@@ -276,7 +298,9 @@ class SpikeData:
             The total recording length, in seconds.
 
         """
-        self.logger = configure_logger(__name__, spk2extract.log_dir, level=logging.DEBUG)
+        self.logger = configure_logger(
+            __name__, spk2extract.log_dir, level=logging.DEBUG
+        )
         self._bandpass_low = 300
         self._bandpass_high = 3000
         self.errors = {}
@@ -284,13 +308,18 @@ class SpikeData:
         self.empty = False
         self.filename = Path(filepath)
         self.sonfile = sp.SonFile(str(self.filename), True)
+        self.events = None
         if self.sonfile.GetOpenError() != 0:
             if self.filename.suffix != ".smr":
-                raise SonfileException(f"{self.filename} is not a valid file. \n"
-                                       f"Extension {self.filename.suffix} is not valid.")
+                raise SonfileException(
+                    f"{self.filename} is not a valid file. \n"
+                    f"Extension {self.filename.suffix} is not valid."
+                )
             else:
-                raise SonfileException(f"{self.filename} is not a valid file, though it does contain the correct extension. \n"
-                                       f"Double check the file contains valid data.")
+                raise SonfileException(
+                    f"{self.filename} is not a valid file, though it does contain the correct extension. \n"
+                    f"Double check the file contains valid data."
+                )
         self.bitrate = 32 if self.sonfile.is32file() else 64
         self.metadata_channel = {}
         self.data = {}
@@ -312,31 +341,44 @@ class SpikeData:
         else:
             raise KeyError(f"{key} not found in SpikeData object.")
 
-    def extract(
+    def get_events(self):
+        for idx in range(self.max_channels):
+            title = self.sonfile.GetChannelTitle(idx)
+            if title in ["DigMark"]:
+                try:
+                    # noinspection PyArgumentList
+                    marks = self.sonfile.ReadMarkers(idx, int(2e9), 0)
+                    ticks_to_time = self.tick_to_time([mark.Tick for mark in marks])
+                    self.events = np.round(ticks_to_time, 2)
+                except SonfileException as e:
+                    self.errors["ReadMarker"] = e
+        print("Done")
+
+    def get_waves(
         self,
     ):
         """
-        Main workhorse of this class; extracts unit data from the Spike2 file.
+        Main workhorse of this class; extracts unit and lfp data from the Spike2 file.
 
         This function uses the sonpy library to extract unit data from the Spike2 file. It converts all the
         intrinsic data stored in the spike2 file into convenient Python objects, such as dictionaries, namedtuples
         and properties. SonPy is a python wrapper for the CED C++ library, the sonpy library is not well documented
         and the CED C++ library is not open source.
         """
-        self.logger.debug(f"Extracting ADC channels from {self.filename.stem}")
-
+        self.logger.debug(f"-| Extracting ADC channels from {self.filename.stem} -|")
         for idx in range(self.max_channels):
             title = self.sonfile.GetChannelTitle(idx)
             if (
                 self.sonfile.ChannelType(idx) == sp.DataType.Adc
                 and title not in self.exclude
-                and "LFP" not in title
             ):
                 self.logger.debug(f"Processing {title}")
                 sampling_rate = np.round(
                     1 / (self.sonfile.ChannelDivide(idx) * self.time_base), 2
                 )
 
+                # Read the waveforms from the channel, up to 2e9, or 2 billion samples at a time which represents
+                # the maximum amount of 30 bit floats that can be stored in memory
                 # noinspection PyArgumentList
                 waveforms = self.sonfile.ReadFloats(idx, int(2e9), 0)
 
@@ -346,28 +388,37 @@ class SpikeData:
                         "Sampling rate is too low for the given bandpass filter frequencies."
                     )
 
-                # Low/high bandpass filter
-                filtered_segment = filter_signal(
-                    waveforms,
-                    sampling_rate,
-                    (self.bandpass_low, self.bandpass_high),
-                )
+                # Titles for unit are often just U, but we need to make sure we don't include LFP channels
+                # with a U in the title anywhere
+                if check_substring_content(title, "u") and not check_substring_content(
+                    title, "lfp"
+                ):
+                    filtered_segment = filter_signal(
+                        waveforms,
+                        sampling_rate,
+                        (self.bandpass_low, self.bandpass_high),
+                    )
 
-                # Extract spikes and times from the filtered segment
-                slices, spike_times, thresh = detect_spikes(
-                    filtered_segment,
-                    [0.5, 1.0],
-                    sampling_rate,
-                    # spike_snapshot,
-                )
-                slices = np.array(slices)
-                spike_times = np.array(spike_times)
+                    # Extract spikes and times from the filtered segment
+                    slices, spike_indices, thresh = detect_spikes(
+                        filtered_segment,
+                        [0.5, 1.0],
+                        sampling_rate,
+                    )
+                    slices = np.array(slices)
+                    spike_times = spike_indices / float(sampling_rate)
 
-                # Create a FinalUnitData namedtuple with the concatenated spikes and times
-                final_unit_data = UnitData(spikes=slices, times=spike_times)
+                    # Create a FinalUnitData namedtuple with the concatenated spikes and times
+                    final_unit_data = UnitData(spikes=slices, times=spike_times)
 
-                # Store this namedtuple in the self.unit dictionary
-                self.data[title] = final_unit_data
+                    # Store this namedtuple in the self.unit dictionary
+                    self.data[title] = final_unit_data
+
+                elif check_substring_content(title, "lfp"):
+                    # Uses an antialiasing filter
+                    downsampled_segment = decimate(np.array(waveforms), 10, ftype="iir")
+                    self.data[title] = waveforms
+
                 self.metadata_channel[title] = {
                     "sampling_rate": sampling_rate,
                     "channel_type": "unit",
@@ -383,6 +434,10 @@ class SpikeData:
                 }
 
         self.logger.debug(f"Finished extracting ADC channels from {self.filename.stem}")
+
+    @staticmethod
+    def convert_to_time(indices, sampling_rate):
+        return np.array(indices) / float(sampling_rate)
 
     def save(self, overwrite_existing=False) -> Path:
         """
@@ -408,16 +463,24 @@ class SpikeData:
             The filename that the data was saved to.
 
         """
-        from spk2extract import spk2dir # prevent circular import
+        from spk2extract import spk2dir  # prevent circular import
+
         h5path = spk2dir / "h5" / self.filename.stem
         h5path = h5path.with_suffix(".h5")
         if not h5path.parent.exists():
             h5path.parent.mkdir(exist_ok=True, parents=True)
         if h5path.exists() and not overwrite_existing:
-            self.logger.info(f"{h5path} already exists. Set overwrite_existing=True to overwrite. Skipping h5 write.")
+            self.logger.info(
+                f"{h5path} already exists. Set overwrite_existing=True to overwrite. Skipping h5 write."
+            )
             pass
         try:
-            write_complex_h5(h5path, self.metadata_file, self.metadata_channel, self.data,)
+            write_complex_h5(
+                h5path,
+                self.metadata_file,
+                self.metadata_channel,
+                self.data,
+            )
             self.logger.info(f"Saved data to {h5path}")
         except Exception as e:
             self.logger.error(f"Error writing h5 file: {e}")
@@ -493,6 +556,23 @@ class SpikeData:
 
         """
         return self.channel_max_ticks(channel) * self.time_base
+
+    def tick_to_time(self, ticks: list):
+        """
+        Convert clock ticks to seconds.
+
+        Parameters
+        ----------
+        ticks: list
+            A list of clock ticks.
+
+        Returns
+        -------
+        time : list
+            A list of ticks converted to seconds.
+
+        """
+        return [tick * self.time_base for tick in ticks]
 
     @property
     def time_base(self):
@@ -613,5 +693,6 @@ if __name__ == "__main__":
             testfile,
             ("Respirat", "RefBrain", "Sniff"),
         )
-        testdata.extract()
+        testdata.get_events()
+        testdata.get_waves()
         testdata.save(overwrite_existing=True)

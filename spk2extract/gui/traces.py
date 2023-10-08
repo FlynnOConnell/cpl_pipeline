@@ -1,5 +1,7 @@
 import numpy as np
 from pathlib import Path
+
+import vispy
 from PyQt5.QtCore import QPoint, Qt, pyqtSignal, QThread
 from PyQt5.QtGui import QPen, QPainter
 from PyQt5.QtWidgets import (
@@ -11,8 +13,8 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QPushButton,
 )
-from vispy import scene
-from vispy.scene import AxisWidget
+from vispy import scene, geometry
+from vispy.scene import AxisWidget, BaseCamera
 from vispy.scene.cameras import PanZoomCamera
 
 
@@ -24,11 +26,9 @@ class DataLoader(QThread):
         self.base_path = Path(base_path)
         self.data = {}
         if self.base_path.is_dir():
-            print("Starting data thread...")
             self.start()
 
     def run(self):
-        print("Loading data...")
         for file in self.base_path.iterdir():
             if file.is_dir():
                 file_data = {}
@@ -46,7 +46,6 @@ class DataLoader(QThread):
                         file_data[channel_dir.name] = channel_data
                 self.data[file.name] = file_data
         self.dataLoaded.emit(self.data)
-        print("Data loaded!")
 
 
 class ClusterSelectors(QComboBox):
@@ -69,36 +68,6 @@ class ClusterSelectors(QComboBox):
 
     def emit_data_changed(self):
         self.data_changed.emit()
-
-
-class YAxisPanZoomCamera(PanZoomCamera):
-    """Custom camera that pans and zooms in the y-axis only for waveform visualizations."""
-
-    def __init__(self, *args, **kwargs):
-        super(YAxisPanZoomCamera, self).__init__(*args, **kwargs)
-
-    def _update_pan(self, event):
-        """Override to disable panning for x-axis."""
-        dx = dy = 0
-        p1 = event.last_event.pos
-        p2 = event.pos
-        dx = p2[0] - p1[0]
-        dy = p2[1] - p1[1]
-        dx /= self._viewbox.size[0]
-        dy /= self._viewbox.size[1]
-        self.pan((-dx, dy, 0, 0))
-
-    def _update_zoom(self, event):
-        """Override to disable zoom for x-axis."""
-        s = 1.0 / 1.1
-        if event.delta[1] > 0:
-            s = 1.1
-
-        # Modify s to make zoom only affect y-axis
-        s = (1.0, s)
-
-        ctr = np.array(self._viewbox.camera.rect.center)
-        self.zoom((s[0], s[1]), center=ctr)
 
 
 class PlotDialog(QDialog):
@@ -153,7 +122,6 @@ class PlotDialog(QDialog):
             widget.y_range = (min_val, max_val)
 
 
-
 class WaveformPlot(QWidget):
     def __init__(self, parent, data, plot_title=None):
         super().__init__()
@@ -166,8 +134,8 @@ class WaveformPlot(QWidget):
         self.lines = None
         self.view = None
         self.grid = None
-        self.y_min = float("inf")
-        self.y_max = float("-inf")
+        self.y_min = np.inf
+        self.y_max = -np.inf
         self.layout = QVBoxLayout(self)
         self.canvas = scene.SceneCanvas(show=True)
         self.layout.addWidget(self.canvas.native)
@@ -190,9 +158,7 @@ class WaveformPlot(QWidget):
         self,
     ):
         self.view = self.canvas.central_widget.add_view()
-        self.view.camera = scene.PanZoomCamera(
-            aspect=None,
-        )
+        self.view.camera = PanZoomCamera()
 
         self.grid = self.canvas.central_widget.add_grid()
         self.grid.padding = 10
@@ -232,7 +198,7 @@ class WaveformPlot(QWidget):
             self.y_min = min(self.y_min, current_min)
             self.y_max = max(self.y_max, current_max)
 
-            disconnect_idx = i * num_samples - 1  # The last point of each line
+            disconnect_idx = i * num_samples - 1
             connect[disconnect_idx] = False
 
         # Truncate & populate the "connect" array to match the line_data size
@@ -252,21 +218,14 @@ class WaveformPlot(QWidget):
         x_min = np.min(line_data[:, 0])
         x_max = np.max(line_data[:, 0])
 
-        x_axis.axis.domain = (0, 100)
-        x_axis.axis.pos = (0, x_max)
-        x_axis.axis.axis_label = "Time (ms)"
-        x_axis.axis.tick_color = "white"
-        x_axis.axis.tick_label_margin = 10
-
-        # no fmt
         self.view.camera.rect = (
             x_min,
             y_min,
             x_max,
             y_max,
         )
-        self.view.camera.set_range(x=(x_min, x_max), y=(y_min, y_max))
-
+        self.view.camera.set_range(x=(x_min, x_max), y=(self.y_min, self.y_max))
+        self.canvas.update()
         self.setLayout(self.layout)
 
 

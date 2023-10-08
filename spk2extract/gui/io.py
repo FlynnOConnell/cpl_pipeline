@@ -23,7 +23,7 @@ def load_smr(parent):
     basename, fname = os.path.split(str(name))
     parent.fname = name[0]
     spike_data = SpikeData(parent.fname)
-    spike_data.extract()
+    spike_data.get_waves()
     load_smr_to_GUI(parent, basename, spike_data)
 
 def load_npy(parent):

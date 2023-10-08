@@ -196,6 +196,7 @@ class MainWindow(QMainWindow):
     def open_multi_select_dialog(
         self,
     ):
+        """Opens a dialog to select multiple clusters in the center of the screen, resizable"""
         dialog = MultiSelectionDialog(self.get_single_clusters)
         dialog.selection_made.connect(self.handle_single_cluster_selection)
         dialog.resize(200, min(400, len(self.get_single_clusters()) * 20 + 50))
@@ -267,10 +268,6 @@ class MainWindow(QMainWindow):
                     self.npy = np.load(os.path.join(cluster_folder_path, file))
                     self.loaded = True
                     break
-
-    @staticmethod
-    def get_npy(self, path):
-        return np.load(path)
 
     def make_graphics_npy(self):
         self.downsample_box = QComboBox()
