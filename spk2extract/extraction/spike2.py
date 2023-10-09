@@ -42,13 +42,13 @@ def __load_spk2_from_h5(filename: str | Path):
     """
     Load data from h5.
     """
-    spike_data = {"metadata": {}, "sampling_rates": {}, "unit": {}}
+    spike_data = {"metadata": {}, "fs": {}, "unit": {}}
     with h5py.File(filename, "r") as f:
         for key, value in f["metadata"].attrs.items():
             spike_data["metadata"][key] = value
 
-        for key, value in f["sampling_rates"].attrs.items():
-            spike_data["sampling_rates"][key] = value
+        for key, value in f["fs"].attrs.items():
+            spike_data["fs"][key] = value
 
         for channel in f["unit"].keys():
             spikes = np.array(f["unit"][channel]["spikes"])
@@ -82,7 +82,7 @@ def __merge_spk2_from_dict(spike_data_dict1, spike_data_dict2):
     """
     merged_spike_data = {
         "metadata": spike_data_dict1["metadata"],
-        "sampling_rates": spike_data_dict1["sampling_rates"],
+        "fs": spike_data_dict1["fs"],
         "unit": {},
     }
 
@@ -190,7 +190,17 @@ def check_substring_content(main_string, substring):
     return substring.lower() in main_string.lower()
 
 
-class SpikeData:
+def indices_to_time(indices, fs):
+    """Spike2 indices are in clock ticks, this converts them to seconds."""
+    return np.array(indices) / float(fs)
+
+
+def ticks_to_time(ticks, time_base):
+    """Converts clock ticks to seconds."""
+    return np.array(ticks) * time_base
+
+
+class Spike2Data:
     """
     Class for reading and storing data from a Spike2 file.
 
@@ -348,8 +358,10 @@ class SpikeData:
                 try:
                     # noinspection PyArgumentList
                     marks = self.sonfile.ReadMarkers(idx, int(2e9), 0)
-                    ticks_to_time = self.tick_to_time([mark.Tick for mark in marks])
-                    self.events = np.round(ticks_to_time, 2)
+                    time_conv = ticks_to_time(
+                        [mark.Tick for mark in marks], self.time_base
+                    )
+                    self.events = np.round(time_conv, 2)
                 except SonfileException as e:
                     self.errors["ReadMarker"] = e
         print("Done")
@@ -373,9 +385,7 @@ class SpikeData:
                 and title not in self.exclude
             ):
                 self.logger.debug(f"Processing {title}")
-                sampling_rate = np.round(
-                    1 / (self.sonfile.ChannelDivide(idx) * self.time_base), 2
-                )
+                fs = np.round(1 / (self.sonfile.ChannelDivide(idx) * self.time_base), 2)
 
                 # Read the waveforms from the channel, up to 2e9, or 2 billion samples at a time which represents
                 # the maximum amount of 30 bit floats that can be stored in memory
@@ -383,30 +393,34 @@ class SpikeData:
                 waveforms = self.sonfile.ReadFloats(idx, int(2e9), 0)
 
                 # Ensure the Nyquist-Shannon sampling theorem is satisfied
-                if sampling_rate < (2 * self.bandpass_high):
+                if fs < (2 * self.bandpass_high):
                     raise ValueError(
                         "Sampling rate is too low for the given bandpass filter frequencies."
                     )
 
+                chan_type = None
+                applied_filter = None
                 # Titles for unit are often just U, but we need to make sure we don't include LFP channels
                 # with a U in the title anywhere
                 if check_substring_content(title, "u") and not check_substring_content(
                     title, "lfp"
                 ):
+                    chan_type = "unit"
                     filtered_segment = filter_signal(
                         waveforms,
-                        sampling_rate,
+                        fs,
                         (self.bandpass_low, self.bandpass_high),
                     )
+                    applied_filter = (self.bandpass_low, self.bandpass_high)
 
                     # Extract spikes and times from the filtered segment
                     slices, spike_indices, thresh = detect_spikes(
                         filtered_segment,
                         [0.5, 1.0],
-                        sampling_rate,
+                        fs,
                     )
                     slices = np.array(slices)
-                    spike_times = spike_indices / float(sampling_rate)
+                    spike_times = spike_indices / float(fs)
 
                     # Create a FinalUnitData namedtuple with the concatenated spikes and times
                     final_unit_data = UnitData(spikes=slices, times=spike_times)
@@ -415,29 +429,31 @@ class SpikeData:
                     self.data[title] = final_unit_data
 
                 elif check_substring_content(title, "lfp"):
-                    # Uses an antialiasing filter
-                    downsampled_segment = decimate(np.array(waveforms), 10, ftype="iir")
-                    self.data[title] = waveforms
+                    chan_type = "lfp"
+                    filtered_segment = filter_signal(
+                        waveforms,
+                        fs,
+                        (0.3, 500)  # TODO: add this as a parameter
+                    )
+                    applied_filter = (0.3, 500)
+                    # save lfp with x values in seconds
+                    self.data[title] = (
+                        waveforms,
+                        np.arange(len(waveforms)) / float(fs),
+                    )
 
                 self.metadata_channel[title] = {
-                    "sampling_rate": sampling_rate,
-                    "channel_type": "unit",
-                    "channel_number": idx + 1,
+                    "fs": fs,
+                    "filter": applied_filter,
+                    "channel_type": chan_type,
                     "channel_title": title,
                     "channel_units": self.sonfile.GetChannelUnits(idx),
                     "channel_divide": self.sonfile.ChannelDivide(idx),
                     "channel_interval": self.channel_interval(idx),
                     "channel_sample_period": self.channel_sample_period(idx),
-                    "channel_num_ticks": self.channel_num_ticks(idx),
-                    "channel_max_ticks": self.channel_max_ticks(idx),
-                    "channel_max_time": self.channel_max_time(idx),
                 }
 
         self.logger.debug(f"Finished extracting ADC channels from {self.filename.stem}")
-
-    @staticmethod
-    def convert_to_time(indices, sampling_rate):
-        return np.array(indices) / float(sampling_rate)
 
     def save(self, overwrite_existing=False) -> Path:
         """
@@ -480,6 +496,7 @@ class SpikeData:
                 self.metadata_file,
                 self.metadata_channel,
                 self.data,
+                self.events,
             )
             self.logger.info(f"Saved data to {h5path}")
         except Exception as e:
@@ -556,23 +573,6 @@ class SpikeData:
 
         """
         return self.channel_max_ticks(channel) * self.time_base
-
-    def tick_to_time(self, ticks: list):
-        """
-        Convert clock ticks to seconds.
-
-        Parameters
-        ----------
-        ticks: list
-            A list of clock ticks.
-
-        Returns
-        -------
-        time : list
-            A list of ticks converted to seconds.
-
-        """
-        return [tick * self.time_base for tick in ticks]
 
     @property
     def time_base(self):
@@ -689,7 +689,7 @@ if __name__ == "__main__":
     path_test = Path().home() / "data" / "smr"
     test_files = [file for file in path_test.glob("*.smr")]
     for testfile in test_files:
-        testdata = SpikeData(
+        testdata = Spike2Data(
             testfile,
             ("Respirat", "RefBrain", "Sniff"),
         )

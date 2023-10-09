@@ -1,3 +1,3 @@
-from .spike_data import SpikeData, UnitData
+from .spike2 import Spike2Data, UnitData
 
-__all__ = ["SpikeData", "UnitData"]
+__all__ = ["Spike2Data", "UnitData"]

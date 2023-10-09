@@ -14,9 +14,9 @@ TAB-completion and introspection capabilities.
 
 """
 from platformdirs import *
-
+from pathlib import Path
 from spk2extract.defaults import defaults  # noqa (API import)
-from spk2extract.extraction import SpikeData, UnitData  # noqa (API import)
+from spk2extract.extraction import Spike2Data, UnitData  # noqa (API import)
 from spk2extract.gui import *  # noqa (API import)
 from spk2extract.spk_io import * # noqa (API import)
 from spk2extract.util import *  # noqa (API import)

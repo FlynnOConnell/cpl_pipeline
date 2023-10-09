@@ -6,7 +6,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import h5py
-import numpy as np
 
 
 def write_h5(filename: str, unit_dict: dict):

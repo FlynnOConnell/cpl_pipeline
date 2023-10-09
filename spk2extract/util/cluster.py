@@ -3,19 +3,12 @@ Cluster and extract function utilities.
 """
 from __future__ import annotations
 
-import logging
-from pathlib import Path
-
 import numpy as np
 from numba import jit, njit
 from numba.typed import List
 from scipy.interpolate import interp1d
 from scipy.signal import butter, filtfilt
 from scipy.signal import sosfilt
-
-logging.basicConfig(level=logging.WARNING)
-logger = logging.getLogger(__name__)
-logpath = Path().home() / "autosort" / "cluster.log"
 
 
 def group_consecutives(arr):
@@ -380,9 +373,9 @@ def dejitter(slices, spike_times, spike_snapshot=(0.5, 1.0), sampling_rate=30000
 def get_waveforms(
     el_trace,
     spike_times,
-    snapshot=[0.5, 1.0],
+    snapshot=(0.5, 1.0),
     sampling_rate=30000.0,
-    bandpass=[300, 3000],
+    bandpass=(300, 3000),
 ):
     filt_el = get_filtered_electrode(
         el_trace, freq=bandpass, sampling_rate=sampling_rate

@@ -1,8 +1,8 @@
-import os, time
+import os
 import numpy as np
 
 from PyQt5.QtWidgets import QFileDialog, QMessageBox
-from spk2extract import SpikeData
+from spk2extract import Spike2Data
 
 def select_base_folder(parent):
     dlg_kwargs = {
@@ -22,7 +22,7 @@ def load_smr(parent):
     name = QFileDialog.getOpenFileName(**dlg_kwargs)
     basename, fname = os.path.split(str(name))
     parent.fname = name[0]
-    spike_data = SpikeData(parent.fname)
+    spike_data = Spike2Data(parent.fname)
     spike_data.get_waves()
     load_smr_to_GUI(parent, basename, spike_data)
 
