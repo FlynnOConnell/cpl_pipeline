@@ -19,7 +19,7 @@ dependencies:
   - scikit-image
   - matplotlib
   - datashader
-  - pyqt6
+  - pyqt=5
   - pyqtgraph
   - pyopenssl
   - pyqt-stubs
@@ -51,5 +51,3 @@ dependencies:
   - pip:
     - sonpy
     - termcolor
-    - PyQt6
-
