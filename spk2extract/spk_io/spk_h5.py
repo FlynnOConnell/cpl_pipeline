@@ -78,6 +78,44 @@ def read_h5(filename: str | Path) -> dict:
         data = __read_group(f)
     return data
 
+def write_extract_h5(
+        filename: Path | str,
+        data: dict = None,
+        events: list = None,
+        metadata_file: dict = None,
+        metadata_channel: dict = None,
+):
+
+    if not Path(filename).parent.exists():
+        Path(filename).parent.mkdir(parents=True, exist_ok=True)
+
+    with tables.open_file(filename, mode="w") as h5file:
+
+        spikes_group = h5file.create_group("/", 'spikes', 'Spike Data')
+        metadata_group = h5file.create_group("/", 'metadata', 'Metadata')
+
+        if data is not None:
+            for data_type, data_dict in data.items():
+                type_group = h5file.create_group(spikes_group, data_type, f'{data_type} Data')
+
+                for sub_type, sub_data in data_dict.items():
+                    sub_group = h5file.create_group(type_group, sub_type, f'{sub_type} Data')
+                    h5file.create_array(sub_group, sub_type, sub_data)
+
+        if events is not None:
+            h5file.create_array(spikes_group, "events", events)
+
+        if metadata_file is not None:
+            for key, value in metadata_file.items():
+                metadata_group._v_attrs[key] = value
+
+        if metadata_channel is not None:
+            channel_group = h5file.create_group(metadata_group, "channel", "Channel Metadata")
+            for key, value in metadata_channel.items():
+                channel_group._v_attrs[key] = value
+
+    return None
+
 def write_complex_h5(
     filename: Path | str,
     data: dict = None,
@@ -209,7 +247,6 @@ def create_empty_data_h5(filename, overwrite=False, shell=False):
             hf5.create_group('/', grp)
         hf5.flush()
     return filename
-
 
 def create_hdf_arrays(file_name, num_channels, overwrite=False):
     if os.path.isfile(file_name):

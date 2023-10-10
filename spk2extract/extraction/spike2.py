@@ -11,7 +11,14 @@ from pathlib import Path
 import h5py
 import numpy as np
 import tables
-from sonpy import lib as sp
+
+try:
+    from sonpy import lib as sp
+except ImportError:
+    try:
+        import sonpy as sp
+    except:
+        pass
 
 import spk2extract
 from spk2extract.spk_io.spk_h5 import write_complex_h5
