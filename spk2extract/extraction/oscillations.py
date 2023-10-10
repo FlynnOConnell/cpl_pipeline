@@ -12,7 +12,6 @@ def butter_bandpass(lowcut, highcut, fs, order=5):
     b, a = butter(order, [low, high], btype="band")
     return b, a
 
-
 def butter_bandpass_filter(data, lowcut, highcut, fs, order=5):
     b, a = butter_bandpass(lowcut, highcut, fs, order=order)
     print("Filter coefficients b:", b)
@@ -33,7 +32,7 @@ for file in files:
     lfp1_ts = h5_file["data"]["LFP1_OB"]["LFP1_OB"][1]
 
     fs = h5_file["metadata_channel"]["LFP1_OB"]["fs"]
-    evt = events[0]  # Assuming this is in seconds
+    evt = events[0]
 
     lowcut = 1.0  # 1 Hz
     highcut = 500.0  # 500 Hz

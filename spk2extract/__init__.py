@@ -16,7 +16,7 @@ TAB-completion and introspection capabilities.
 from platformdirs import *
 from pathlib import Path
 from spk2extract.defaults import defaults  # noqa (API import)
-from spk2extract.extraction import Spike2Data, UnitData  # noqa (API import)
+from spk2extract.extraction import Spike2Data, WaveData  # noqa (API import)
 from spk2extract.gui import *  # noqa (API import)
 from spk2extract.spk_io import * # noqa (API import)
 from spk2extract.util import *  # noqa (API import)
@@ -37,7 +37,7 @@ log_dir = user_log_dir(__name__, __author__)  # Logs, .log files primarily
 # Documentation inclusions
 __all__ = [
     "SpikeData",
-    "UnitData",
+    "WaveData",
     "spk_io",
     "extract_waveforms",
     "dejitter",

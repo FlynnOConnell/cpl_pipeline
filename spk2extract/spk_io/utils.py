@@ -1,10 +1,20 @@
 from __future__ import annotations
 
-import glob
-import os
 from pathlib import Path
 
 import numpy as np
+
+
+def is_h5py_compatible(data):
+    if isinstance(data, np.ndarray):
+        return True
+    if isinstance(data, (int, float)):
+        return True
+    if isinstance(data, (list, tuple)):
+        return all(isinstance(item, (int, float)) for item in data)
+    if isinstance(data, str):
+        return True
+    return False
 
 
 def get_spk2extract_path(path: Path | str) -> Path:
@@ -18,7 +28,7 @@ def get_spk2extract_path(path: Path | str) -> Path:
         for path_idx in range(len(path.parts) - 1, 0, -1):
             if path.parts[path_idx] == "spk2extract":
                 new_path = Path(path.parts[0])
-                for path_part in path.parts[1:path_idx + 1]:
+                for path_part in path.parts[1 : path_idx + 1]:
                     new_path = new_path.joinpath(path_part)
                 break
     else:

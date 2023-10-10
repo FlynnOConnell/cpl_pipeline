@@ -4,21 +4,22 @@ Spike data extraction utility, the main workhorse of this package.
 from __future__ import annotations
 
 import logging
+import os
 from collections import namedtuple
 from pathlib import Path
-from typing import Any
 
 import h5py
 import numpy as np
-from scipy.signal import decimate
+import tables
 from sonpy import lib as sp
 
 import spk2extract
+from spk2extract.spk_io.spk_h5 import write_complex_h5
 from spk2extract.spk_log.logger_config import configure_logger
 from spk2extract.util import filter_signal
 from spk2extract.util.cluster import detect_spikes
 
-UnitData = namedtuple("UnitData", ["spikes", "times"])
+WaveData = namedtuple("WaveData", ["spikes", "times"])
 
 
 class SonfileException(BaseException):
@@ -53,7 +54,7 @@ def __load_spk2_from_h5(filename: str | Path):
         for channel in f["unit"].keys():
             spikes = np.array(f["unit"][channel]["spikes"])
             times = np.array(f["unit"][channel]["times"])
-            spike_data["unit"][channel] = UnitData(spikes, times)
+            spike_data["unit"][channel] = WaveData(spikes, times)
     return spike_data
 
 
@@ -72,7 +73,7 @@ def __merge_spk2(spike_data1, spike_data2):
         merged_spikes = np.concatenate([spikes1, spikes2])
         merged_times = np.concatenate([times1, times2])
 
-        merged_spike_data["unit"][channel] = UnitData(merged_spikes, merged_times)
+        merged_spike_data["unit"][channel] = WaveData(merged_spikes, merged_times)
     return merged_spike_data
 
 
@@ -104,85 +105,9 @@ def __merge_spk2_from_dict(spike_data_dict1, spike_data_dict2):
         merged_spikes = np.concatenate([spikes1, spikes2])
         merged_times = np.concatenate([times1, times2])
 
-        merged_spike_data["unit"][channel] = UnitData(merged_spikes, merged_times)
+        merged_spike_data["unit"][channel] = WaveData(merged_spikes, merged_times)
 
     return merged_spike_data
-
-
-def write_complex_h5(
-    filename: Path | str,
-    metadata_file: dict,
-    metadata_channel: dict[Any],
-    data: dict,
-    events: list | np.ndarray = None,
-):
-    """
-    Creates a h5 file specific to the spike2 dataset.
-
-    There is a group for metadata, metadata_dict, data, and sampling_rates.
-
-    .. note::
-
-        The metadata_file group contains metadata for the entire file, i.e. the bandpass filter frequencies.
-        The metadata_channel group contains metadata for each channel, i.e. the channel type, sampling rate.
-        Data contains the actual data, i.e. the waveforms and spike times.
-
-    Parameters
-    ----------
-    filename : str or Path
-        The filename to save to.
-    metadata_file : dict
-        A dictionary containing the simple str metadata.
-    metadata_channel : dict
-        A dictionary containing the metadata dictionaries.
-    data : dict
-        A dictionary containing the data.
-    events : list or np.ndarray, optional
-        A list of events, where each event is a tuple of (event_name, event_time). Default is None.
-
-    Returns
-    -------
-    None
-
-    """
-    with h5py.File(filename, "w") as f:
-        # Save metadata (any simple type supported by HDF5)
-        metadata_file_grp = f.create_group("metadata_file")
-        for key, value in metadata_file.items():
-            metadata_file_grp.attrs[key] = value
-
-        # Save metadata dictionaries
-        metadata_channel_grp = f.create_group("metadata_channel")
-        for dict_name, dict_data in metadata_channel.items():
-            sub_group = metadata_channel_grp.create_group(dict_name)
-            for key, value in dict_data.items():
-                str_key = (
-                    str(key) if not isinstance(key, tuple) else ",".join(map(str, key))
-                )
-                sub_group.attrs[
-                    str_key
-                ] = value  # this value can be int, float, str, etc.
-
-        # Save data dictionaries
-        data_grp = f.create_group("data")
-        for data_key, data_value in data.items():
-            sub_group = data_grp.create_group(data_key)
-            if check_substring_content(data_key, "u") and not check_substring_content(
-                data_key, "lfp"
-            ):
-                # Convert the namedtuple to a dict to store in the h5 file as a subgroup
-                # The leading _ in _asdict() is to prevent named conflicts, not to indicate privacy
-                # See: https://docs.python.org/3/library/collections.html#collections.somenamedtuple._asdict
-                for field_name, field_value in data_value._asdict().items():
-                    sub_group.create_dataset(field_name, data=field_value)
-
-            elif check_substring_content(data_key, "lfp"):
-                sub_group.create_dataset(data_key, data=np.array(data_value))
-
-        if events is not None:
-            event_grp = f.create_group("event")
-            event_grp.create_dataset("Event", data=events)
-    return None
 
 
 def check_substring_content(main_string, substring):
@@ -253,7 +178,7 @@ class Spike2Data:
     'rat1-2021-03-24_0001'
     >>> data.get_waves()
     >>> data["LFP1"]
-    UnitData(spikes=array([[ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,
+    WaveData(spikes=array([[ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,
                 0.00000000e+00,  0.00000000e+00,  0.00000000e+00],), times=array([...]))
 
     >>> data["LFP1"].spikes
@@ -422,26 +347,22 @@ class Spike2Data:
                     slices = np.array(slices)
                     spike_times = spike_indices / float(fs)
 
-                    # Create a FinalUnitData namedtuple with the concatenated spikes and times
-                    final_unit_data = UnitData(spikes=slices, times=spike_times)
+                    # Create a FinalWaveData namedtuple with the concatenated spikes and times
+                    final_wave_data = WaveData(spikes=slices, times=spike_times)
 
                     # Store this namedtuple in the self.unit dictionary
-                    self.data[title] = final_unit_data
+                    self.data[title] = final_wave_data
 
                 elif check_substring_content(title, "lfp"):
                     chan_type = "lfp"
                     filtered_segment = filter_signal(
-                        waveforms,
-                        fs,
-                        (0.3, 500)  # TODO: add this as a parameter
+                        waveforms, fs, (0.3, 500)  # TODO: add this as a parameter
                     )
                     applied_filter = (0.3, 500)
-                    # save lfp with x values in seconds
-                    self.data[title] = (
-                        waveforms,
-                        np.arange(len(waveforms)) / float(fs),
+                    self.data[title] = WaveData(
+                        spikes=filtered_segment,
+                        times=np.arange(len(filtered_segment)) / float(fs),
                     )
-
                 self.metadata_channel[title] = {
                     "fs": fs,
                     "filter": applied_filter,
@@ -493,10 +414,10 @@ class Spike2Data:
         try:
             write_complex_h5(
                 h5path,
-                self.metadata_file,
-                self.metadata_channel,
                 self.data,
                 self.events,
+                self.metadata_file,
+                self.metadata_channel,
             )
             self.logger.info(f"Saved data to {h5path}")
         except Exception as e:
