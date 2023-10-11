@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project version="4">
-  <component name="Black">
-    <option name="enabledOnReformat" value="true" />
-    <option name="sdkUUID" value="fe409d1f-450d-4739-bff6-da2d8ea0ba44" />
-  </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="spk2extract" project-jdk-type="Python SDK" />
-</project>
