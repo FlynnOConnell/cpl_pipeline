@@ -3,14 +3,10 @@ Spike data extraction utility, the main workhorse of this package.
 """
 from __future__ import annotations
 
-import logging
-import os
 from collections import namedtuple
 from pathlib import Path
 
-import h5py
 import numpy as np
-import tables
 
 try:
     from sonpy import lib as sp
@@ -18,11 +14,12 @@ except ImportError:
     try:
         import sonpy as sp
     except:
-        pass
+        raise ImportError("sonpy not found. Are you on a M1 Mac?")
 
-import spk2extract
-from spk2extract.spk_io.spk_h5 import write_h5
-from spk2extract.spk_log.logger_config import configure_logger
+from spk2extract.logs import logger
+from spk2extract.helpers import check_substring_content
+from spk2extract.defaults import defaults
+from spk2extract import spk_io
 from spk2extract.util import filter_signal
 from spk2extract.util.cluster import detect_spikes
 
@@ -43,83 +40,6 @@ class SonfileException(BaseException):
 
     def __repr__(self):
         return f"{self.message}"
-
-
-# Function to load a SpikeData instance from a h5 file
-def __load_spk2_from_h5(filename: str | Path):
-    """
-    Load data from h5.
-    """
-    spike_data = {"metadata": {}, "fs": {}, "unit": {}}
-    with h5py.File(filename, "r") as f:
-        for key, value in f["metadata"].attrs.items():
-            spike_data["metadata"][key] = value
-
-        for key, value in f["fs"].attrs.items():
-            spike_data["fs"][key] = value
-
-        for channel in f["unit"].keys():
-            spikes = np.array(f["unit"][channel]["spikes"])
-            times = np.array(f["unit"][channel]["times"])
-            spike_data["unit"][channel] = WaveData(spikes, times)
-    return spike_data
-
-
-# Function to merge two SpikeData instances
-def __merge_spk2(spike_data1, spike_data2):
-    """
-    Merge spike data.
-    """
-    merged_spike_data = {"metadata": spike_data1["metadata"], "unit": {}}
-
-    # Merge unit data
-    for channel in spike_data1["unit"].keys():
-        spikes1, times1 = spike_data1["unit"][channel]
-        spikes2, times2 = spike_data2["unit"][channel]
-
-        merged_spikes = np.concatenate([spikes1, spikes2])
-        merged_times = np.concatenate([times1, times2])
-
-        merged_spike_data["unit"][channel] = WaveData(merged_spikes, merged_times)
-    return merged_spike_data
-
-
-def __merge_spk2_from_dict(spike_data_dict1, spike_data_dict2):
-    """
-    Merge data from dicts.
-    """
-    merged_spike_data = {
-        "metadata": spike_data_dict1["metadata"],
-        "fs": spike_data_dict1["fs"],
-        "unit": {},
-    }
-
-    # find which spikedata has preinfusion data
-    if spike_data_dict1["metadata"]["infusion"] == "pre":
-        spike_data_pre = spike_data_dict1
-        spike_data_post = spike_data_dict2
-    else:
-        spike_data_pre = spike_data_dict2
-        spike_data_post = spike_data_dict1
-
-    # Merge unit data
-    for channel in spike_data_pre["unit"].keys():
-        spikes1 = spike_data_pre["unit"][channel].spikes
-        times1 = spike_data_pre["unit"][channel].times
-        spikes2 = spike_data_post["unit"][channel].spikes
-        times2 = spike_data_post["unit"][channel].times
-
-        merged_spikes = np.concatenate([spikes1, spikes2])
-        merged_times = np.concatenate([times1, times2])
-
-        merged_spike_data["unit"][channel] = WaveData(merged_spikes, merged_times)
-
-    return merged_spike_data
-
-
-def check_substring_content(main_string, substring):
-    """Checks if any combination of the substring is in the main string."""
-    return substring.lower() in main_string.lower()
 
 
 def indices_to_time(indices, fs):
@@ -175,12 +95,12 @@ class Spike2Data:
 
     Examples
     --------
-    >>> from spk2extract import SpikeData
+    >>> from spk2extract.extraction import Spike2Data
     >>> from pathlib import Path
     >>> smr_path = Path().home() / "data" / "smr"
     >>> files = [file for file in smr_path.glob("*.smr")]
     >>> assert len(files) > 0
-    >>> data = SpikeData(files[0])
+    >>> data = Spike2Data(files[0])
     >>> data
     'rat1-2021-03-24_0001'
     >>> data.get_waves()
@@ -240,9 +160,7 @@ class Spike2Data:
             The total recording length, in seconds.
 
         """
-        self.logger = configure_logger(
-            __name__, spk2extract.log_dir, level=logging.DEBUG
-        )
+        self.logger = logger
         self._bandpass_low = 300
         self._bandpass_high = 3000
         self.errors = {}
@@ -284,9 +202,10 @@ class Spike2Data:
             raise KeyError(f"{key} not found in SpikeData object.")
 
     def get_events(self):
+        logger.info("###--- Extracting events ---###")
         for idx in range(self.max_channels):
-            title = self.sonfile.GetChannelTitle(idx)
-            if title in ["DigMark"]:
+            title = (self.sonfile.GetChannelTitle(idx)).lower()
+            if "mark" in title or "keyboard" in title:
                 try:
                     # noinspection PyArgumentList
                     marks = self.sonfile.ReadMarkers(idx, int(2e9), 0)
@@ -326,9 +245,8 @@ class Spike2Data:
 
                 # Ensure the Nyquist-Shannon sampling theorem is satisfied
                 if fs < (2 * self.bandpass_high):
-                    raise ValueError(
-                        "Sampling rate is too low for the given bandpass filter frequencies."
-                    )
+                    # TODO: handle this
+                    pass
 
                 chan_type = None
                 applied_filter = None
@@ -383,12 +301,13 @@ class Spike2Data:
 
         self.logger.debug(f"Finished extracting ADC channels from {self.filename.stem}")
 
-    def save(self, overwrite_existing=True) -> Path:
+    def save(self, savepath: str | Path, overwrite_existing=True) -> Path:
         """
         Save the data to a h5 file in the users h5 directory.
 
         The resulting h5 file will be saved to the data/h5 directory with the corresponding filename.
         The h5 file will contain:
+
         1) Metadata specific to the file, such as the bandpass filter frequencies.
             - 'metadata_file'
         2) Metadata specific to each channel, such as the channel type and sampling rate.
@@ -398,6 +317,8 @@ class Spike2Data:
 
         Parameters
         ----------
+        savepath : str or Path
+            The path/filename to save to.
         overwrite_existing : bool, optional
             Whether to overwrite an existing file with the same name. Default is False.
 
@@ -407,9 +328,8 @@ class Spike2Data:
             The filename that the data was saved to.
 
         """
-        from spk2extract import spk2dir  # prevent circular import
 
-        h5path = spk2dir / "h5" / self.filename.stem
+        h5path = Path(savepath)
         h5path = h5path.with_suffix(".h5")
         if not h5path.parent.exists():
             h5path.parent.mkdir(exist_ok=True, parents=True)
@@ -419,7 +339,13 @@ class Spike2Data:
             )
             pass
         try:
-            write_h5(h5path, self.data, self.events, self.metadata_channel, self.metadata_file)
+            spk_io.write_h5(
+                h5path,
+                self.data,
+                self.events,
+                self.metadata_channel,
+                self.metadata_file,
+            )
             self.logger.info(f"Saved data to {h5path}")
         except Exception as e:
             self.logger.error(f"Error writing h5 file: {e}")
@@ -608,13 +534,18 @@ class Spike2Data:
 
 
 if __name__ == "__main__":
-    path_test = Path().home() / "data" / "smr"
+    defaults = defaults()
+    log_level = defaults["log_level"]
+    logger.setLevel(log_level)
+    print(f"Log level set to {log_level}")
+
+    path_test = Path().home() / "data" / "context"
+    save_test = Path().home() / "data" / "extracted"
     test_files = [file for file in path_test.glob("*.smr")]
     for testfile in test_files:
         testdata = Spike2Data(
             testfile,
-            ("Respirat", "RefBrain", "Sniff"),
         )
         testdata.get_events()
         testdata.get_waves()
-        testdata.save(overwrite_existing=True)
+        testdata.save(save_test / str(testdata), overwrite_existing=True)
