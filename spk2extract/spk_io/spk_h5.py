@@ -5,134 +5,49 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Iterable, Any
+from typing import Iterable
 
-import h5py
 import tables
 
-from spk2extract.spk_io.utils import is_h5py_compatible
-
-def write_h5(filename: str, unit_dict: dict):
-    """
-    Save the specified data dictionaries to an HDF5 file.
-
-    Parameters
-    ----------
-    filename : str
-        Path to the output HDF5 file.
-    unit_dict : dict
-        Dictionary containing unit data.
-
-    Examples
-    --------
-    >>> write_h5('output.h5', {'unit1': [1, 2, 3], 'unit2': [4, 5, 6]})
-    """
-    with h5py.File(filename, 'w') as f:
-        unit_group = f.create_group('unit')
-        for key, data in unit_dict.items():
-            unit_group.create_dataset(key, data=data)
-
-def __read_group(group: h5py.Group) -> dict:
-    """
-    Read a single HDF5 group and return a dictionary containing the data.
-
-    Parameters
-    ----------
-    group : h5py.Group
-        HDF5 group to read.
-
-    Returns
-    -------
-    dict
-        Dictionary containing the data from the HDF5 group.
-    """
-    data = {}
-    for attr_name, attr_value in group.attrs.items():
-        data[attr_name] = attr_value
-    for key, item in group.items():
-        if isinstance(item, h5py.Group):
-            data[key] = __read_group(item)
-        elif isinstance(item, h5py.Dataset):
-            data[key] = item[()]
-    return data
-
-def read_h5(filename: str | Path) -> dict:
-    """
-    Read a single HDF5 file and return a dictionary containing the data.
-
-    Parameters
-    ----------
-    filename : str or Path
-        Path to the HDF5 file.
-
-    Returns
-    -------
-    dict
-        Dictionary containing the data from the HDF5 file.
-
-    Examples
-    --------
-    >>> data = read_h5('input.h5')
-    """
-    with h5py.File(filename, "r") as f:
-        data = __read_group(f)
-    return data
-
-def write_extract_h5(
-        filename: Path | str,
-        data: dict = None,
-        events: list = None,
-        metadata_file: dict = None,
-        metadata_channel: dict = None,
-):
-
-    if not Path(filename).parent.exists():
-        Path(filename).parent.mkdir(parents=True, exist_ok=True)
-
-    with tables.open_file(filename, mode="w") as h5file:
-
-        spikes_group = h5file.create_group("/", 'spikes', 'Spike Data')
-        metadata_group = h5file.create_group("/", 'metadata', 'Metadata')
-
-        if data is not None:
-            for data_type, data_dict in data.items():
-                type_group = h5file.create_group(spikes_group, data_type, f'{data_type} Data')
-
-                for sub_type, sub_data in data_dict.items():
-                    sub_group = h5file.create_group(type_group, sub_type, f'{sub_type} Data')
-                    h5file.create_array(sub_group, sub_type, sub_data)
-
-        if events is not None:
-            h5file.create_array(spikes_group, "events", events)
-
-        if metadata_file is not None:
-            for key, value in metadata_file.items():
-                metadata_group._v_attrs[key] = value
-
-        if metadata_channel is not None:
-            channel_group = h5file.create_group(metadata_group, "channel", "Channel Metadata")
-            for key, value in metadata_channel.items():
-                channel_group._v_attrs[key] = value
-
-    return None
-
-def write_complex_h5(
+def write_h5(
     filename: Path | str,
     data: dict = None,
     events: Iterable = None,
     metadata_file: dict = None,
-    metadata_channel: dict[Any] = None,
+    metadata_channel: dict = None,
 ):
     """
     Creates a h5 file specific to the spike2 dataset.
 
-    There is a group for metadata, metadata_dict, data, and sampling_rates.
+    HDF5 Storage Structure
+    ======================
 
-    .. note::
+    The HDF5 file is organized into groups and subgroups to store spike data, events, and metadata.
 
-        The metadata_file group contains metadata for the entire file, i.e. the bandpass filter frequencies.
-        The metadata_channel group contains metadata for each channel, i.e. the channel type, sampling rate.
-        Data contains the actual data, i.e. the waveforms and spike times.
+    Here is an overview of the storage structure:
+
+    .. code-block:: text
+
+        /
+        ├── spikedata
+        │   ├── Channel_1
+        │   │   ├── spikes
+        │   │   │   └── spikes_data (array)
+        │   │   └── times
+        │   │       └── times_data (array)
+        │   ├── Channel_2
+        │   │   ├── spikes
+        │   │   │   └── spikes_data (array)
+        │   │   └── times
+        │   │       └── times_data (array)
+        │   └── ...
+        │
+        ├── events
+        │   └── events (array)
+        │
+        └── metadata
+            ├── channel (group with attributes)
+            └── (other metadata attributes)
 
     Parameters
     ----------
@@ -145,142 +60,124 @@ def write_complex_h5(
     metadata_file : dict, optional
         A dictionary containing the simple str metadata.
     metadata_channel : dict, optional
-        A dictionary containing the metadata dictionaries.
+        A dictionary containing metadata in dictionary form.
 
     Returns
     -------
     None
 
     """
+
     if not Path(filename).parent.exists():
-        filename.parent.mkdir(parents=True, exist_ok=True)
-    with h5py.File(filename, "w") as f:
-        # 1) Save data dictionaries
+        Path(filename).parent.mkdir(parents=True, exist_ok=True)
+
+    with tables.open_file(filename, mode="w") as h5file:
+        wavedata_group = h5file.create_group("/", "spikedata", "Spike Data")
+        metadata_group = h5file.create_group("/", "metadata", "Metadata")
+        events_group = h5file.create_group("/", "events", "Event Data")
+
         if data is not None:
-            data_grp = f.create_group("data")
-            for data_key, data_value in data.items():
-                sub_group = data_grp.create_group(data_key)
-                # Convert the namedtuple to a dict to store in the h5 file as a subgroup
-                # The leading _ in _asdict() is to prevent named conflicts, not to indicate privacy
-                # See: https://docs.python.org/3/library/collections.html#collections.somenamedtuple._asdict
-                if isinstance(data_value, dict):
-                    for field_name, field_value in data_value.items():
-                        if is_h5py_compatible(field_value):
-                            sub_group.create_dataset(field_name, data=field_value)
-                        else:
-                            raise ValueError(
-                                f"Value {field_value} of type {type(field_value)} is not compatible with h5py."
-                            )
-                else:
-                    for field_name, field_value in data_value._asdict().items():
-                        if is_h5py_compatible(field_value):
-                            sub_group.create_dataset(field_name, data=field_value)
-                        else:
-                            raise ValueError(
-                                f"Value {field_value} of type {type(field_value)} is not compatible with h5py."
-                            )
-
-        # 2) Save events
-        if events is not None:
-            event_grp = f.create_group("events")
-            # keep this as a group so other groups / events can be added if needed
-            if is_h5py_compatible(events):
-                event_grp.create_dataset(field_name, data=events)
-            else:
-                raise ValueError(
-                    f"Value {events} of type {type(events)} is not compatible with h5py."
+            for dict_key, dict_value in data.items():
+                channel_group = h5file.create_group(
+                    wavedata_group, dict_key, f"{dict_key} Data"
                 )
+                spikes_group = h5file.create_group(
+                    channel_group, "spikes", "Spikes Data"
+                )
+                times_group = h5file.create_group(channel_group, "times", "Times Data")
 
-        # 3) Save metadata for the entire file (any simple type supported by HDF5)
-        if metadata_file is not None:
-            metadata_file_grp = f.create_group("metadata_file")
-            for key, value in metadata_file.items():
-                if isinstance(value, dict):
-                    sub_group = metadata_file_grp.create_group(key)
-                    for sub_key, sub_value in value.items():
-                        str_key = (
-                            str(sub_key)
-                            if not isinstance(sub_key, tuple)
-                            else ",".join(map(str, sub_key))
-                        )
-                        sub_group.attrs[str_key] = sub_value
+                if hasattr(dict_value, "_asdict"):  # namedtuple
+                    for field_name, field_value in dict_value._asdict().items():
+                        if field_name == "spikes":
+                            h5file.create_array(spikes_group, field_name, field_value)
+                        if field_name == "times":
+                            h5file.create_array(times_group, field_name, field_value)
+
+                elif hasattr(dict_value, "items"):  # dict
+                    for sub_type, sub_data in dict_value.items():
+                        if sub_type == "spikes":
+                            h5file.create_array(spikes_group, sub_type, sub_data)
+                        if sub_type == "times":
+                            h5file.create_array(times_group, sub_type, sub_data)
                 else:
-                    metadata_file_grp.attrs[key] = value
+                    try:
+                        (spikes_data, times_data) = dict_value
+                        h5file.create_array(spikes_group, "spikes_data", spikes_data)
+                        h5file.create_array(times_group, "times_data", times_data)
+                    except:
+                        raise ValueError(
+                            f"Value {dict_value} of type {type(dict_value)} is not compatible with h5py."
+                        )
 
-        # 4) Save metadata per-channel
+        if events is not None:
+            h5file.create_array(events_group, "events", events)
+
+        if metadata_file is not None:
+            for dict_key, value in metadata_file.items():
+                metadata_group._v_attrs[dict_key] = value
+
         if metadata_channel is not None:
-            metadata_channel_grp = f.create_group("metadata_channel")
-            for dict_name, dict_data in metadata_channel.items():
-                sub_group = metadata_channel_grp.create_group(dict_name)
-                for key, value in dict_data.items():
-                    str_key = (
-                        str(key) if not isinstance(key, tuple) else ",".join(map(str, key))
-                    )
-                    sub_group.attrs[str_key] = value
-
+            channel_group = h5file.create_group(
+                metadata_group, "channel", "Channel Metadata"
+            )
+            for dict_key, value in metadata_channel.items():
+                channel_group._v_attrs[dict_key] = value
     return None
 
-def create_empty_data_h5(filename, overwrite=False, shell=False):
+def __read_group(group: tables.Group) -> dict:
     """
-    Create empty h5 store for blech data with approriate data groups
+    Read a single PyTables group and return a dictionary containing the data.
 
     Parameters
     ----------
-    filename : str, absolute path to h5 file for recording
+    group : tables.Group
+        PyTables group to read.
+
+    Returns
+    -------
+    dict
+        Dictionary containing the data from the PyTables group.
     """
-    if 'SHH_CONNECTION' in os.environ:
-        shell = True
+    data = {}
 
-    if not filename.endswith('.h5') and not filename.endswith('.hdf5'):
-        filename += '.h5'
+    # Reading attributes
+    for attr_name in group._v_attrs._f_list("all"):
+        attr_value = group._v_attrs[attr_name]
+        data[attr_name] = attr_value
 
-    basename = os.path.splitext(os.path.basename(filename))[0]
+    # Reading child nodes (groups and leaves)
+    for node in group._f_iter_nodes():
+        if isinstance(node, tables.Group):
+            data[node._v_name] = __read_group(node)
+        elif isinstance(node, tables.Array):
+            data[node._v_name] = node.read()
 
-    if os.path.isfile(filename):
-        os.remove(filename)
-        print('Done!')
+    return data
 
-    print('Creating empty HDF5 store with raw data groups')
-    data_groups = ['raw', 'unit', 'lfp']
-    with tables.open_file(filename, 'w', title=basename) as hf5:
-        for grp in data_groups:
-            hf5.create_group('/', grp)
-        hf5.flush()
-    return filename
-
-def create_hdf_arrays(file_name, num_channels, overwrite=False):
-    if os.path.isfile(file_name):
-        if not overwrite:
-            print(f"{file_name} already exists. Exiting.")
-            return
-        else:
-            os.remove(file_name)
-
-    print('Creating empty HDF5 store with raw data groups...')
-    data_groups = ['unit', 'lfp']
-    atom = tables.IntAtom()
-    f_atom = tables.Float64Atom()
-
-    with tables.open_file(file_name, 'w') as hf5:
-        for grp in data_groups:
-            hf5.create_group('/', grp)
-
-        # Create array for raw time vector
-        hf5.create_earray('/raw', 'time_vector', f_atom, (0,))
-
-        # Create arrays for each channel
-        for i in range(1, num_channels + 1):
-            hf5.create_earray('/raw', f'channel_{i}', atom, (0,))
-    print('Done!')
-
-def get_h5_filename(file_dir, shell=True):
+def read_h5(filename: str | Path) -> dict:
     """
+    Read a single PyTables HDF5 file and return a dictionary containing the data.
+
+    Parameters
+    ----------
+    filename : str or Path
+        Path to the HDF5 file.
+
+    Returns
+    -------
+    dict
+        Dictionary containing the data from the HDF5 file.
     """
-    if 'SHH_CONNECTION' in os.environ:
+    with tables.open_file(str(filename), "r") as h5file:
+        data = __read_group(h5file.root)
+    return data
+
+def get_h5_filename(file_dir):
+    if "SHH_CONNECTION" in os.environ:
         shell = True
 
     file_list = os.listdir(file_dir)
-    h5_files = [f for f in file_list if f.endswith('.h5')]
+    h5_files = [f for f in file_list if f.endswith(".h5")]
     return os.path.join(file_dir, h5_files[0])
 
 def read_files_into_arrays(file_name, time_data, channel_data):
@@ -288,11 +185,19 @@ def read_files_into_arrays(file_name, time_data, channel_data):
         print(f"{file_name} does not exist. Exiting.")
         return
 
-    print(f'Appending data to {file_name}...')
+    print(f"Appending data to {file_name}...")
 
-    with tables.open_file(file_name, 'r+') as hf5:
+    with tables.open_file(file_name, "r+") as hf5:
         hf5.root.raw.time_vector.append(time_data)
         # Append channel data
         for i, ch_data in enumerate(channel_data, start=1):
-            hf5.get_node(f'/raw/channel_{i}').append(ch_data)
-    print('Done!')
+            hf5.get_node(f"/raw/channel_{i}").append(ch_data)
+    print("Done!")
+
+if __name__ == "__main__":
+    # get all files with "pre" in the name before .h5
+    path = Path().home() / "spk2extract" / "h5"
+    pre_files = list(path.glob("*pre*.h5"))
+    post_files = list(path.glob("*post*.h5"))
+    testdata = read_h5(pre_files[0])
+    combined_metadata = {}

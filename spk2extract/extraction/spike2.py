@@ -21,7 +21,7 @@ except ImportError:
         pass
 
 import spk2extract
-from spk2extract.spk_io.spk_h5 import write_complex_h5
+from spk2extract.spk_io.spk_h5 import write_h5
 from spk2extract.spk_log.logger_config import configure_logger
 from spk2extract.util import filter_signal
 from spk2extract.util.cluster import detect_spikes
@@ -383,7 +383,7 @@ class Spike2Data:
 
         self.logger.debug(f"Finished extracting ADC channels from {self.filename.stem}")
 
-    def save(self, overwrite_existing=False) -> Path:
+    def save(self, overwrite_existing=True) -> Path:
         """
         Save the data to a h5 file in the users h5 directory.
 
@@ -419,13 +419,7 @@ class Spike2Data:
             )
             pass
         try:
-            write_complex_h5(
-                h5path,
-                self.data,
-                self.events,
-                self.metadata_file,
-                self.metadata_channel,
-            )
+            write_h5(h5path, self.data, self.events, self.metadata_channel, self.metadata_file)
             self.logger.info(f"Saved data to {h5path}")
         except Exception as e:
             self.logger.error(f"Error writing h5 file: {e}")
