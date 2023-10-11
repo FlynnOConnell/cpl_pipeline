@@ -22,38 +22,41 @@ def merge_data(data_pre: dict, data_post: dict):
     for key in data_pre.keys():
         if check_substring_content(key, "u") and not check_substring_content(key, "lfp"):
             if key in data_post.keys():
-                pre_temp = data_pre[key]
-                post_temp = data_post[key]
+                pre_times = data_pre[key]["times"]["times"]
+                post_times = data_post[key]["times"]["times"]
+                pre_spikes = data_pre[key]["spikes"]["spikes"]
+                post_spikes = data_post[key]["spikes"]["spikes"]
 
                 # Adjust the timestamps
-                last_timestamp_pre = pre_temp["times"][-1]
-                post_temp["times"] += last_timestamp_pre
-
-                # Vertically stack the spikes (2D arrays)
-                pre_temp["spikes"] = np.vstack((pre_temp["spikes"], post_temp["spikes"]))
-                # Append times (1D array)
-                pre_temp["times"] = np.concatenate((pre_temp["times"], post_temp["times"]))
-                data_pre[key] = pre_temp
+                last_timestamp_pre = pre_times[-1]
+                post_times += last_timestamp_pre
+                pre_spikes = np.vstack((pre_spikes, post_spikes))
+                pre_times = np.append(pre_times, post_times)
             combined[key] = data_pre[key]
         elif check_substring_content(key, "lfp"):
             if key in data_post.keys():
-                pre_temp = data_pre[key]
-                post_temp = data_post[key]
+
+                pre_times = data_pre[key]["times"]["times"]
+                post_times = data_post[key]["times"]["times"]
+                pre_spikes = data_pre[key]["spikes"]["spikes"]
+                post_spikes = data_post[key]["spikes"]["spikes"]
 
                 # Adjust the timestamps
-                last_timestamp_pre = pre_temp["times"][-1]
-                post_temp["times"] += last_timestamp_pre
-                pre_temp["spikes"] = np.append(pre_temp["spikes"], post_temp["spikes"])
-                pre_temp["times"] = np.append(pre_temp["times"], post_temp["times"])
+                last_timestamp_pre = pre_times[-1]
+                post_times += last_timestamp_pre
 
-                data_pre[key] = pre_temp
+                pre_times = np.append(pre_times, post_times)
+                pre_spikes = np.append(pre_spikes, post_spikes)
+
+                data_pre[key] = {"times": pre_times, "spikes": pre_spikes}
             combined[key] = data_pre[key]
 
     return combined
 
 def merge_events(events_pre, events_post):
     # add the last timestamp of the 'pre' data to each timestamp in the 'post' data
-    last_timestamp_pre = events_pre[-1]
+    last_timestamp_pre = events_pre["events"][-1]
+    events_post = events_post["events"]
     events_post += last_timestamp_pre
     events_pre = np.append(events_pre, events_post)
     return events_pre
@@ -66,8 +69,8 @@ def merge_h5(path_pre, path_post):
     post_h5 = read_h5(path_post)
     merged_data = merge_data(pre_h5["spikedata"], post_h5["spikedata"])
     merged_events = merge_events(pre_h5["events"], post_h5["events"])
-    merged_metadata = merge_metadata_file(pre_h5["metadata_file"], post_h5["metadata_file"])
-    metadata_channel = pre_h5["metadata_channel"]
+    merged_metadata = merge_metadata_file(pre_h5["metadata"]["channel"], post_h5["metadata"]["metadata"])
+    metadata_channel = pre_h5["metadata"]
     return merged_data, merged_events, merged_metadata, metadata_channel
 
 
