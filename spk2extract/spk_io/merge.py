@@ -1,7 +1,7 @@
 from pathlib import Path
 import numpy as np
 
-from spk2extract.spk_io.spk_h5 import read_h5, write_h5
+from spk2extract import spk_io
 
 
 def get_common_name(path1: Path, path2: Path) -> str:
@@ -65,8 +65,8 @@ def merge_metadata_file(metadata_file_pre, metadata_file_post):
     return  {"pre": metadata_file_pre, "post": metadata_file_post}
 
 def merge_h5(path_pre, path_post):
-    pre_h5 = read_h5(path_pre)
-    post_h5 = read_h5(path_post)
+    pre_h5 = spk_io.read_h5(path_pre)
+    post_h5 = spk_io.read_h5(path_post)
     merged_data = merge_data(pre_h5["spikedata"], post_h5["spikedata"])
     merged_events = merge_events(pre_h5["events"], post_h5["events"])
     merged_metadata = merge_metadata_file(pre_h5["metadata"]["channel"], post_h5["metadata"]["metadata"])
@@ -85,6 +85,6 @@ if __name__ == "__main__":
     savename = get_common_name(pre_files[0], post_files[0])
     savename = Path().home() / "spk2extract" / "combined" / f"{savename}.h5"
     savename.parent.mkdir(parents=True, exist_ok=True)
-    write_h5(savename, data=data, events=events, metadata_file=m_file, metadata_channel=m_channel)
+    spk_io.write_h5(savename, data=data, events=events, metadata_file=m_file, metadata_channel=m_channel)
 
     x = 5
