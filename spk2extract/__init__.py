@@ -13,41 +13,49 @@ I recommend exploring the docstrings using
 TAB-completion and introspection capabilities.
 
 """
-from platformdirs import *
+try:
+    from platformdirs import user_cache_dir, user_config_dir, user_log_dir
+except ImportError:
+    user_cache_dir = None
+    user_config_dir = None
+    user_log_dir = None
+    pass
 from pathlib import Path
-from spk2extract.defaults import defaults  # noqa (API import)
-from spk2extract.extraction import Spike2Data, WaveData  # noqa (API import)
-from spk2extract.gui import *  # noqa (API import)
-from spk2extract.spk_io import * # noqa (API import)
-from spk2extract.util import *  # noqa (API import)
-from spk2extract.version import version as __version__  # noqa (API import)
+from . import spk_io, gui, helpers, defaults
 
-version = __version__
 __name__ = "spk2extract"
 __author__ = "Flynn OConnell"
+__all__ = [
+    "spk_io",
+    "gui",
+    "helpers",
+    "defaults",
+]
+
+# Version
+version = "0.0.1"
 
 # Platform-dependent directories
-spk2dir = Path().home() / "spk2extract"
-if not spk2dir.exists():
-    spk2dir.mkdir(exist_ok=True)
-cache_dir = user_cache_dir(__name__, __author__)  # Cache, temp files
-config_dir = user_config_dir(__name__, __author__)  # Config, parameters and options
-log_dir = user_log_dir(__name__, __author__)  # Logs, .log files primarily
+def _init_directories():
+    spk2dir = Path().home() / "spk2extract"
+    if not spk2dir.exists():
+        spk2dir.mkdir(exist_ok=True)
 
-# Documentation inclusions
-__all__ = [
-    "SpikeData",
-    "WaveData",
-    "spk_io",
-    "extract_waveforms",
-    "dejitter",
-    "filter_signal",
-    "defaults",
-    "version",
-    "gui",
-    "cache_dir",
-    "config_dir",
-    "log_dir",
-    "spk2dir",
-]
-x = 5
+    # make sure platformdirs import was successful
+    if user_cache_dir and user_config_dir and user_log_dir:
+        return {
+            "cache_dir": user_cache_dir(__name__, __author__),
+            "config_dir": user_config_dir(__name__, __author__),
+            "log_dir": user_log_dir(__name__, __author__),
+            "spk2dir": spk2dir,
+        }
+    else:
+        return {}
+
+def get_logger():
+    from .logs import logger
+    return logger
+
+directories = _init_directories()
+__all__.extend(list(directories.keys()))
+globals().update(directories)

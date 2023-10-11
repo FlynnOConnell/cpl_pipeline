@@ -112,7 +112,7 @@ class _SpkStreamHandler(logging.StreamHandler):
         self._spk_emit_list = list()
 
 
-logger = logging.getLogger('spk')
+logger = logging.getLogger('spk2extract')
 _lf = _SpkFormatter()
 _lh = _SpkStreamHandler()  # needs _lf to exist
 logger.addHandler(_lh)
