@@ -18,6 +18,7 @@ dependencies:
   - scikit-learn
   - scikit-image
   - matplotlib
+  - seaborn
   - datashader
   - pyqt=5
   - pyqtgraph
