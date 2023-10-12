@@ -24,7 +24,7 @@ from spk2extract.util import filter_signal
 from spk2extract.util.cluster import detect_spikes
 
 WaveData = namedtuple("WaveData", ["spikes", "times"])
-
+EventData = namedtuple("EventData", ["events", "times"])
 
 class SonfileException(BaseException):
     """
@@ -51,6 +51,9 @@ def ticks_to_time(ticks, time_base):
     """Converts clock ticks to seconds."""
     return np.array(ticks) * time_base
 
+def is_ascii_letter(char):
+    if char in range(65, 91) or char in range(97, 123):
+        return True
 
 class Spike2Data:
     """
@@ -254,17 +257,25 @@ class Spike2Data:
         logger.info("###--- Extracting events ---###")
         for idx in range(self.max_channels()):
             title = (self.sonfile.GetChannelTitle(idx)).lower()
-            if "mark" in title or "keyboard" in title:
+            if "keyboard" in title:
                 try:
                     # noinspection PyArgumentList
                     marks = self.sonfile.ReadMarkers(idx, int(2e9), 0)
-                    time_conv = ticks_to_time(
-                        [mark.Tick for mark in marks], self.time_base
-                    )
-                    self.events = np.round(time_conv, 2)
+                    char_codes = []
+                    for mark in marks:
+                        marker_string = ""
+                        codes = [mark.Code1, mark.Code2, mark.Code3, mark.Code4]
+                        for code in codes:
+                            if is_ascii_letter(code):
+                                marker_string += chr(code)
+                        char_codes.append(marker_string)
+
+                    time_conv = np.round(ticks_to_time(
+                        [mark.Tick for mark in marks], self.time_base()
+                    ), 3)
+                    self.events = EventData(events=char_codes, times=time_conv)
                 except SonfileException as e:
                     self.errors["ReadMarker"] = e
-        print("Done")
 
     def get_waves(
         self,
@@ -285,7 +296,7 @@ class Spike2Data:
                 and title not in self.exclude
             ):
                 self.logger.debug(f"Processing {title}")
-                fs = np.round(1 / (self.sonfile.ChannelDivide(idx) * self.time_base), 2)
+                fs = np.round(1 / (self.sonfile.ChannelDivide(idx) * self.time_base()), 2)
 
                 # Read the waveforms from the channel, up to 2e9, or 2 billion samples at a time which represents
                 # the maximum amount of 30 bit floats that can be stored in memory
