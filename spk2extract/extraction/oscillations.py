@@ -1,3 +1,4 @@
+# %%
 from __future__ import annotations
 
 import itertools
@@ -5,19 +6,20 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import seaborn as sns
 from matplotlib import pyplot as plt
+from scipy.fftpack import fft
 from scipy.integrate import simps
 from scipy.signal import butter, filtfilt, coherence
-from scipy.fftpack import fft
-import seaborn as sns
 
-import spk2extract
+from spk2extract.logs import logger
 from spk2extract.spk_io import spk_h5
 
-logger = spk2extract.logger
-logger.setLevel("INFO")
+# %%
 
+logger.setLevel("INFO")
 sns.set_style("darkgrid")
+
 
 def butter_bandpass(lowcut, highcut, fs, order=5):
     nyquist = 0.5 * fs
@@ -41,29 +43,31 @@ def get_data(path: Path | str):
     path = Path(path)
     files = list(path.glob("*dk3*"))
     file = files[0]
+    h5_file = spk_h5.read_h5(path / file)
     spikes_df = pd.DataFrame()
     times_df = pd.DataFrame()
-    h5_file = spk_h5.read_h5(path / file)
+    events_arr = h5_file["events"]["events"]
     spikedata = h5_file["spikedata"]
     for chan, data in spikedata.items():
         if chan in ["VERSION", "CLASS", "TITLE"]:
             continue
         logger.info(f"Channel: {chan}")
-        spikes = data["spikes"]["spikes"]
-        times = data["times"]["times"]
+        spikes = data["spikes"]
+        times = data["times"]
         spikes_df[chan] = spikes
         times_df[chan] = times
-    return spikes_df, times_df
+    return spikes_df, times_df, events_arr
 
 
 class LfpSignal:
-    def __init__(self, spikes_df, times_df, fs):
+    def __init__(self, spikes_df, times_df, fs, event_arr=None):
         self.spikes: pd.DataFrame = spikes_df
         self.times: pd.DataFrame = times_df
+        self.events: np.ndarray | None = event_arr
         self.fs: float = fs
         self._bandpass: tuple = ()
-        self.filtered = False
-        self.analysis_results = {}  # To hold analysis results for each channel
+        self.filtered: bool = False
+        self.analysis_results: dict = {}
 
     @property
     def bandpass(self):
@@ -130,22 +134,22 @@ class LfpSignal:
         plt.show()
 
 
-if __name__ == "__main__":
-    data_path = Path().home() / "spk2extract" / "h5"
-    df_s, df_t = get_data(data_path)
-    lfp = LfpSignal(df_s, df_t, 2000)
-    lfp.bandpass = (0.1, 500)
-    lfp.filter()
-    lfp.plot_coherence_for_pairs()
+data_path = Path().home() / "data" / "extracted"
+df_s, df_t, events = get_data(data_path)
+lfp = LfpSignal(df_s, df_t, event_arr=events, fs=2000)
+lfp.bandpass = (0.1, 500)
+new_ev = lfp.events[np.where(np.diff(lfp.events) > 2)[0]]
 
-    bands = {
-        "Delta": (1, 4),
-        "Theta": (4, 8),
-        "Alpha": (8, 12),
-        "Beta": (12, 30),
-        "Gamma": (30, 100),
-    }
-    # This will populate the analysis_results attribute
-    lfp.calculate_band_powers(bands)
-    logger.info(lfp.analysis_results)
-    x = 4
+lfp.plot_coherence_for_pairs()
+
+bands = {
+    "Delta": (1, 4),
+    "Theta": (4, 8),
+    "Alpha": (8, 12),
+    "Beta": (12, 30),
+    "Gamma": (30, 100),
+}
+# This will populate the analysis_results attribute
+lfp.calculate_band_powers(bands)
+logger.info(lfp.analysis_results)
+x = 4

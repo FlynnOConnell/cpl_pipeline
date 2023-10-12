@@ -14,8 +14,8 @@ def write_h5(
     filename: Path | str,
     data: dict = None,
     events: Iterable = None,
-    metadata_file: dict = None,
     metadata_channel: dict = None,
+    metadata_file: dict = None,
 ):
     """
     Creates a h5 file specific to the spike2 dataset.
@@ -82,9 +82,7 @@ def write_h5(
         if data is not None:
             logger.info("Saving data...")
             for dict_key, dict_value in data.items():
-                channel_group = h5file.create_group(
-                    wavedata_group, dict_key, f"{dict_key} Data"
-                )
+                channel_group = h5file.create_group(wavedata_group, dict_key, f"{dict_key} Data")
                 if hasattr(dict_value, "_asdict"):  # namedtuple
                     for field_name, field_value in dict_value._asdict().items():
                         if field_name == "spikes":
@@ -119,11 +117,11 @@ def write_h5(
 
         if metadata_channel is not None:
             logger.info("Saving channel metadata...")
-            channel_group = h5file.create_group(
-                metadata_group, "channel", "Channel Metadata"
-            )
-            for dict_key, value in metadata_channel.items():
-                channel_group._v_attrs[dict_key] = value
+            # store a dict for each channel
+            for channel_name, channel in metadata_channel.items():
+                channel_group = h5file.create_group(metadata_group, channel_name, f"{channel_name} Metadata")
+                for dict_key, value in channel.items():
+                    channel_group._v_attrs[dict_key] = value
     logger.info("Save complete.")
     return None
 

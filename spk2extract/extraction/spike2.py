@@ -98,8 +98,7 @@ class Spike2Data:
     >>> from spk2extract.extraction import Spike2Data
     >>> from pathlib import Path
     >>> smr_path = Path().home() / "data" / "smr"
-    >>> files = [file for file in smr_path.glob("*.smr")]
-    >>> assert len(files) > 0
+    >>> files = [f for f in smr_path.glob("*.smr")]
     >>> data = Spike2Data(files[0])
     >>> data
     'rat1-2021-03-24_0001'
@@ -112,8 +111,6 @@ class Spike2Data:
     array([[ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,]])
     >>> data["LFP1"].times
     array([0.00000000e+00,  0.00000000e+00,  0.00000000e+00,])
-    >>> data["LFP1"].spikes.shape
-    (1, 3)
 
     """
 
@@ -201,9 +198,61 @@ class Spike2Data:
         else:
             raise KeyError(f"{key} not found in SpikeData object.")
 
+    @property
+    def bandpass_low(self):
+        """
+        The lower bound of the bandpass filter.
+        """
+        return self._bandpass_low
+
+    @bandpass_low.setter
+    def bandpass_low(self, value):
+        """
+        Set the lower bound of the bandpass filter.
+
+        Parameters
+        ----------
+        value : int
+            The lower bound of the bandpass filter.
+
+        Returns
+        -------
+            None
+        """
+        self._bandpass_low = value
+
+    @property
+    def bandpass_high(self):
+        """
+        The upper bound of the bandpass filter.
+
+        Returns
+        -------
+            int : The upper bound of the bandpass filter.
+
+        """
+        return self._bandpass_high
+
+    @bandpass_high.setter
+    def bandpass_high(self, value):
+        """
+        Set the upper bound of the bandpass filter.
+
+        Parameters
+        ----------
+        value: int
+            The upper bound of the bandpass filter.
+
+        Returns
+        -------
+        None
+
+        """
+        self._bandpass_high = value
+
     def get_events(self):
         logger.info("###--- Extracting events ---###")
-        for idx in range(self.max_channels):
+        for idx in range(self.max_channels()):
             title = (self.sonfile.GetChannelTitle(idx)).lower()
             if "mark" in title or "keyboard" in title:
                 try:
@@ -229,7 +278,7 @@ class Spike2Data:
         and the CED C++ library is not open source.
         """
         self.logger.debug(f"-| Extracting ADC channels from {self.filename.stem} -|")
-        for idx in range(self.max_channels):
+        for idx in range(self.max_channels()):
             title = self.sonfile.GetChannelTitle(idx)
             if (
                 self.sonfile.ChannelType(idx) == sp.DataType.Adc
@@ -291,15 +340,11 @@ class Spike2Data:
                 self.metadata_channel[title] = {
                     "fs": fs,
                     "filter": applied_filter,
-                    "channel_type": chan_type,
-                    "channel_title": title,
-                    "channel_units": self.sonfile.GetChannelUnits(idx),
-                    "channel_divide": self.sonfile.ChannelDivide(idx),
-                    "channel_interval": self.channel_interval(idx),
-                    "channel_sample_period": self.channel_sample_period(idx),
+                    "type": chan_type,
+                    "units": self.sonfile.GetChannelUnits(idx),
                 }
 
-        self.logger.debug(f"Finished extracting ADC channels from {self.filename.stem}")
+        self.logger.debug(f"Spike extraction complete: {self.filename.stem}")
 
     def save(self, savepath: str | Path, overwrite_existing=True) -> Path:
         """
@@ -396,7 +441,7 @@ class Spike2Data:
             The number of clock ticks.
 
         """
-        return self.max_time / self.channel_sample_period(channel)
+        return self.max_time() / self.channel_sample_period(channel)
 
     def channel_max_ticks(self, channel: int):
         """
@@ -420,9 +465,8 @@ class Spike2Data:
         Get the last time-point in the channel-array, in seconds.
 
         """
-        return self.channel_max_ticks(channel) * self.time_base
+        return self.channel_max_ticks(channel) * self.time_base()
 
-    @property
     def time_base(self):
         """
         The number of seconds per clock tick.
@@ -438,80 +482,25 @@ class Spike2Data:
         """
         return self.sonfile.GetTimeBase()
 
-    @property
     def max_ticks(self):
         """
         The total number of clock ticks in the file.
         """
         return self.sonfile.MaxTime()
 
-    @property
     def max_time(self):
         """
         The total recording length, in seconds.
 
         """
-        return self.max_ticks * self.time_base
+        return self.max_ticks() * self.time_base()
 
-    @property
     def max_channels(self):
         """
         The number of channels in the file.
 
         """
         return self.sonfile.MaxChannels()
-
-    @property
-    def bandpass_low(self):
-        """
-        The lower bound of the bandpass filter.
-        """
-        return self._bandpass_low
-
-    @bandpass_low.setter
-    def bandpass_low(self, value):
-        """
-        Set the lower bound of the bandpass filter.
-
-        Parameters
-        ----------
-        value : int
-            The lower bound of the bandpass filter.
-
-        Returns
-        -------
-            None
-        """
-        self._bandpass_low = value
-
-    @property
-    def bandpass_high(self):
-        """
-        The upper bound of the bandpass filter.
-
-        Returns
-        -------
-            int : The upper bound of the bandpass filter.
-
-        """
-        return self._bandpass_high
-
-    @bandpass_high.setter
-    def bandpass_high(self, value):
-        """
-        Set the upper bound of the bandpass filter.
-
-        Parameters
-        ----------
-        value: int
-            The upper bound of the bandpass filter.
-
-        Returns
-        -------
-        None
-
-        """
-        self._bandpass_high = value
 
     def bundle_metadata(self):
         """
