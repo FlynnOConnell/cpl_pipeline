@@ -14,14 +14,14 @@ except ImportError:
     user_log_dir = None
     pass
 from pathlib import Path
-from . import spk_io, gui, helpers, defaults
+from . import spk_io, gui, utils, defaults
 
 __name__ = "spk2extract"
 __author__ = "Flynn OConnell"
 __all__ = [
     "spk_io",
     "gui",
-    "helpers",
+    "utils",
     "defaults",
 ]
 

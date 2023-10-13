@@ -21,53 +21,60 @@ logger.setLevel("INFO")
 sns.set_style("darkgrid")
 
 
-def butter_bandpass(lowcut, highcut, fs, order=5):
-    nyquist = 0.5 * fs
-    low = lowcut / nyquist
-    high = highcut / nyquist
-    b, a = butter(order, [low, high], btype="band")
-    return b, a
-
-
-def butter_bandpass_filter(data, lowcut, highcut, fs, order=5):
-    b, a = butter_bandpass(lowcut, highcut, fs, order=order)
-    # Break down into two steps: first high-pass, then low-pass
-    b, a = butter(order, lowcut / (0.5 * fs), btype="high")
-    data = filtfilt(b, a, data)
-    b, a = butter(order, highcut / (0.5 * fs), btype="low")
-    y = filtfilt(b, a, data)
-    return y
-
-
 def get_data(path: Path | str):
     path = Path(path)
-    files = list(path.glob("*dk3*"))
-    file = files[0]
-    h5_file = spk_h5.read_h5(path / file)
+    if path.is_file():
+        h5_file = spk_h5.read_h5(path)
+    else:
+        files = list(path.glob("*dk3*"))
+        file = files[0]
+        h5_file = spk_h5.read_h5(path / file)
     spikes_df = pd.DataFrame()
     times_df = pd.DataFrame()
+
     events_arr = h5_file["events"]["events"]
+    event_times_arr = h5_file["events"]["times"]
+
     spikedata = h5_file["spikedata"]
     for chan, data in spikedata.items():
         if chan in ["VERSION", "CLASS", "TITLE"]:
             continue
-        logger.info(f"Channel: {chan}")
         spikes = data["spikes"]
         times = data["times"]
         spikes_df[chan] = spikes
         times_df[chan] = times
-    return spikes_df, times_df, events_arr
+    return spikes_df, times_df, events_arr, event_times_arr
 
 
 class LfpSignal:
-    def __init__(self, spikes_df, times_df, fs, event_arr=None):
+    def __init__(
+        self, spikes_df, times_df, fs, event_arr=None, ev_times_arr=None, filename=None
+    ):
         self.spikes: pd.DataFrame = spikes_df
         self.times: pd.DataFrame = times_df
         self.events: np.ndarray | None = event_arr
+        self.event_times: np.ndarray | None = ev_times_arr
         self.fs: float = fs
-        self._bandpass: tuple = ()
-        self.filtered: bool = False
+        self._bandpass: tuple = (0.1, 300)
+        self._bands: dict = {
+            "Delta": (1, 4),
+            "Theta": (4, 8),
+            "Alpha": (8, 12),
+            "Beta": (12, 30),
+            "Gamma": (30, 100),
+        }
+        self.filename: str | Path | None = filename
         self.analysis_results: dict = {}
+
+    def __repr__(self):
+        return (
+            f"LfpSignal: {self.filename if self.filename else 'No filename provided'}"
+        )
+
+    def __str__(self):
+        return (
+            f"LfpSignal: {self.filename if self.filename else 'No filename provided'}"
+        )
 
     @property
     def bandpass(self):
@@ -78,20 +85,30 @@ class LfpSignal:
         assert len(bandpass) == 2, "Bandpass must be a tuple of length 2"
         self._bandpass = bandpass
 
-    def filter(self):
-        if not self._bandpass:
-            logger.debug("Bandpass not set, skipping filtering")
-            return
-        low, high = self._bandpass
-        self.spikes = self.spikes.apply(
-            lambda col: butter_bandpass_filter(col, low, high, self.fs, order=4)
-        )
-        self.filtered = True
+    @property
+    def bands(self):
+        return self._bands
+
+    @bands.setter
+    def bands(self, new_bands: dict):
+        self._bands = new_bands
+
+    def get_windows(self, window_size: float):
+        windows = {"b_1": [], "b_0": [], "w_1": [], "w_0": []}
+        for event, time in zip(self.events, self.event_times):
+            if event in ["b", "w"] and time:
+                key_1 = f"{event}_1"
+                key_0 = f"{event}_0"
+                time_window = [time - window_size / 2, time + window_size / 2]
+                if "1" in self.events:
+                    windows[key_1].append(time_window)
+                if "0" in self.events:
+                    windows[key_0].append(time_window)
+        return windows
 
     def get_fft_values(self, signal):
         if hasattr(signal, "values"):
             signal = signal.values  # pd object isn't compatible with fft
-        # signal = signal - np.mean(signal)  # remove DC component
         N = len(signal)
         fft_values = fft(signal)
         frequencies = np.fft.fftfreq(N, 1 / self.fs)
@@ -113,7 +130,9 @@ class LfpSignal:
         ]
         return simps(band_fft_vals, band_freqs)
 
-    def calculate_band_powers(self, bands):
+    def calculate_band_powers(self, bands=None):
+        if bands is None:
+            bands = self.bands
         for channel in self.spikes.columns:
             self.analysis_results[channel] = {}
             for band_name, freq_range in bands.items():
@@ -134,22 +153,33 @@ class LfpSignal:
         plt.show()
 
 
-data_path = Path().home() / "data" / "extracted"
-df_s, df_t, events = get_data(data_path)
-lfp = LfpSignal(df_s, df_t, event_arr=events, fs=2000)
-lfp.bandpass = (0.1, 500)
-new_ev = lfp.events[np.where(np.diff(lfp.events) > 2)[0]]
+if __name__ == "__main__":
+    data_path = Path().home() / "data" / "extracted"
+    file = list(data_path.glob("*0609*.h5"))[0]
+    df_s, df_t, events, event_times = get_data(file)
+    unique_events = np.unique(events)
+    key = {
+        "0": "dug incorrectly",
+        "1": "dug correctly",
+        "x": "crossed over (no context)",
+        "b": "crossed over into the black room",
+        "w": "crossed over into the white room",
+    }
 
-lfp.plot_coherence_for_pairs()
+    lfp = LfpSignal(
+        df_s, df_t, event_arr=events, ev_times_arr=event_times, fs=2000, filename=file
+    )
 
-bands = {
-    "Delta": (1, 4),
-    "Theta": (4, 8),
-    "Alpha": (8, 12),
-    "Beta": (12, 30),
-    "Gamma": (30, 100),
-}
-# This will populate the analysis_results attribute
-lfp.calculate_band_powers(bands)
-logger.info(lfp.analysis_results)
-x = 4
+    correct = lfp.events == 1
+
+    lfp.plot_coherence_for_pairs()
+    powerbands = {
+        "Delta": (1, 4),
+        "Theta": (4, 8),
+        "Alpha": (8, 12),
+        "Beta": (12, 30),
+        "Gamma": (30, 100),
+    }
+    lfp.calculate_band_powers(powerbands)
+    logger.info(lfp.analysis_results)
+    x = 4

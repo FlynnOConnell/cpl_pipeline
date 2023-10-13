@@ -17,7 +17,7 @@ except ImportError:
         raise ImportError("sonpy not found. Are you on a M1 Mac?")
 
 from spk2extract.logs import logger
-from spk2extract.helpers import check_substring_content
+from spk2extract.utils import check_substring_content
 from spk2extract.defaults import defaults
 from spk2extract import spk_io
 from spk2extract.util import filter_signal
@@ -25,6 +25,7 @@ from spk2extract.util.cluster import detect_spikes
 
 WaveData = namedtuple("WaveData", ["spikes", "times"])
 EventData = namedtuple("EventData", ["events", "times"])
+
 
 class SonfileException(BaseException):
     """
@@ -51,9 +52,15 @@ def ticks_to_time(ticks, time_base):
     """Converts clock ticks to seconds."""
     return np.array(ticks) * time_base
 
+
 def is_ascii_letter(char):
     if char in range(65, 91) or char in range(97, 123):
         return True
+
+
+def codes_to_string(codes):
+    return "".join(chr(code) for code in codes if code != 0)
+
 
 class Spike2Data:
     """
@@ -163,9 +170,8 @@ class Spike2Data:
         self.logger = logger
         self._bandpass_low = 300
         self._bandpass_high = 3000
-        self.errors = {}
-        self.exclude = exclude
-        self.empty = False
+        self.errors = {}  # errors that won't stop the extraction
+        self.exclude = exclude  # channels to exclude from the extraction
         self.filename = Path(filepath)
         self.sonfile = sp.SonFile(str(self.filename), True)
         self.events = None
@@ -181,9 +187,13 @@ class Spike2Data:
                     f"Double check the file contains valid data."
                 )
         self.bitrate = 32 if self.sonfile.is32file() else 64
-        self.metadata_channel = {}
+        self.metadata_channel = {}  # filled in during get_waves()
         self.data = {}
-        self.metadata_file = self.bundle_metadata()
+        self.metadata_file = {
+            "bitrate": self.bitrate,
+            "filename": self.filename.stem,
+            "recording_length": self.max_time(),
+        }
 
     def __repr__(self):
         return f"{self.filename.stem}"
@@ -191,9 +201,6 @@ class Spike2Data:
     def __str__(self):
         """Allows us to use str(spike_data.SpikeData(file)) to get the filename stem."""
         return f"{self.filename.stem}"
-
-    def __bool__(self):
-        return self.empty
 
     def __getitem__(self, key):
         if key in self.data:
@@ -254,25 +261,25 @@ class Spike2Data:
         self._bandpass_high = value
 
     def get_events(self):
-        logger.info("###--- Extracting events ---###")
+        logger.info("Extracting events...")
         for idx in range(self.max_channels()):
             title = (self.sonfile.GetChannelTitle(idx)).lower()
             if "keyboard" in title:
                 try:
                     # noinspection PyArgumentList
                     marks = self.sonfile.ReadMarkers(idx, int(2e9), 0)
-                    char_codes = []
-                    for mark in marks:
-                        marker_string = ""
-                        codes = [mark.Code1, mark.Code2, mark.Code3, mark.Code4]
-                        for code in codes:
-                            if is_ascii_letter(code):
-                                marker_string += chr(code)
-                        char_codes.append(marker_string)
 
-                    time_conv = np.round(ticks_to_time(
-                        [mark.Tick for mark in marks], self.time_base()
-                    ), 3)
+                    # Get string representation of the spike2 codes and corresponding times
+                    char_codes = [
+                        codes_to_string(
+                            [mark.Code1, mark.Code2, mark.Code3, mark.Code4]
+                        )
+                        for mark in marks
+                    ]
+                    time_conv = np.round(
+                        ticks_to_time([mark.Tick for mark in marks], self.time_base()),
+                        3,
+                    )
                     self.events = EventData(events=char_codes, times=time_conv)
                 except SonfileException as e:
                     self.errors["ReadMarker"] = e
@@ -296,7 +303,9 @@ class Spike2Data:
                 and title not in self.exclude
             ):
                 self.logger.debug(f"Processing {title}")
-                fs = np.round(1 / (self.sonfile.ChannelDivide(idx) * self.time_base()), 2)
+                fs = np.round(
+                    1 / (self.sonfile.ChannelDivide(idx) * self.time_base()), 2
+                )
 
                 # Read the waveforms from the channel, up to 2e9, or 2 billion samples at a time which represents
                 # the maximum amount of 30 bit floats that can be stored in memory
@@ -326,7 +335,7 @@ class Spike2Data:
                     # Extract spikes and times from the filtered segment
                     slices, spike_indices, thresh = detect_spikes(
                         filtered_segment,
-                        [0.5, 1.0],
+                        (0.5, 1.0),
                         fs,
                     )
                     slices = np.array(slices)
@@ -357,7 +366,7 @@ class Spike2Data:
 
         self.logger.debug(f"Spike extraction complete: {self.filename.stem}")
 
-    def save(self, savepath: str | Path, overwrite_existing=True) -> Path:
+    def save(self, filepath: str | Path, overwrite_existing=True) -> Path:
         """
         Save the data to a h5 file in the users h5 directory.
 
@@ -373,8 +382,8 @@ class Spike2Data:
 
         Parameters
         ----------
-        savepath : str or Path
-            The path/filename to save to.
+        filepath : str or Path
+            The path/filename including ext to save to.
         overwrite_existing : bool, optional
             Whether to overwrite an existing file with the same name. Default is False.
 
@@ -385,24 +394,38 @@ class Spike2Data:
 
         """
 
-        h5path = Path(savepath)
-        h5path = h5path.with_suffix(".h5")
-        if not h5path.parent.exists():
-            h5path.parent.mkdir(exist_ok=True, parents=True)
-        if h5path.exists() and not overwrite_existing:
-            self.logger.info(
-                f"{h5path} already exists. Set overwrite_existing=True to overwrite. Skipping h5 write."
-            )
-            pass
+        filepath = Path(filepath)
+        if filepath.suffix != ".h5":
+            filepath = filepath.with_suffix(".h5")
+        if not filepath.parent.exists():
+            logger.info(f"Creating {filepath.parent} directory.")
+            filepath.parent.mkdir(exist_ok=True, parents=True)
+        if filepath.exists():
+            if overwrite_existing:
+                logger.info(f"Overwriting existing file: {filepath}")
+                spk_io.write_h5(
+                    filepath,
+                    self.data,
+                    self.events,
+                    self.metadata_channel,
+                    self.metadata_file,
+                )
+                self.logger.info(f"Saved data to {filepath}")
+                return self.filename
+            else:  # don't overwrite existing file
+                self.logger.info(
+                    f"{filepath} already exists. Set overwrite_existing=True to overwrite. Skipping h5 write."
+                )
+                pass
         try:
             spk_io.write_h5(
-                h5path,
+                filepath,
                 self.data,
                 self.events,
                 self.metadata_channel,
                 self.metadata_file,
             )
-            self.logger.info(f"Saved data to {h5path}")
+            self.logger.info(f"Saved data to {filepath}")
         except Exception as e:
             self.logger.error(f"Error writing h5 file: {e}")
             raise e
@@ -524,12 +547,8 @@ class Spike2Data:
 
         """
         return {
-            "bandpass": [self.bandpass_low, self.bandpass_high],
-            "time_base": self.time_base,
-            "max_time": self.max_ticks,
-            "recording_length": self.max_time,
             "filename": self.filename.stem,
-            "exclude": self.exclude,
+            "recording_length": self.max_time(),
         }
 
 
@@ -542,10 +561,14 @@ if __name__ == "__main__":
     path_test = Path().home() / "data" / "context"
     save_test = Path().home() / "data" / "extracted"
     test_files = [file for file in path_test.glob("*.smr")]
-    for testfile in test_files:
-        testdata = Spike2Data(
-            testfile,
-        )
-        testdata.get_events()
-        testdata.get_waves()
-        testdata.save(save_test / str(testdata), overwrite_existing=True)
+    all_h5 = list(save_test.glob("*0609*.h5"))
+
+    openfile = spk_io.read_h5(all_h5[0])
+    x=1
+    # for testfile in test_files:
+    #     testdata = Spike2Data(
+    #         testfile,
+    #     )
+    #     testdata.get_events()
+    #     testdata.get_waves()
+    #     testdata.save(save_test / str(testdata), overwrite_existing=True)
