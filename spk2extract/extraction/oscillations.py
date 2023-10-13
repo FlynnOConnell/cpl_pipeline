@@ -46,6 +46,17 @@ def get_data(path: Path | str):
     return spikes_df, times_df, events_arr, event_times_arr
 
 
+def ensure_alternating(ev):
+    if len(ev) % 2 != 0:
+        return False, "List length should be even for alternating pattern."
+    for i in range(0, len(ev), 2):
+        if not ev[i].isalpha():
+            return False, f"Expected a letter at index {i}, got {ev[i]}"
+        if not ev[i + 1].isdigit():
+            return False, f"Expected a digit at index {i+1}, got {ev[i + 1]}"
+    return True, "List alternates correctly between letters and digits."
+
+
 class LfpSignal:
     def __init__(
         self, spikes_df, times_df, fs, event_arr=None, ev_times_arr=None, filename=None
@@ -95,15 +106,19 @@ class LfpSignal:
 
     def get_windows(self, window_size: float):
         windows = {"b_1": [], "b_0": [], "w_1": [], "w_0": []}
-        for event, time in zip(self.events, self.event_times):
-            if event in ["b", "w"] and time:
-                key_1 = f"{event}_1"
-                key_0 = f"{event}_0"
+        for i in range(
+            0, len(self.events) - 2, 2
+        ):
+            if not ensure_alternating(self.events):
+                return [], "Events array does not alternate between letters and digits."
+            letter = self.events[i]
+            digit = self.events[i + 1]
+            time = self.event_times[i + 1]
+
+            if letter in ["b", "w"] and digit in ["0", "1"] and time is not None:
+                key = f"{letter}_{digit}"
                 time_window = [time - window_size / 2, time + window_size / 2]
-                if "1" in self.events:
-                    windows[key_1].append(time_window)
-                if "0" in self.events:
-                    windows[key_0].append(time_window)
+                windows[key].append(time_window)
         return windows
 
     def get_fft_values(self, signal):
