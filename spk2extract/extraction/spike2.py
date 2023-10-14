@@ -298,6 +298,8 @@ class Spike2Data:
         self.logger.debug(f"-| Extracting ADC channels from {self.filename.stem} -|")
         for idx in range(self.max_channels()):
             title = self.sonfile.GetChannelTitle(idx)
+            print(title)
+            pass
             if (
                 self.sonfile.ChannelType(idx) == sp.DataType.Adc
                 and title not in self.exclude
@@ -558,17 +560,14 @@ if __name__ == "__main__":
     logger.setLevel(log_level)
     print(f"Log level set to {log_level}")
 
-    path_test = Path().home() / "data" / "context"
-    save_test = Path().home() / "data" / "extracted"
+    path_test = Path().home() / "data" / "context" / 'dk1'
+    save_test = Path().home() / "data" / "extracted" / 'dk1'
+    save_test.mkdir(exist_ok=True, parents=True)
     test_files = [file for file in path_test.glob("*.smr")]
-    all_h5 = list(save_test.glob("*0609*.h5"))
-
-    openfile = spk_io.read_h5(all_h5[0])
-    x=1
-    # for testfile in test_files:
-    #     testdata = Spike2Data(
-    #         testfile,
-    #     )
-    #     testdata.get_events()
-    #     testdata.get_waves()
-    #     testdata.save(save_test / str(testdata), overwrite_existing=True)
+    for testfile in test_files:
+        testdata = Spike2Data(
+            testfile,
+        )
+        testdata.get_events()
+        testdata.get_waves()
+        testdata.save(save_test / str(testdata), overwrite_existing=True)

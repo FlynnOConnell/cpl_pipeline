@@ -10,12 +10,11 @@ import seaborn as sns
 from matplotlib import pyplot as plt
 from scipy.fftpack import fft
 from scipy.integrate import simps
-from scipy.signal import butter, filtfilt, coherence
+from scipy.signal import butter, filtfilt, coherence, welch
 
 from spk2extract.logs import logger
 from spk2extract.spk_io import spk_h5
 
-# %%
 
 logger.setLevel("INFO")
 sns.set_style("darkgrid")
@@ -59,9 +58,19 @@ def ensure_alternating(ev):
 
 class LfpSignal:
     def __init__(
-        self, spikes_df, times_df, fs, event_arr=None, ev_times_arr=None, filename=None
+        self,
+        spikes_df,
+        times_df,
+        fs,
+        event_arr=None,
+        ev_times_arr=None,
+        filename=None,
+        exclude=(),
     ):
         self.spikes: pd.DataFrame = spikes_df
+        for col in exclude:
+            if col in self.spikes.columns:
+                self.spikes.drop(col, axis=1, inplace=True)
         self.times: pd.DataFrame = times_df
         self.events: np.ndarray | None = event_arr
         self.event_times: np.ndarray | None = ev_times_arr
@@ -76,6 +85,16 @@ class LfpSignal:
         }
         self.filename: str | Path | None = filename
         self.analysis_results: dict = {}
+        self.fft_data: pd.DataFrame | None = None
+        self.welch_data: pd.DataFrame | None = None
+        self.calculate_fft_data()
+
+    def wrapper_welch(self, col):
+        freq, Pxx = welch(col, fs=self.fs)
+        return pd.Series(Pxx, index=freq)
+
+    def calculate_welch_data(self):
+        self.welch_data = self.spikes.apply(self.wrapper_welch)
 
     def __repr__(self):
         return (
@@ -104,20 +123,26 @@ class LfpSignal:
     def bands(self, new_bands: dict):
         self._bands = new_bands
 
+    def freq(self):
+        df = pd.DataFrame()
+        for channel in self.spikes.columns:
+            df[channel] = self.spikes[channel].value_counts()
+
     def get_windows(self, window_size: float):
         windows = {"b_1": [], "b_0": [], "w_1": [], "w_0": []}
-        for i in range(
-            0, len(self.events) - 2, 2
-        ):
+        for i in range(0, len(self.events) - 2, 2):
             if not ensure_alternating(self.events):
                 return [], "Events array does not alternate between letters and digits."
+            # Use the time of the lettered event
             letter = self.events[i]
             digit = self.events[i + 1]
-            time = self.event_times[i + 1]
 
-            if letter in ["b", "w"] and digit in ["0", "1"] and time is not None:
+            time_letter = self.event_times[i]
+            time_digit = self.event_times[i + 1]
+
+            if letter in ["b", "w"]:
                 key = f"{letter}_{digit}"
-                time_window = [time - window_size / 2, time + window_size / 2]
+                time_window = (time_letter, time_letter + window_size)
                 windows[key].append(time_window)
         return windows
 
@@ -167,6 +192,13 @@ class LfpSignal:
             ax.grid(True)
         plt.show()
 
+    def wrapper(self, col):
+        freq, fft_val = self.get_fft_values(col)
+        return pd.Series(fft_val, index=freq)
+
+    def calculate_fft_data(self):
+        self.fft_data = self.spikes.apply(self.wrapper)
+
 
 if __name__ == "__main__":
     data_path = Path().home() / "data" / "extracted"
@@ -186,6 +218,7 @@ if __name__ == "__main__":
     )
 
     correct = lfp.events == 1
+    x = lfp.get_windows(0.5)
 
     lfp.plot_coherence_for_pairs()
     powerbands = {
