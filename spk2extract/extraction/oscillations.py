@@ -88,6 +88,7 @@ class LfpSignal:
         self.fft_data: pd.DataFrame | None = None
         self.welch_data: pd.DataFrame | None = None
         self.calculate_fft_data()
+        self.calculate_welch_data()
 
     def wrapper_welch(self, col):
         freq, Pxx = welch(col, fs=self.fs)
