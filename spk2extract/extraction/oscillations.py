@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import itertools
 from pathlib import Path
+from typing import Generator
 
 import numpy as np
 import pandas as pd
@@ -10,11 +11,11 @@ import seaborn as sns
 from matplotlib import pyplot as plt
 from scipy.fftpack import fft
 from scipy.integrate import simps
-from scipy.signal import butter, filtfilt, coherence, welch
+from scipy.signal import coherence, welch
 
 from spk2extract.logs import logger
 from spk2extract.spk_io import spk_h5
-
+from spk2extract.extraction.cluster import filter_signal
 
 logger.setLevel("INFO")
 sns.set_style("darkgrid")
@@ -56,17 +57,30 @@ def ensure_alternating(ev):
     return True, "List alternates correctly between letters and digits."
 
 
+# spikes - raw data
+# times - raw data
+# events - events array
+# event_times - event times array
+# fs - sampling frequency
+
+# This class' goals:
+# 1. Apply filters to the raw data
+# 2. Calculate FFT and Frequencies
+
+
 class LfpSignal:
     def __init__(
         self,
         spikes_df,
         times_df,
         fs,
+        bandpass=None,
         event_arr=None,
         ev_times_arr=None,
         filename=None,
         exclude=(),
     ):
+        self._exclude = exclude
         self.spikes: pd.DataFrame = spikes_df
         for col in exclude:
             if col in self.spikes.columns:
@@ -75,7 +89,8 @@ class LfpSignal:
         self.events: np.ndarray | None = event_arr
         self.event_times: np.ndarray | None = ev_times_arr
         self.fs: float = fs
-        self._bandpass: tuple = (0.1, 300)
+        self._filtered = False
+        self._bandpass: tuple = bandpass
         self._bands: dict = {
             "Delta": (1, 4),
             "Theta": (4, 8),
@@ -89,6 +104,32 @@ class LfpSignal:
         self.welch_data: pd.DataFrame | None = None
         self.calculate_fft_data()
         self.calculate_welch_data()
+
+    @property
+    def spikes(self):
+        filtered_spikes = self._spikes.copy()
+        for col in self.exclude:
+            if col in filtered_spikes.columns:
+                filtered_spikes.drop(col, axis=1, inplace=True)
+        if self._filtered:
+            for col in filtered_spikes.columns:
+                filtered_spikes[col] = filter_signal(
+                    filtered_spikes[col], self.fs, self.bandpass
+                )
+        return filtered_spikes
+
+    @spikes.setter
+    def spikes(self, spikes_df):
+        self._spikes = spikes_df
+        self._filtered = False
+
+    @property
+    def exclude(self):
+        return self._exclude
+
+    @exclude.setter
+    def exclude(self, exclude_list):
+        self._exclude = exclude_list
 
     def wrapper_welch(self, col):
         freq, Pxx = welch(col, fs=self.fs)
@@ -108,6 +149,10 @@ class LfpSignal:
         )
 
     @property
+    def filtered(self):
+        return self._filtered
+
+    @property
     def bandpass(self):
         return self._bandpass
 
@@ -115,6 +160,7 @@ class LfpSignal:
     def bandpass(self, bandpass: tuple):
         assert len(bandpass) == 2, "Bandpass must be a tuple of length 2"
         self._bandpass = bandpass
+        self.filter()
 
     @property
     def bands(self):
@@ -124,28 +170,37 @@ class LfpSignal:
     def bands(self, new_bands: dict):
         self._bands = new_bands
 
-    def freq(self):
-        df = pd.DataFrame()
-        for channel in self.spikes.columns:
-            df[channel] = self.spikes[channel].value_counts()
+    def filter(self):
+        logger.info(f"Filtering data with bandpass {self.bandpass}")
+        for col in self.spikes.columns:
+            self.spikes[col] = filter_signal(self.spikes[col], self.fs, self.bandpass)
+        self._filtered = True
 
-    def get_windows(self, window_size: float):
-        windows = {"b_1": [], "b_0": [], "w_1": [], "w_0": []}
-        for i in range(0, len(self.events) - 2, 2):
-            if not ensure_alternating(self.events):
-                return [], "Events array does not alternate between letters and digits."
-            # Use the time of the lettered event
+    def get_windows(self,) -> Generator[str, str, tuple] | Generator[None]:
+        """
+        Returns a generator that yields a tuple of (letter, digit, time_window) for each event pair.
+
+        Returns
+        -------
+        Generator[str, str, tuple] | Generator[None]
+            A generator that yields a tuple of (letter, digit, time_window) for each event pair.
+
+        """
+        if not ensure_alternating(self.events):
+            yield None, "Events array does not alternate between letters and digits."
+
+        for i in range(0, len(self.events) - 1, 2):
             letter = self.events[i]
             digit = self.events[i + 1]
 
-            time_letter = self.event_times[i]
-            time_digit = self.event_times[i + 1]
+            # Time of the letter event -> start of the window
+            # Time of the digit event -> end of the window
+            time_letter = self.event_times[i] * self.fs
+            time_digit = self.event_times[i + 1] * self.fs
 
             if letter in ["b", "w"]:
-                key = f"{letter}_{digit}"
-                time_window = (time_letter, time_letter + window_size)
-                windows[key].append(time_window)
-        return windows
+                spikes = self.spikes.loc[time_letter:time_digit]
+                yield letter, digit, spikes
 
     def get_fft_values(self, signal):
         if hasattr(signal, "values"):
@@ -171,28 +226,6 @@ class LfpSignal:
         ]
         return simps(band_fft_vals, band_freqs)
 
-    def calculate_band_powers(self, bands=None):
-        if bands is None:
-            bands = self.bands
-        for channel in self.spikes.columns:
-            self.analysis_results[channel] = {}
-            for band_name, freq_range in bands.items():
-                self.analysis_results[channel][band_name] = self.get_band_power(
-                    self.spikes[channel], freq_range
-                )
-
-    def plot_coherence_for_pairs(self):
-        channel_pairs = itertools.combinations(self.spikes.columns, 2)
-        for chan1, chan2 in channel_pairs:
-            f, Cxy = self.get_coherence(self.spikes[chan1], self.spikes[chan2])
-            fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-            ax.plot(f, Cxy)
-            ax.set_title(f"Coherence between {chan1} and {chan2}")
-            ax.set_xlabel("Frequency (Hz)")
-            ax.set_ylabel("Coherence")
-            ax.grid(True)
-        plt.show()
-
     def wrapper(self, col):
         freq, fft_val = self.get_fft_values(col)
         return pd.Series(fft_val, index=freq)
@@ -217,18 +250,22 @@ if __name__ == "__main__":
     lfp = LfpSignal(
         df_s, df_t, event_arr=events, ev_times_arr=event_times, fs=2000, filename=file
     )
+    lfp.bandpass = (0.1, 100)
 
-    correct = lfp.events == 1
-    x = lfp.get_windows(0.5)
+    event = {}
+    for letter, digit, window in lfp.get_windows():
+        length = np.round(window.index[-1] / 2000 - window.index[0] / 2000, 2)
+        if letter + digit not in event:
+            event[letter + digit] = [length]
+        else:
+            event[letter + digit].append(length)
 
-    lfp.plot_coherence_for_pairs()
-    powerbands = {
-        "Delta": (1, 4),
-        "Theta": (4, 8),
-        "Alpha": (8, 12),
-        "Beta": (12, 30),
-        "Gamma": (30, 100),
-    }
-    lfp.calculate_band_powers(powerbands)
-    logger.info(lfp.analysis_results)
+    temp = 1
+    # powerbands = {
+    #     "Delta": (1, 4),
+    #     "Theta": (4, 8),
+    #     "Alpha": (8, 12),
+    #     "Beta": (12, 30),
+    #     "Gamma": (30, 100),
+    # }
     x = 4

@@ -20,8 +20,6 @@ from spk2extract.logs import logger
 from spk2extract.utils import check_substring_content
 from spk2extract.defaults import defaults
 from spk2extract import spk_io
-from spk2extract.util import filter_signal
-from spk2extract.util.cluster import detect_spikes
 
 WaveData = namedtuple("WaveData", ["spikes", "times"])
 EventData = namedtuple("EventData", ["events", "times"])
@@ -327,41 +325,45 @@ class Spike2Data:
                     title, "lfp"
                 ):
                     chan_type = "unit"
-                    filtered_segment = filter_signal(
-                        waveforms,
-                        fs,
-                        (self.bandpass_low, self.bandpass_high),
-                    )
-                    applied_filter = (self.bandpass_low, self.bandpass_high)
+                    # filtered_segment = filter_signal(
+                    #     waveforms,
+                    #     fs,
+                    #     (self.bandpass_low, self.bandpass_high),
+                    # )
+                    # applied_filter = (self.bandpass_low, self.bandpass_high)
 
                     # Extract spikes and times from the filtered segment
-                    slices, spike_indices, thresh = detect_spikes(
-                        filtered_segment,
-                        (0.5, 1.0),
-                        fs,
-                    )
-                    slices = np.array(slices)
-                    spike_times = spike_indices / float(fs)
-
-                    # Create a FinalWaveData namedtuple with the concatenated spikes and times
-                    final_wave_data = WaveData(spikes=slices, times=spike_times)
+                    # slices, spike_indices, thresh = detect_spikes(
+                    #     filtered_segment,
+                    #     (0.5, 1.0),
+                    #     fs,
+                    # )
+                    # slices = np.array(slices)
+                    # spike_times = spike_indices / float(fs)
 
                     # Store this namedtuple in the self.unit dictionary
-                    self.data[title] = final_wave_data
+                    self.data[title] = WaveData(
+                        spikes=waveforms,
+                        times=np.arange(len(waveforms)) / float(fs),
+                    )
 
                 elif check_substring_content(title, "lfp"):
                     chan_type = "lfp"
-                    filtered_segment = filter_signal(
-                        waveforms, fs, (0.3, 500)  # TODO: add this as a parameter
-                    )
-                    applied_filter = (0.3, 500)
+
+                    # filtered_segment = filter_signal(
+                    #     waveforms, fs, (0.3, 500)  # TODO: add this as a parameter
+                    # )
+                    # applied_filter = (0.3, 500)
+                    # self.data[title] = WaveData(
+                    #     spikes=filtered_segment,
+                    #     times=np.arange(len(filtered_segment)) / float(fs),
+                    # )
                     self.data[title] = WaveData(
-                        spikes=filtered_segment,
-                        times=np.arange(len(filtered_segment)) / float(fs),
+                        spikes=waveforms,
+                        times=np.arange(len(waveforms)) / float(fs),
                     )
                 self.metadata_channel[title] = {
                     "fs": fs,
-                    "filter": applied_filter,
                     "type": chan_type,
                     "units": self.sonfile.GetChannelUnits(idx),
                 }
