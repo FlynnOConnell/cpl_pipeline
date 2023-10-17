@@ -16,6 +16,8 @@ from scipy.signal import coherence, welch
 from spk2extract.logs import logger
 from spk2extract.spk_io import spk_h5
 from spk2extract.extraction.cluster import filter_signal
+import mne
+import mne_connectivity
 
 logger.setLevel("INFO")
 sns.set_style("darkgrid")
@@ -176,7 +178,9 @@ class LfpSignal:
             self.spikes[col] = filter_signal(self.spikes[col], self.fs, self.bandpass)
         self._filtered = True
 
-    def get_windows(self,) -> Generator[str, str, tuple] | Generator[None]:
+    def get_windows(
+        self, pre_time: float = 0.5, post_time: float = 0.5
+    ) -> Generator[str, str, tuple] | Generator[None]:
         """
         Returns a generator that yields a tuple of (letter, digit, time_window) for each event pair.
 
@@ -193,14 +197,13 @@ class LfpSignal:
             letter = self.events[i]
             digit = self.events[i + 1]
 
-            # Time of the letter event -> start of the window
-            # Time of the digit event -> end of the window
-            time_letter = self.event_times[i] * self.fs
             time_digit = self.event_times[i + 1] * self.fs
+            pre_time_idx = int(time_digit - (pre_time * self.fs))
+            post_time_idx = int(time_digit + (post_time * self.fs))
 
             if letter in ["b", "w"]:
-                spikes = self.spikes.loc[time_letter:time_digit]
-                yield letter, digit, spikes
+                spikes_window = self.spikes.loc[pre_time_idx:post_time_idx]
+                yield letter, digit, spikes_window
 
     def get_fft_values(self, signal):
         if hasattr(signal, "values"):
@@ -254,11 +257,8 @@ if __name__ == "__main__":
 
     event = {}
     for letter, digit, window in lfp.get_windows():
-        length = np.round(window.index[-1] / 2000 - window.index[0] / 2000, 2)
-        if letter + digit not in event:
-            event[letter + digit] = [length]
-        else:
-            event[letter + digit].append(length)
+        df = window
+        df2 = df.loc[:, :]
 
     temp = 1
     # powerbands = {
