@@ -1,19 +1,19 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from pathlib import Path
 from typing import Generator
 
-import matplotlib
 import mne
 import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib import pyplot as plt
+from scipy.fft import fft
+from scipy.signal import decimate, butter, filtfilt
 
 from spk2extract.logs import logger
 from spk2extract.spk_io import spk_h5
-from scipy.fft import fft
-from scipy.signal import coherence, cwt, morlet, decimate, butter, filtfilt
 
 # matplotlib.use("TkAgg")
 
@@ -159,13 +159,21 @@ class LfpSignal:
             if basis == "start":
                 # use the letter as the basis, or the start of the interval
                 epoch_idx = int(self.event_times[i] * self.fs)
-            else:
+                pre_time_idx = int(epoch_idx - (pre_time * self.fs))
+                post_time_idx = int(epoch_idx + (post_time * self.fs))
+            elif basis == "end":
                 # use the digit as the basis, or the end of the interval
                 epoch_idx = int(self.event_times[i + 1] * self.fs)
+                pre_time_idx = int(epoch_idx - (pre_time * self.fs))
+                post_time_idx = int(epoch_idx + (post_time * self.fs))
+            elif basis == "all":
+                pre_time_idx = int(self.event_times[i] * self.fs)
+                post_time_idx = int(self.event_times[i + 1] * self.fs)
+            else:
+                raise ValueError(
+                    f"Invalid basis {basis}. Must be one of 'start', 'end', or 'all'."
+                )
 
-            # convert to indices
-            pre_time_idx = int(epoch_idx - (pre_time * self.fs))
-            post_time_idx = int(epoch_idx + (post_time * self.fs))
             if not (0 <= pre_time_idx < len(self.spikes)) and (
                 pre_time_idx < post_time_idx
             ):
@@ -174,8 +182,7 @@ class LfpSignal:
                 )
 
             if letter_str in ["b", "w"]:
-                spikes_window = self.spikes.loc[pre_time_idx:post_time_idx]
-                yield letter_str, digit_str, epoch_idx, spikes_window
+                yield letter_str, digit_str, self.spikes.loc[pre_time_idx:post_time_idx]
 
     def remove_ica(self):
         ica = mne.preprocessing.ICA(
@@ -205,55 +212,62 @@ if __name__ == "__main__":
     lfp.notch()
 
     x = 0
-    for letter_str, digit_str, epoch_idx, spikes_window in lfp.get_windows(0.5, 0.5):
+    channel_data = defaultdict(list)
+
+    for letter_str, digit_str, spikes_window in lfp.get_windows(0.5, 0.5, "all"):
         x += 1
-        if x > 2:
+        if x > 10:
             break
 
-        # Assume the index is continuous and get min, max
-        idx_min, idx_max = spikes_window.index.min(), spikes_window.index.max()
-        idx_range = idx_max - idx_min
-
-        # Calculate the corresponding xticks and xticklabels
-        xticks = np.linspace(idx_min, idx_max, 11)
-        xticklabels = np.linspace(0, idx_range / 2000, 11).round(2)
-
         for channel in spikes_window.columns:
-            # FFT
-            freq_values = np.fft.fftfreq(len(spikes_window), 1 / 2000)
-            fft_values = fft(spikes_window[channel].to_numpy())
+            channel_data[channel].append((letter_str, digit_str, spikes_window))
 
-            # Bandpass filters
-            beta_filtered = butter_bandpass_filter(
-                spikes_window[channel], 12, 30, fs=2000
-            )
-            gamma_filtered = butter_bandpass_filter(
-                spikes_window[channel], 30, 100, fs=2000
-            )
+    for channels in [("LFP1_vHp", "LFP3_AON"), ("LFP2_vHp", "LFP4_AON")]:
+        fig, ax = plt.subplots(2, 1, figsize=(10, 15))
 
-            # Plotting
-            fig, ax = plt.subplots(3, 1, figsize=(10, 15))
-            ax[0].plot(spikes_window.index, spikes_window[channel], label="Raw")
-            ax[0].set_title(f"{letter_str}_{digit_str} Channel: {channel} Raw")
-            ax[1].plot(spikes_window.index, beta_filtered, label="Beta", color="r")
-            ax[1].set_title(f"{letter_str}_{digit_str} Channel: {channel} Beta")
-            ax[2].plot(spikes_window.index, gamma_filtered, label="Gamma", color="g")
-            ax[2].set_title(f"{letter_str}_{digit_str} Channel: {channel} Gamma")
+        for i, channel in enumerate(channels):
+            for letter_str, digit_str, spikes_window in channel_data[channel]:
+                # Similar processing as your code
+                idx_min, idx_max = spikes_window.index.min(), spikes_window.index.max()
+                xticks = np.linspace(idx_min, idx_max, 11)
+                xticklabels = np.linspace(0, (idx_max - idx_min) / 2000, 11).round(2)
 
-            for axis in ax:
-                axis.set_xticks(xticks)
-                axis.set_xticklabels(xticklabels)
-                axis.set_xlabel("Time (s)")
+                beta_filtered = butter_bandpass_filter(
+                    spikes_window[channel], 12, 30, fs=2000
+                )
+                gamma_filtered = butter_bandpass_filter(
+                    spikes_window[channel], 30, 100, fs=2000
+                )
 
-            plt.subplots_adjust(hspace=0.5)
-            plt.show()
+                ax[i].plot(
+                    spikes_window.index,
+                    spikes_window[channel],
+                    label="Raw",
+                    color="gray",
+                    alpha=0.5,
+                    zorder=1,
+                )
+                ax[i].plot(
+                    spikes_window.index,
+                    beta_filtered,
+                    label="Beta",
+                    color="r",
+                    zorder=2,
+                )
+                ax[i].plot(
+                    spikes_window.index,
+                    gamma_filtered,
+                    label="Gamma",
+                    color="g",
+                    zorder=3,
+                )
+                ax[i].set_title(f"{letter_str}_{digit_str} Channel: {channel}")
+                ax[i].set_xticks(xticks)
+                ax[i].set_xticklabels(xticklabels)
+                ax[i].set_xlabel("Time (s)")
+                ax[i].legend()
 
-    epoch = lfp.create_custom_epochs(0.3, 0.3)
-    epoch.plot(
-        n_epochs=1,
-        n_channels=4,
-        scalings="auto",
-        title="Epochs",
-        block=True,
-    )
+        plt.subplots_adjust(hspace=0.5)
+        plt.show()
+
     x = 4
