@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib import pyplot as plt
-from scipy.signal import decimate, butter, filtfilt
+from scipy.signal import decimate, butter, filtfilt, medfilt
 
 from spk2extract.logs import logger
 from spk2extract.spk_io import spk_h5
@@ -18,6 +18,26 @@ from spk2extract.spk_io import spk_h5
 
 logger.setLevel("INFO")
 sns.set_style("darkgrid")
+
+# Set up 'ggplot' style
+plt.style.use("ggplot")
+
+# # Configure parameters for publication-ready graphs
+# plt.rcParams["axes.labelsize"] = 20  # Label size
+# plt.rcParams["axes.titlesize"] = 22  # Title size
+# plt.rcParams["xtick.labelsize"] = 14  # x-axis tick label size
+# plt.rcParams["ytick.labelsize"] = 14  # y-axis tick label size
+# plt.rcParams["legend.fontsize"] = 16  # Legend font size
+# plt.rcParams["lines.linewidth"] = 2  # Line width
+# plt.rcParams["axes.titleweight"] = "bold"  # Title weight
+# plt.rcParams["axes.labelweight"] = "bold"  # Label weight
+# plt.rcParams["axes.spines.top"] = False  # Remove top border
+# plt.rcParams["axes.spines.right"] = False  # Remove right border
+# plt.rcParams["axes.spines.left"] = True
+# plt.rcParams["axes.spines.bottom"] = True
+# plt.rcParams["font.weight"] = "bold"
+# plt.rcParams["font.family"] = "sans-serif"
+# plt.rcParams["text.color"] = "black"
 
 
 def get_data(path: Path | str):
@@ -96,6 +116,8 @@ class LfpSignal:
     ):
         self._exclude = exclude
         self.filename = filename
+
+        # TODO: fix this monstrous hack
         self.events = event_arr
         self.event_times = ev_times_arr
         self.fs = fs
@@ -107,205 +129,138 @@ class LfpSignal:
         self.info = mne.create_info(ch_names=ch_names, sfreq=fs, ch_types=ch_types)
         self.raw = mne.io.RawArray(spikes_arr, self.info)
 
-    def filter(self, low, high):
-        self.raw.filter(low, high, fir_design="firwin")
-
-    def notch(self):
-        self.raw.notch_filter(60, fir_design="firwin")
-
     @property
-    def custom_epochs(self, pre_time: float = 0.5, post_time: float = 0.5):
-        return self.create_custom_epochs(pre_time, post_time)
-
-    def create_custom_epochs(self, pre_time: float = 0.5, post_time: float = 0.5):
-        epochs_data = []
-        event_id = {}
-        events = []
-        for i, (letter, digit, epoch_idx, window) in enumerate(
-            self.get_windows(pre_time, post_time, basis="end")
-        ):
-            # Clip large amplitudes
-
-            epochs_data.append(window.to_numpy().T)
-
-            event_key = f"{letter}_{digit}"
-            if event_key not in event_id:
-                event_id[event_key] = len(event_id) + 1
-            events.append([i, 0, event_id[event_key]])
-
-        events = np.array(events, dtype=int)
-
-        return mne.EpochsArray(
-            np.array(epochs_data),
-            self.info,
-            events=np.array(events, dtype=int),
-            event_id=event_id,
+    def epochs(self):
+        events, event_id_dict = self.get_windowed_dict()
+        return mne.Epochs(
+            self.raw,
+            events=events,
+            event_id=event_id_dict,
+            tmin=0,
+            tmax=self.min_duration,
+            baseline=None,
+            picks=None,
+            detrend=1,
         )
 
-    def get_windows(
-        self, pre_time: float = 0.5, post_time: float = 0.5, basis: str = "start"
-    ) -> Generator:
-        pre_time = abs(pre_time)
-        post_time = abs(post_time)
-        if not ensure_alternating(self.events):
-            raise ValueError(
-                "Events array does not alternate between letters and digits."
+    def change_epoch_window(self, tmin, tmax, inplace=True):
+        events, event_id_dict = self.get_windowed_dict()
+        if inplace:
+            mne.Epochs(
+                self.raw,
+                events=events,
+                event_id=event_id_dict,
+                tmin=0,
+                tmax=self.min_duration,
+                baseline=None,
+                picks=None,
+                detrend=1,
             )
+        else:
+            return self.epochs.copy().tmin(tmin).tmax(tmax)
 
-        for i in range(0, len(self.events) - 1, 2):
-            letter_str = self.events[i]
-            digit_str = self.events[i + 1]
-            if basis == "start":
-                # use the letter as the basis, or the start of the interval
-                epoch_idx = int(self.event_times[i] * self.fs)
-                pre_time_idx = int(epoch_idx - (pre_time * self.fs))
-                post_time_idx = int(epoch_idx + (post_time * self.fs))
-            elif basis == "end":
-                # use the digit as the basis, or the end of the interval
-                epoch_idx = int(self.event_times[i + 1] * self.fs)
-                pre_time_idx = int(epoch_idx - (pre_time * self.fs))
-                post_time_idx = int(epoch_idx + (post_time * self.fs))
-            elif basis == "all":
-                pre_time_idx = int(self.event_times[i] * self.fs)
-                post_time_idx = int(self.event_times[i + 1] * self.fs)
+    def filter(self, inplace=True, **kwargs):
+        if inplace:
+            self.raw.filter(**kwargs)
+        else:
+            return self.raw.copy().filter(**kwargs)
+
+    def create_annotations(self):
+        onsets = []
+        durations = []
+        descriptions = []
+
+        for i in range(0, len(self.events)):
+            onsets.append(self.event_times[i])
+            if i < len(self.events) - 1:
+                durations.append(self.event_times[i + 1] - self.event_times[i])
             else:
-                raise ValueError(
-                    f"Invalid basis {basis}. Must be one of 'start', 'end', or 'all'."
-                )
+                durations.append(1)  # Or your default duration for the last event
+            descriptions.append(self.events[i])
 
-            if not (0 <= pre_time_idx < len(self.spikes)) and (
-                pre_time_idx < post_time_idx
-            ):
-                raise ValueError(
-                    f"Pre time index {pre_time_idx} is out of bounds for the data."
-                )
+        annot = mne.Annotations(onsets, durations, descriptions)
+        self.raw.set_annotations(annot)
 
-            if letter_str in ["b", "w"]:
-                yield letter_str, digit_str, self.spikes.loc[pre_time_idx:post_time_idx]
+    def get_windowed_dict(self):
+        events = []
+        event_id_dict = {}
+        self.min_duration = float("inf")  # Initialize with a large value
 
-    def remove_ica(self):
-        ica = mne.preprocessing.ICA(
-            n_components=len(self.spikes.columns), random_state=97, max_iter=800
+        for i in range(0, len(self.events)):
+            if self.events[i].isalpha():
+                start_time = self.event_times[i]
+                j = i + 1
+                while j < len(self.events) and not self.events[j].isalpha():
+                    end_time = self.event_times[j]
+                    j += 1
+
+                # Update the minimum duration
+                duration = end_time - start_time
+                if duration < self.min_duration:
+                    min_duration = duration
+
+                event_label = f"{self.events[i]}_{self.events[j - 1]}"
+                if event_label not in event_id_dict:
+                    event_id_dict[event_label] = len(event_id_dict) + 1
+
+                event_id = event_id_dict[event_label]
+                events.append([int(start_time * self.fs), 0, event_id])
+
+        return events, event_id_dict
+
+    def notch_filter_raw(self):
+        self.raw.notch_filter(np.arange(60, 121, 60), picks="all")
+
+    @staticmethod
+    def clean_ica(epoch):
+        from mne.preprocessing import ICA
+
+        ica = ICA(n_components=len(epoch.ch_names), random_state=97, max_iter=800).fit(
+            epoch
         )
-        ica.fit(self.raw)
-        ica.plot_sources(self.raw)
-        ica.apply(self.raw)
+        ica.exclude = [0, 1]
+        return ica.apply(epoch.copy().crop(tmin=1, tmax=None), exclude=ica.exclude)
 
 
-if __name__ == "__main__":
-    # Set up 'ggplot' style
-    plt.style.use("ggplot")
+def graphify(data: np.ndarray):
+    n_chan, n_sam, n_epoch = 1, 1, 1
+    if len(data.shape) == 1:
+        n_sam = data.shape
+    if len(data.shape) == 2:
+        n_chan, n_sam = data.shape
+    if len(data.shape) == 3:
+        n_epoch, n_chan, n_sam = data.shape
 
-    # Configure parameters for publication-ready graphs
-    plt.rcParams["axes.labelsize"] = 20  # Label size
-    plt.rcParams["axes.titlesize"] = 22  # Title size
-    plt.rcParams["xtick.labelsize"] = 14  # x-axis tick label size
-    plt.rcParams["ytick.labelsize"] = 14  # y-axis tick label size
-    plt.rcParams["legend.fontsize"] = 16  # Legend font size
-    plt.rcParams["lines.linewidth"] = 2  # Line width
-    plt.rcParams["axes.titleweight"] = "bold"  # Title weight
-    plt.rcParams["axes.labelweight"] = "bold"  # Label weight
-    plt.rcParams["axes.spines.top"] = False  # Remove top border
-    plt.rcParams["axes.spines.right"] = False  # Remove right border
-    plt.rcParams["axes.spines.left"] = True
-    plt.rcParams["axes.spines.bottom"] = True
-    plt.rcParams["font.weight"] = "bold"
-    plt.rcParams["font.family"] = "sans-serif"
-    plt.rcParams["text.color"] = "black"
+    fig, ax = plt.subplots(n_epoch, n_chan, sharex=True, sharey=True)
+    xticks = np.arange(0, n_sam, 2000)
+    xlabs = np.arange(0, n_sam / 2000, 1)
+    for i in range(n_epoch):
+        for j in range(n_chan):
+            ax[i, j].plot(data[i, j, :])
+    plt.show()
+    return fig, ax
 
-    data_path = Path().home() / "data" / "extracted"
-    save_path = Path().home() / "data" / "figures"
-    file = list(data_path.glob("*0609*.h5"))[0]
-    df_s, df_t, ev, event_times = get_data(file)
-    # resampled to 1000Hz
-    resampled_lfp_df = df_s.apply(lambda col: decimate(col, 2), axis=0)
 
-    lfp = LfpSignal(
-        resampled_lfp_df,
-        1000,
-        event_arr=ev,
-        ev_times_arr=event_times,
-        filename=file,
-        exclude=["LFP1_AON", "LFP2_AON"],
-    )
-    lfp.filter(15, 100)
-    lfp.notch()
-    letter_map = {"b": "Black", "w": "White"}
-    digit_map = {"0": "Incorrect dig", "1": "Correct dig"}
-
-    data_by_trial_type = {}
-    info = mne.create_info(
-        ch_names=list(lfp.spikes.columns), sfreq=lfp.fs, ch_types="eeg"
-    )
-    data = []
-    metadata_list = []
-
-    for letter_str, digit_str, spikes_window in lfp.get_windows(0.5, 0.5, "all"):
-        trial_key = f"{letter_str}_{digit_str}"
-        if trial_key not in data_by_trial_type:
-            data_by_trial_type[trial_key] = {}
-        this_window = {}
-        channel_pairs = [("LFP1_vHp", "LFP3_AON"), ("LFP2_vHp", "LFP4_AON")]
-        for ch1, ch2 in channel_pairs:
-            for channel in [ch1, ch2]:
-                channel_data = {
-                    "raw": spikes_window[channel].to_numpy(),
-                    "beta": butter_bandpass_filter(
-                        spikes_window[channel], 12, 30, fs=1000
-                    ),
-                    "gamma": butter_bandpass_filter(
-                        spikes_window[channel], 30, 80, fs=1000
-                    ),
-                    "theta": butter_bandpass_filter(
-                        spikes_window[channel], 4, 12, fs=1000
-                    ),
-                }
-                this_window[channel] = channel_data
-
-        epoch_data = np.array(
-            [this_window[channel]["raw"] for channel in list(lfp.spikes.columns)]
-        )
-        data.append(epoch_data)
-        metadata_list.append({"letter": letter_str, "digit": digit_str})
-
-        data_by_trial_type[trial_key][len(data_by_trial_type[trial_key])] = this_window
-
-    # Make mne epochs for each window based on the shortest window
-    min_len = min([d.shape[1] for d in data])
-    shortened = []
-    for d in data:
-        size = d.shape[1]
-        d = d[:, size - min_len :]
-        shortened.append(d)
-
-    data_array = np.stack(shortened, axis=0)
-    epochs = mne.EpochsArray(data_array, info)
-    epochs.metadata = pd.DataFrame(metadata_list)
-
-    # Now, you can easily filter epochs based on metadata
-    ch1 = "LFP2_vHp"
-    ch2 = "LFP4_AON"
-    epochs_b1 = epochs['letter == "b" and digit == "1"']
-    index_lfp1 = epochs_b1.ch_names.index(ch1)
-    index_lfp3 = epochs_b1.ch_names.index(ch2)
-    data_b1 = epochs_b1.get_data()
-    two_channel_data = data_b1[:, [index_lfp1, index_lfp3], :]
-    freqs = np.arange(1, 100, 1)
-    n_cycles = freqs / 2.0
+def plot_coh(epoch_object: mne.Epochs):
+    # Connectivity Analysis
+    indices = (np.array([0]), np.array([1]))  # Channel indices for connectivity
+    freqs = np.arange(5, 100)
+    n_cycles = freqs / 2
 
     con = mne_connectivity.spectral_connectivity_epochs(
-        two_channel_data,
+        epoch_object,
         method="coh",
-        sfreq=int(lfp.fs),
         mode="cwt_morlet",
         cwt_freqs=freqs,
         cwt_n_cycles=n_cycles,
-        verbose=True,
-        indices=(np.array([0]), np.array([1])),
+        indices=indices,
+        sfreq=epoch_object.info["sfreq"],
+        mt_adaptive=True,
+        n_jobs=1,
     )
+    times = epoch_object.times
+    coh = con.get_data()  # The connectivity matrix, shape will be (n_freqs, n_times)
 
-    coh = con.get_data() # The coherence matrix, shape will be (n_freqs, n_times)
-    times = epochs_b1.times
     plt.imshow(
         np.squeeze(coh),
         extent=(times[0], times[-1], freqs[0], freqs[-1]),
@@ -313,12 +268,37 @@ if __name__ == "__main__":
         origin="lower",
         cmap="jet",
     )
-    plt.title(f"{ch1} vs {ch2} \n"
-              f"Black, Correct", fontsize=14)
     plt.xlabel("Time (s)")
     plt.ylabel("Frequency (Hz)")
-    # colorbar units are "coherence"
-    plt.colorbar(label="Coherence")
-    plt.savefig(save_path / "coh.png", dpi=300, bbox_inches="tight", pad_inches=0.1, transparent=True)
+    plt.show()
+
+
+if __name__ == "__main__":
+    data_path = Path().home() / "data" / "extracted"
+    save_path = Path().home() / "data" / "figures"
+    file = list(data_path.glob("*0609*.h5"))[0]
+    df_s, df_t, ev, event_times = get_data(file)
+
+    lfp = LfpSignal(
+        df_s,
+        2000,
+        event_arr=ev,
+        ev_times_arr=event_times,
+        filename=file,
+        exclude=["LFP1_AON", "LFP2_AON"],
+    )
+    lfp.notch_filter_raw()
+
+    epochs: mne.Epochs = lfp.epochs
+    notched = epochs.copy().notch_filter(np.arange(60, 121, 60), picks="all")
+
+    epochs.load_data()
+
+    notch_freqs = np.array([60, 120], dtype=object)
+
+    def median_filter(data):
+        return medfilt(data, kernel_size=5)  # Adjust kernel_size as needed
+
+    epochs_median = epochs.copy().apply_function(median_filter)
 
     x = 2
