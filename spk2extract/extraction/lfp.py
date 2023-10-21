@@ -20,7 +20,7 @@ logger.setLevel("INFO")
 sns.set_style("darkgrid")
 
 # Set up 'ggplot' style
-plt.style.use("ggplot")
+# plt.style.use("ggplot")
 
 # # Configure parameters for publication-ready graphs
 # plt.rcParams["axes.labelsize"] = 20  # Label size
@@ -109,136 +109,88 @@ class LfpSignal:
         self,
         spikes_df,
         fs,
-        event_arr=None,
+        ev_spikes_arr=None,
         ev_times_arr=None,
+        ev_id_dict=None,
+        ev_min_dur=None,
+        window=(),
         filename=None,
         exclude=(),
     ):
         self._exclude = exclude
         self.filename = filename
-
-        # TODO: fix this monstrous hack
-        self.events = event_arr
-        self.event_times = ev_times_arr
         self.fs = fs
-
+        self.events = ev_spikes_arr
+        self.ev_times = ev_times_arr
+        self.ev_id_dict = ev_id_dict
+        self.min_duration = ev_min_dur
         self.spikes: pd.DataFrame = spikes_df.drop(columns=exclude, errors="ignore")
+        self._channels = list(self.spikes.columns)
         spikes_arr = self.spikes.to_numpy().T
         ch_names = list(self.spikes.columns)
         ch_types = ["eeg"] * len(ch_names)
+
+        # mne objects
+        self._tmin = window[0] if len(window) > 0 else 0
+        self._tmax = window[1] if len(window) > 1 else 1
         self.info = mne.create_info(ch_names=ch_names, sfreq=fs, ch_types=ch_types)
         self.raw = mne.io.RawArray(spikes_arr, self.info)
+        self.filtered = False
+        self.notched = False
+
+    @property
+    def tmin(self):
+        return self._tmin
+
+    @tmin.setter
+    def tmin(self, value):
+        self._tmin = value
+
+    @property
+    def tmax(self):
+        return self._tmax
+
+    @tmax.setter
+    def tmax(self, value):
+        self._tmax = value
+
+    @property
+    def channels(self):
+        return self._channels
+
+    @channels.setter
+    def channels(self, value):
+        self._channels = value
 
     @property
     def epochs(self):
-        events, event_id_dict = self.get_windowed_dict()
+        self.tmax = self.tmax if self.tmax is not None else self.min_duration
         return mne.Epochs(
             self.raw,
-            events=events,
-            event_id=event_id_dict,
-            tmin=0,
-            tmax=self.min_duration,
+            events=self.events,
+            event_id=self.ev_id_dict,
+            tmin=self.tmin,
+            tmax=self.tmax,
             baseline=None,
-            picks=None,
+            picks=self.channels,
             detrend=1,
         )
-
-    def change_epoch_window(self, tmin, tmax, inplace=True):
-        events, event_id_dict = self.get_windowed_dict()
-        if inplace:
-            mne.Epochs(
-                self.raw,
-                events=events,
-                event_id=event_id_dict,
-                tmin=0,
-                tmax=self.min_duration,
-                baseline=None,
-                picks=None,
-                detrend=1,
-            )
-        else:
-            return self.epochs.copy().tmin(tmin).tmax(tmax)
 
     def filter(self, inplace=True, **kwargs):
         if inplace:
             self.raw.filter(**kwargs)
+            self.filtered = True
         else:
             return self.raw.copy().filter(**kwargs)
 
-    def create_annotations(self):
-        onsets = []
-        durations = []
-        descriptions = []
-
-        for i in range(0, len(self.events)):
-            onsets.append(self.event_times[i])
-            if i < len(self.events) - 1:
-                durations.append(self.event_times[i + 1] - self.event_times[i])
-            else:
-                durations.append(1)  # Or your default duration for the last event
-            descriptions.append(self.events[i])
-
-        annot = mne.Annotations(onsets, durations, descriptions)
-        self.raw.set_annotations(annot)
-
-    def get_windowed_dict(self):
-        events = []
-        event_id_dict = {}
-        self.min_duration = float("inf")  # Initialize with a large value
-
-        for i in range(0, len(self.events)):
-            if self.events[i].isalpha():
-                start_time = self.event_times[i]
-                j = i + 1
-                while j < len(self.events) and not self.events[j].isalpha():
-                    end_time = self.event_times[j]
-                    j += 1
-
-                # Update the minimum duration
-                duration = end_time - start_time
-                if duration < self.min_duration:
-                    min_duration = duration
-
-                event_label = f"{self.events[i]}_{self.events[j - 1]}"
-                if event_label not in event_id_dict:
-                    event_id_dict[event_label] = len(event_id_dict) + 1
-
-                event_id = event_id_dict[event_label]
-                events.append([int(start_time * self.fs), 0, event_id])
-
-        return events, event_id_dict
-
-    def notch_filter_raw(self):
-        self.raw.notch_filter(np.arange(60, 121, 60), picks="all")
-
-    @staticmethod
-    def clean_ica(epoch):
-        from mne.preprocessing import ICA
-
-        ica = ICA(n_components=len(epoch.ch_names), random_state=97, max_iter=800).fit(
-            epoch
-        )
-        ica.exclude = [0, 1]
-        return ica.apply(epoch.copy().crop(tmin=1, tmax=None), exclude=ica.exclude)
-
-
-def graphify(data: np.ndarray):
-    n_chan, n_sam, n_epoch = 1, 1, 1
-    if len(data.shape) == 1:
-        n_sam = data.shape
-    if len(data.shape) == 2:
-        n_chan, n_sam = data.shape
-    if len(data.shape) == 3:
-        n_epoch, n_chan, n_sam = data.shape
-
-    fig, ax = plt.subplots(n_epoch, n_chan, sharex=True, sharey=True)
-    xticks = np.arange(0, n_sam, 2000)
-    xlabs = np.arange(0, n_sam / 2000, 1)
-    for i in range(n_epoch):
-        for j in range(n_chan):
-            ax[i, j].plot(data[i, j, :])
-    plt.show()
-    return fig, ax
+    def notch_filter_raw(self, freqs: list | np.ndarray = None, inplace=True):
+        if freqs is None:
+            freqs = np.arange(60, 121, 60)
+        if inplace:
+            self.raw.notch_filter(freqs=freqs)
+            self.notched = True
+        else:
+            return self.raw.copy().notch_filter(freqs=freqs)
 
 
 def plot_coh(epoch_object: mne.Epochs):
@@ -253,9 +205,7 @@ def plot_coh(epoch_object: mne.Epochs):
         mode="cwt_morlet",
         cwt_freqs=freqs,
         cwt_n_cycles=n_cycles,
-        indices=indices,
         sfreq=epoch_object.info["sfreq"],
-        mt_adaptive=True,
         n_jobs=1,
     )
     times = epoch_object.times
@@ -268,9 +218,40 @@ def plot_coh(epoch_object: mne.Epochs):
         origin="lower",
         cmap="jet",
     )
+    title = f"{epoch_object.ch_names[0]} vs {epoch_object.ch_names[1]}"
+    plt.title(title)
     plt.xlabel("Time (s)")
     plt.ylabel("Frequency (Hz)")
     plt.show()
+
+
+def process_events(events: np.ndarray, times: np.ndarray, fs=2000):
+    processed = []
+    min_dur = np.inf
+    ev_dict = {}
+
+    start_time, end_time = None, None
+    for i in range(0, len(events)):
+        if events[i].isalpha():
+            start_time = times[i]
+            j = i + 1
+
+            # loops through to the last digit in sequence
+            while j < len(events) and not events[j].isalpha():
+                end_time = times[j]
+                j += 1
+
+            # keep an active minimum duration for proper epochs
+            duration = end_time - start_time
+            if duration < min_dur:
+                min_dur = duration
+
+            event_label = f"{events[i]}_{events[j - 1]}"
+            if event_label not in ev_dict:
+                ev_dict[event_label] = len(ev_dict) + 1
+            event_id = ev_dict[event_label]
+            processed.append([int(end_time * fs), 0, event_id])
+    return processed, ev_dict, min_dur
 
 
 if __name__ == "__main__":
@@ -278,27 +259,33 @@ if __name__ == "__main__":
     save_path = Path().home() / "data" / "figures"
     file = list(data_path.glob("*0609*.h5"))[0]
     df_s, df_t, ev, event_times = get_data(file)
+    ev, event_id_dict, min_duration = process_events(ev, event_times)
 
     lfp = LfpSignal(
         df_s,
         2000,
-        event_arr=ev,
+        ev_spikes_arr=ev,
         ev_times_arr=event_times,
         filename=file,
         exclude=["LFP1_AON", "LFP2_AON"],
+        ev_id_dict=event_id_dict,
+        ev_min_dur=min_duration,
     )
+
+    lfp.tmin = -0.5
+    lfp.tmax = 0.5
     lfp.notch_filter_raw()
+    lfp.raw.filter(5, 100, fir_design="firwin")
 
+    chans = ["LFP1_vHp", "LFP3_AON"]
     epochs: mne.Epochs = lfp.epochs
-    notched = epochs.copy().notch_filter(np.arange(60, 121, 60), picks="all")
-
     epochs.load_data()
-
-    notch_freqs = np.array([60, 120], dtype=object)
-
     def median_filter(data):
         return medfilt(data, kernel_size=5)  # Adjust kernel_size as needed
-
     epochs_median = epochs.copy().apply_function(median_filter)
+    epochs.pick_channels(chans)
+    epochs_median.pick_channels(chans)
+    plot_coh(epochs)
+    plot_coh(epochs_median)
 
     x = 2
