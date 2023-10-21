@@ -8,6 +8,7 @@ import mne_connectivity
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import matplotlib
 from matplotlib import pyplot as plt
 from scipy.signal import decimate, butter, filtfilt, medfilt
 
@@ -174,6 +175,7 @@ class LfpSignal:
             baseline=None,
             picks=self.channels,
             detrend=1,
+            preload=True,
         )
 
     def filter(self, inplace=True, **kwargs):
@@ -254,6 +256,10 @@ def process_events(events: np.ndarray, times: np.ndarray, fs=2000):
     return processed, ev_dict, min_dur
 
 
+def median_filter(data):
+    return medfilt(data, kernel_size=5)  # Adjust kernel_size as needed
+
+
 if __name__ == "__main__":
     data_path = Path().home() / "data" / "extracted"
     save_path = Path().home() / "data" / "figures"
@@ -274,18 +280,15 @@ if __name__ == "__main__":
 
     lfp.tmin = -0.5
     lfp.tmax = 0.5
-    lfp.notch_filter_raw()
-    lfp.raw.filter(5, 100, fir_design="firwin")
+    lfp.raw.filter(0.3, 100, fir_design="firwin")
+    lfp.raw.notch_filter(freqs=np.arange(60, 121, 60))
+    raw = lfp.raw.copy()
 
     chans = ["LFP1_vHp", "LFP3_AON"]
     epochs: mne.Epochs = lfp.epochs
-    epochs.load_data()
-    def median_filter(data):
-        return medfilt(data, kernel_size=5)  # Adjust kernel_size as needed
-    epochs_median = epochs.copy().apply_function(median_filter)
-    epochs.pick_channels(chans)
-    epochs_median.pick_channels(chans)
-    plot_coh(epochs)
-    plot_coh(epochs_median)
+
+    epochs.pick(chans)
+    epochs['b_1'].compute_psd(method='welch').plot()
+    epochs['w_1'].compute_psd(method='welch').plot()
 
     x = 2
