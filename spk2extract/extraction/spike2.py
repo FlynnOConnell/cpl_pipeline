@@ -3,10 +3,11 @@ Spike data extraction utility, the main workhorse of this package.
 """
 from __future__ import annotations
 
-from collections import namedtuple
+from itertools import compress
 from pathlib import Path
 
 import numpy as np
+import string
 
 try:
     from sonpy import lib as sp
@@ -21,8 +22,20 @@ from spk2extract.utils import check_substring_content
 from spk2extract.defaults import defaults
 from spk2extract import spk_io
 
-WaveData = namedtuple("WaveData", ["spikes", "times"])
-EventData = namedtuple("EventData", ["events", "times"])
+
+class Channel:
+    def __init__(self, name, chan_type, data, times, metadata):
+        self.name = name
+        self.type = chan_type
+        self.data: np.ndarray = data
+        self.times: np.ndarray = times
+        self.metadata = metadata
+
+    def __repr__(self):
+        return f"{self.name}"
+
+    def __str__(self):
+        return f"{self.name}"
 
 
 class SonfileException(BaseException):
@@ -110,7 +123,6 @@ class Spike2Data:
     >>> data = Spike2Data(files[0])
     >>> data
     'rat1-2021-03-24_0001'
-    >>> data.get_waves()
     >>> data["LFP1"]
     WaveData(spikes=array([[ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,
                 0.00000000e+00,  0.00000000e+00,  0.00000000e+00],), times=array([...]))
@@ -123,9 +135,8 @@ class Spike2Data:
     """
 
     def __init__(
-        self,
-        filepath: Path | str,
-        exclude: tuple = ("Respirat", "Sniff", "RefBrain"),
+            self,
+            filepath: Path | str,
     ):
         """
         Class for reading and storing data from a Spike2 file.
@@ -166,15 +177,13 @@ class Spike2Data:
 
         """
         self.logger = logger
-        self._bandpass_low = 300
-        self._bandpass_high = 3000
         self.errors = {}  # errors that won't stop the extraction
-        self.exclude = exclude  # channels to exclude from the extraction
         self.filename = Path(filepath)
         self.sonfile = sp.SonFile(str(self.filename), True)
-        self.events = None
+        self.channels = []
+
         if self.sonfile.GetOpenError() != 0:
-            if self.filename.suffix != ".smr":
+            if self.filename.suffix not in [".smr", ".smrx"]:
                 raise SonfileException(
                     f"{self.filename} is not a valid file. \n"
                     f"Extension {self.filename.suffix} is not valid."
@@ -185,9 +194,7 @@ class Spike2Data:
                     f"Double check the file contains valid data."
                 )
         self.bitrate = 32 if self.sonfile.is32file() else 64
-        self.metadata_channel = {}  # filled in during get_waves()
-        self.data = {}
-        self.metadata_file = {
+        self.metadata = {
             "bitrate": self.bitrate,
             "filename": self.filename.stem,
             "recording_length": self.max_time(),
@@ -200,175 +207,71 @@ class Spike2Data:
         """Allows us to use str(spike_data.SpikeData(file)) to get the filename stem."""
         return f"{self.filename.stem}"
 
-    def __getitem__(self, key):
-        if key in self.data:
-            return self.data[key]
-        else:
-            raise KeyError(f"{key} not found in SpikeData object.")
-
-    @property
-    def bandpass_low(self):
+    def process_channels(self):
         """
-        The lower bound of the bandpass filter.
-        """
-        return self._bandpass_low
+        Iterate over the channels in the file.
 
-    @bandpass_low.setter
-    def bandpass_low(self, value):
-        """
-        Set the lower bound of the bandpass filter.
-
-        Parameters
-        ----------
-        value : int
-            The lower bound of the bandpass filter.
-
-        Returns
+        Yields
         -------
-            None
+        idx : int
+            The channel index.
+        title : str
+            The channel title.
+        type : int
+            The channel type.
         """
-        self._bandpass_low = value
-
-    @property
-    def bandpass_high(self):
-        """
-        The upper bound of the bandpass filter.
-
-        Returns
-        -------
-            int : The upper bound of the bandpass filter.
-
-        """
-        return self._bandpass_high
-
-    @bandpass_high.setter
-    def bandpass_high(self, value):
-        """
-        Set the upper bound of the bandpass filter.
-
-        Parameters
-        ----------
-        value: int
-            The upper bound of the bandpass filter.
-
-        Returns
-        -------
-        None
-
-        """
-        self._bandpass_high = value
-
-    def get_events(self):
-        logger.info("Extracting events...")
         for idx in range(self.max_channels()):
-            title = (self.sonfile.GetChannelTitle(idx)).lower()
-            if "keyboard" in title:
-                try:
-                    # noinspection PyArgumentList
-                    marks = self.sonfile.ReadMarkers(idx, int(2e9), 0)
+            # Get the sampling frequency of the channel
+            fs = np.round(1 / (self.sonfile.ChannelDivide(idx) * self.time_base()), 2)
+            metadata = {"fs": fs, "units": self.sonfile.GetChannelUnits(idx), }
+            signal, times = [], []
+            channel_type = ""
+            if self.sonfile.ChannelType(idx) == sp.DataType.Off:
+                continue
+            if self.sonfile.ChannelType(idx) == sp.DataType.Adc:
+                signal = self.sonfile.ReadFloats(idx, int(2e9), 0)
+                times = indices_to_time(range(len(signal)), fs)
+                channel_type = "signal"
+            if self.sonfile.ChannelType(idx) == sp.DataType.Marker:
+                channel_type = "event"
+                signal, times = self.process_event(idx)
+            self.channels.append(Channel(self.sonfile.GetChannelTitle(idx), channel_type, signal, times, metadata))
 
-                    # Get string representation of the spike2 codes and corresponding times
-                    char_codes = [
-                        codes_to_string(
-                            [mark.Code1, mark.Code2, mark.Code3, mark.Code4]
-                        )
-                        for mark in marks
-                    ]
-                    time_conv = np.round(
-                        ticks_to_time([mark.Tick for mark in marks], self.time_base()),
-                        3,
-                    )
-                    self.events = EventData(events=char_codes, times=time_conv)
-                except SonfileException as e:
-                    self.errors["ReadMarker"] = e
+    def process_event(self, idx: int):
+        try:
+            marks = self.sonfile.ReadMarkers(idx, int(2e9), 0)
 
-    def get_waves(
-        self,
-    ):
-        """
-        Main workhorse of this class; extracts unit and lfp data from the Spike2 file.
+            # Convert the char ascii-encoded ints to a string
+            char_codes = [
+                codes_to_string([mark.Code1, mark.Code2, mark.Code3, mark.Code4])
+                for mark in marks
+            ]
 
-        This function uses the sonpy library to extract unit data from the Spike2 file. It converts all the
-        intrinsic data stored in the spike2 file into convenient Python objects, such as dictionaries, namedtuples
-        and properties. SonPy is a python wrapper for the CED C++ library, the sonpy library is not well documented
-        and the CED C++ library is not open source.
-        """
-        self.logger.debug(f"-| Extracting ADC channels from {self.filename.stem} -|")
-        for idx in range(self.max_channels()):
-            title = self.sonfile.GetChannelTitle(idx)
-            print(title)
-            pass
-            if (
-                self.sonfile.ChannelType(idx) == sp.DataType.Adc
-                and title not in self.exclude
-            ):
-                self.logger.debug(f"Processing {title}")
-                fs = np.round(
-                    1 / (self.sonfile.ChannelDivide(idx) * self.time_base()), 2
-                )
+            # Create a boolean mask for filtering both char_codes and ticks
+            is_printable_mask = [
+                all(char in string.printable for char in code) for code in char_codes
+            ]
 
-                # Read the waveforms from the channel, up to 2e9, or 2 billion samples at a time which represents
-                # the maximum amount of 30 bit floats that can be stored in memory
-                # noinspection PyArgumentList
-                waveforms = self.sonfile.ReadFloats(idx, int(2e9), 0)
+            # Filter char_codes and ticks based on the boolean mask
+            filtered_codes = list(compress(char_codes, is_printable_mask))
+            ticks = [mark.Tick for mark in marks]
+            filtered_ticks = list(compress(ticks, is_printable_mask))
 
-                # Ensure the Nyquist-Shannon sampling theorem is satisfied
-                if fs < (2 * self.bandpass_high):
-                    # TODO: handle this
-                    pass
+            # Convert the filtered clock ticks to seconds
+            event_time = np.round(ticks_to_time(filtered_ticks, self.time_base()), 3)
 
-                chan_type = None
-                applied_filter = None
-                # Titles for unit are often just U, but we need to make sure we don't include LFP channels
-                # with a U in the title anywhere
-                if check_substring_content(title, "u") and not check_substring_content(
-                    title, "lfp"
-                ):
-                    chan_type = "unit"
-                    # filtered_segment = filter_signal(
-                    #     waveforms,
-                    #     fs,
-                    #     (self.bandpass_low, self.bandpass_high),
-                    # )
-                    # applied_filter = (self.bandpass_low, self.bandpass_high)
+            return filtered_codes, event_time
 
-                    # Extract spikes and times from the filtered segment
-                    # slices, spike_indices, thresh = detect_spikes(
-                    #     filtered_segment,
-                    #     (0.5, 1.0),
-                    #     fs,
-                    # )
-                    # slices = np.array(slices)
-                    # spike_times = spike_indices / float(fs)
+        except SonfileException as e:
+            self.errors["ReadMarker"] = e
+            self.logger.error(f"Error reading marker: {e}")
+            return [], []
 
-                    # Store this namedtuple in the self.unit dictionary
-                    self.data[title] = WaveData(
-                        spikes=waveforms,
-                        times=np.arange(len(waveforms)) / float(fs),
-                    )
-
-                elif check_substring_content(title, "lfp"):
-                    chan_type = "lfp"
-
-                    # filtered_segment = filter_signal(
-                    #     waveforms, fs, (0.3, 500)  # TODO: add this as a parameter
-                    # )
-                    # applied_filter = (0.3, 500)
-                    # self.data[title] = WaveData(
-                    #     spikes=filtered_segment,
-                    #     times=np.arange(len(filtered_segment)) / float(fs),
-                    # )
-                    self.data[title] = WaveData(
-                        spikes=waveforms,
-                        times=np.arange(len(waveforms)) / float(fs),
-                    )
-                self.metadata_channel[title] = {
-                    "fs": fs,
-                    "type": chan_type,
-                    "units": self.sonfile.GetChannelUnits(idx),
-                }
-
-        self.logger.debug(f"Spike extraction complete: {self.filename.stem}")
+    def process_wave(self, idx: int = None, ):
+        # Read the waveforms from the channel, up to 2e9, or 2 billion samples at a time which represents
+        # the maximum amount of 30 bit floats that can be stored in memory
+        # noinspection PyArgumentList
+        return self.sonfile.ReadFloats(idx, int(2e9), 0)
 
     def save(self, filepath: str | Path, overwrite_existing=True) -> Path:
         """
@@ -407,12 +310,11 @@ class Spike2Data:
         if filepath.exists():
             if overwrite_existing:
                 logger.info(f"Overwriting existing file: {filepath}")
-                spk_io.write_h5(
-                    filepath,
-                    self.data,
-                    self.events,
-                    self.metadata_channel,
-                    self.metadata_file,
+                spk_io.save_channel_h5(
+                    str(filepath),
+                    "channels",
+                    self.channels,
+                    self.metadata
                 )
                 self.logger.info(f"Saved data to {filepath}")
                 return self.filename
@@ -421,18 +323,6 @@ class Spike2Data:
                     f"{filepath} already exists. Set overwrite_existing=True to overwrite. Skipping h5 write."
                 )
                 pass
-        try:
-            spk_io.write_h5(
-                filepath,
-                self.data,
-                self.events,
-                self.metadata_channel,
-                self.metadata_file,
-            )
-            self.logger.info(f"Saved data to {filepath}")
-        except Exception as e:
-            self.logger.error(f"Error writing h5 file: {e}")
-            raise e
         return self.filename
 
     def channel_interval(self, channel: int):
@@ -562,14 +452,14 @@ if __name__ == "__main__":
     logger.setLevel(log_level)
     print(f"Log level set to {log_level}")
 
-    path_test = Path().home() / "data" / "context" / 'dk1'
+    path_test = Path().home() / "data" / "aon" / 'dk1'
     save_test = Path().home() / "data" / "extracted" / 'dk1'
     save_test.mkdir(exist_ok=True, parents=True)
-    test_files = [file for file in path_test.glob("*.smr")]
+    test_files = [file for file in path_test.glob("*0609*.smr")]
     for testfile in test_files:
         testdata = Spike2Data(
             testfile,
         )
-        testdata.get_events()
-        testdata.get_waves()
+        testdata.process_channels()
         testdata.save(save_test / str(testdata), overwrite_existing=True)
+        x = 5

@@ -8,12 +8,14 @@ from pathlib import Path
 from typing import Iterable
 
 import tables
+
+import spk2extract.extraction
 from spk2extract.logs import logger
 
 import numpy as np
 
 
-def is_compatible_type(obj):
+def _is_pyt_type(obj):
     """
     Check if a Python object is both regular and homogeneous for proper disk storage.
 
@@ -47,8 +49,36 @@ def is_compatible_type(obj):
     return False
 
 
+def save_channel_h5(fname: str, name: str, obj_list: list, metadata: dict):
+    with tables.open_file(fname, mode="w") as h5file:
+        file_group = h5file.create_group("/", name)
+        file_group._v_attrs['metadata'] = metadata
+        for channel in obj_list:
+            _chan_arr_groups(h5file, file_group, channel)
+
+
+def _chan_arr_groups(h5file: tables.file.File, parent_group: tables.Group, channel):
+
+    # Create a group for each channel
+    channel_group = h5file.create_group(parent_group, channel.name)
+    channel_group._v_attrs['metadata'] = channel.metadata
+
+    h5file.create_array(channel_group, 'data', channel.data)
+    h5file.create_array(channel_group, 'times', channel.times)
+
+
+def load_from_h5(h5file, group_name, cls):
+    group = h5file.get_node("/", group_name)
+    kwargs = {}
+    for key in group._v_attrs._f_list():  # Load attributes
+        kwargs[key] = group._v_attrs[key]
+    for array in h5file.list_nodes(group, classname='Array'):  # Load arrays
+        kwargs[array.name] = array.read()
+    return cls(**kwargs)
+
+
 def save_array_or_raise(group, key, value):
-    if is_compatible_type(value):
+    if _is_pyt_type(value):
         group.create_array(group, key, value)
     else:
         raise ValueError(
@@ -58,7 +88,7 @@ def save_array_or_raise(group, key, value):
 
 def save_metadata_or_raise(group, metadata):
     for k, v in metadata.items():
-        if is_compatible_type(v):
+        if _is_pyt_type(v):
             group._v_attrs[k] = v
         else:
             raise ValueError(
@@ -66,12 +96,24 @@ def save_metadata_or_raise(group, metadata):
             )
 
 
+def save_event(h5file, event_group, event: spk2extract.extraction.Event):
+    event_group_this = h5file.create_group(event_group, event.title, "Single Event")
+    h5file.create_array(event_group_this, 'labels', event.labels)
+    h5file.create_array(event_group_this, 'times', event.times)
+
+
+def save_wave(h5file, wave_group, signal: spk2extract.extraction.Signal):
+    wave_group_this = h5file.create_group(wave_group, signal.title, "Single Wave")
+    h5file.create_array(wave_group_this, 'data', signal.data)
+    h5file.create_array(wave_group_this, 'times', signal.times)
+
+
 def write_h5(
-    filename: Path | str,
-    data: dict = None,
-    events: Iterable = None,
-    metadata_channel: dict = None,
-    metadata_file: dict = None,
+        filename: Path | str,
+        data: dict = None,
+        events: Iterable = None,
+        metadata_channel: dict = None,
+        metadata_file: dict = None,
 ):
     """
     Creates a h5 file specific to the spike2 dataset.
@@ -141,38 +183,17 @@ def write_h5(
                 channel_group = h5file.create_group(
                     wavedata_group, dict_key, f"{dict_key} Data"
                 )
-                if hasattr(dict_value, "_asdict"):  # namedtuple
-                    for field_name, field_value in dict_value._asdict().items():
-                        if field_name == "spikes":
-                            if is_compatible_type(field_value):
-                                h5file.create_array(
-                                    channel_group, field_name, field_value
-                                )
-                            else:
-                                raise ValueError(
-                                    f"Value {field_value} of type {type(field_value)} is not compatible with pytables."
-                                )
-                        if field_name == "times":
-                            if is_compatible_type(field_value):
-                                h5file.create_array(
-                                    channel_group, field_name, field_value
-                                )
-                            else:
-                                raise ValueError(
-                                    f"Value {field_value} of type {type(field_value)} is not compatible with pytables."
-                                )
-
-                elif hasattr(dict_value, "items"):  # dict
+                if hasattr(dict_value, "items"):  # dict
                     for sub_type, sub_data in dict_value.items():
                         if sub_type == "spikes":
-                            if is_compatible_type(sub_data):
+                            if _is_pyt_type(sub_data):
                                 h5file.create_array(channel_group, sub_type, sub_data)
                             else:
                                 raise ValueError(
                                     f"Value {sub_data} of type {type(sub_data)} is not compatible with pytables."
                                 )
                         if sub_type == "times":
-                            if is_compatible_type(sub_data):
+                            if _is_pyt_type(sub_data):
                                 h5file.create_array(channel_group, sub_type, sub_data)
                             else:
                                 raise ValueError(
@@ -190,18 +211,14 @@ def write_h5(
 
         if events is not None:
             logger.info("Saving events...")
-            if hasattr(events, "_asdict"):  # namedtuple
-                for field_name, field_value in events._asdict().items():
-                    if is_compatible_type(field_value):
-                        h5file.create_array(events_group, field_name, field_value)
-            elif hasattr(events, "items"):  # dict
+            if hasattr(events, "items"):  # dict
                 for sub_type, sub_data in events.items():
-                    if sub_type == "events" and is_compatible_type(sub_data):
+                    if _is_pyt_type(sub_data):
                         h5file.create_array(events_group, sub_type, sub_data)
             else:
                 try:
                     for item in events:
-                        if is_compatible_type(item):
+                        if _is_pyt_type(item):
                             h5file.create_array(events_group, "event-data", item)
                 except:
                     raise ValueError(
@@ -221,8 +238,8 @@ def write_h5(
                 )
             try:
                 for dict_key, value in metadata_file.items():
-                    if is_compatible_type(value):
-                        if is_compatible_type(value):
+                    if _is_pyt_type(value):
+                        if _is_pyt_type(value):
                             metadata_group._v_attrs[dict_key] = value
                         else:
                             raise ValueError(
@@ -287,7 +304,7 @@ def __read_group(group: tables.Group) -> dict:
         elif isinstance(node, tables.Array):
             array_data = node.read()
             if (
-                isinstance(array_data, np.ndarray) and array_data.dtype.kind == "S"
+                    isinstance(array_data, np.ndarray) and array_data.dtype.kind == "S"
             ):  # Check if dtype is byte string
                 array_data = array_data.astype(str)  # Convert to string
             elif isinstance(array_data, list):  # Handle list of byte strings
@@ -326,21 +343,6 @@ def get_h5_filename(file_dir):
     file_list = os.listdir(file_dir)
     h5_files = [f for f in file_list if f.endswith(".h5")]
     return os.path.join(file_dir, h5_files[0])
-
-
-def read_files_into_arrays(file_name, time_data, channel_data):
-    if not Path(file_name).exists():
-        print(f"{file_name} does not exist. Exiting.")
-        return
-
-    print(f"Appending data to {file_name}...")
-
-    with tables.open_file(file_name, "r+") as hf5:
-        hf5.root.raw.time_vector.append(time_data)
-        # Append channel data
-        for i, ch_data in enumerate(channel_data, start=1):
-            hf5.get_node(f"/raw/channel_{i}").append(ch_data)
-    print("Done!")
 
 
 if __name__ == "__main__":

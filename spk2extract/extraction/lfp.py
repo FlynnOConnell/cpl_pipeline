@@ -40,15 +40,56 @@ sns.set_style("darkgrid")
 # plt.rcParams["font.family"] = "sans-serif"
 # plt.rcParams["text.color"] = "black"
 
+def get_h5(datapath, match):
+    # recursively find any files that match the pattern
+    def find_files(fpath: Path, wildcard: str) -> Generator[Path, None, None]:
+        return (matched_file for matched_file in fpath.glob(wildcard))
 
-def get_data(path: Path | str):
-    path = Path(path)
-    if path.is_file():
-        h5_file = spk_h5.read_h5(path)
+    datapath = Path(datapath)
+
+    if datapath.is_dir():
+        if match:
+            files = list(find_files(datapath, match))
+            logger.info(f"Found {len(files)} files matching {match}")
+        else:
+            files = list(datapath.glob("*"))  # default to all files if no match string is provided
+            logger.info(f"Found {len(files)} files in {datapath}")
+        if not files:
+            raise FileNotFoundError(f"No files found in {datapath} matching {match}")
+        datapath = files[0]
+
+    if datapath.is_file():
+        logger.info(f"Reading {datapath}")
+        h5_file = spk_h5.read_h5(datapath)
     else:
-        files = list(path.glob("*dk3*"))
-        file = files[0]
-        h5_file = spk_h5.read_h5(path / file)
+        raise FileNotFoundError(f"Could not find file or directory {datapath}")
+    return h5_file
+
+def get_data(datapath: Path | str, match: str = None):
+
+    # recursively find any files that match the pattern
+    def find_files(fpath: Path, wildcard: str) -> Generator[Path, None, None]:
+        return (matched_file for matched_file in fpath.glob(wildcard))
+
+    datapath = Path(datapath)
+
+    if datapath.is_dir():
+        if match:
+            files = list(find_files(datapath, match))
+            logger.info(f"Found {len(files)} files matching {match}")
+        else:
+            files = list(datapath.glob("*"))  # default to all files if no match string is provided
+            logger.info(f"Found {len(files)} files in {datapath}")
+        if not files:
+            raise FileNotFoundError(f"No files found in {datapath} matching {match}")
+        datapath = files[0]
+
+    if datapath.is_file():
+        logger.info(f"Reading {datapath}")
+        h5_file = spk_h5.read_h5(datapath)
+    else:
+        raise FileNotFoundError(f"Could not find file or directory {datapath}")
+
     spikes_df = pd.DataFrame()
     times_df = pd.DataFrame()
 
@@ -261,34 +302,47 @@ def median_filter(data):
 
 
 if __name__ == "__main__":
-    data_path = Path().home() / "data" / "extracted"
+    data_path = Path().home() / "data" / "extracted" / "dk1"
     save_path = Path().home() / "data" / "figures"
-    file = list(data_path.glob("*0609*.h5"))[0]
-    df_s, df_t, ev, event_times = get_data(file)
-    ev, event_id_dict, min_duration = process_events(ev, event_times)
-
-    lfp = LfpSignal(
-        df_s,
-        2000,
-        ev_spikes_arr=ev,
-        ev_times_arr=event_times,
-        filename=file,
-        exclude=["LFP1_AON", "LFP2_AON"],
-        ev_id_dict=event_id_dict,
-        ev_min_dur=min_duration,
-    )
-
-    lfp.tmin = -0.5
-    lfp.tmax = 0.5
-    lfp.raw.filter(0.3, 100, fir_design="firwin")
-    lfp.raw.notch_filter(freqs=np.arange(60, 121, 60))
-    raw = lfp.raw.copy()
-
-    chans = ["LFP1_vHp", "LFP3_AON"]
-    epochs: mne.Epochs = lfp.epochs
-
-    epochs.pick(chans)
-    epochs['b_1'].compute_psd(method='welch').plot()
-    epochs['w_1'].compute_psd(method='welch').plot()
-
+    save_path.mkdir(exist_ok=True)
+    filelist = list(data_path.glob("*0609*.h5"))
+    errorfiles = []
+    for file in filelist:
+        h5 = get_h5(file, match="*.h5")
+        try:
+            test_events = h5["events"]["events"]
+            print(f"Success: {file.stem}")
+        except KeyError:
+            errorfiles.append(file)
+            print(f"Error: {file.stem}")
     x = 2
+
+
+    # df_s, df_t, ev, event_times = get_data(file)
+    # ev, event_id_dict, min_duration = process_events(ev, event_times)
+    #
+    # lfp = LfpSignal(
+    #     df_s,
+    #     2000,
+    #     ev_spikes_arr=ev,
+    #     ev_times_arr=event_times,
+    #     filename=file,
+    #     exclude=["LFP1_AON", "LFP2_AON"],
+    #     ev_id_dict=event_id_dict,
+    #     ev_min_dur=min_duration,
+    # )
+    #
+    # lfp.tmin = -0.5
+    # lfp.tmax = 0.5
+    # lfp.raw.filter(0.3, 100, fir_design="firwin")
+    # lfp.raw.notch_filter(freqs=np.arange(60, 121, 60))
+    # raw = lfp.raw.copy()
+    #
+    # chans = ["LFP1_vHp", "LFP3_AON"]
+    # epochs: mne.Epochs = lfp.epochs
+    #
+    # epochs.pick(chans)
+    # epochs['b_1'].compute_psd(method='welch').plot()
+    # epochs['w_1'].compute_psd(method='welch').plot()
+    #
+    # x = 2
