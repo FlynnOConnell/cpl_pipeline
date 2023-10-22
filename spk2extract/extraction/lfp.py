@@ -4,18 +4,16 @@ from pathlib import Path
 from typing import Generator
 
 import mne
-import mne_connectivity
 import numpy as np
 import pandas as pd
-import seaborn as sns
-from matplotlib import pyplot as plt
 from scipy.signal import medfilt
 
+from spk2extract.extraction import plots
 from spk2extract.logs import logger
 from spk2extract.spk_io import spk_h5
-from spk2extract.extraction import plots
 
 logger.setLevel("INFO")
+
 
 def get_h5(datapath, match):
     # recursively find any files that match the pattern
@@ -43,6 +41,7 @@ def get_h5(datapath, match):
     else:
         raise FileNotFoundError(f"Could not find file or directory {datapath}")
     return h5_file
+
 
 def get_data(datapath: Path | str, match: str = None):
     # recursively find any files that match the pattern
@@ -86,6 +85,7 @@ def get_data(datapath: Path | str, match: str = None):
         times_df[chan] = times
     return spikes_df, times_df, events_arr, event_times_arr
 
+
 def ensure_alternating(ev):
     if len(ev) % 2 != 0:
         return False, "List length should be even for alternating pattern."
@@ -95,6 +95,7 @@ def ensure_alternating(ev):
         if not ev[i + 1].isdigit():
             return False, f"Expected a digit at index {i+1}, got {ev[i + 1]}"
     return True, "List alternates correctly between letters and digits."
+
 
 def pad_arrays_to_same_length(arr_list, max_diff=100):
     """
@@ -121,6 +122,7 @@ def pad_arrays_to_same_length(arr_list, max_diff=100):
         padded_list.append(padded_arr)
 
     return padded_list
+
 
 def process_events(events: np.ndarray, times: np.ndarray):
     events_mne = []
@@ -169,8 +171,10 @@ def process_events(events: np.ndarray, times: np.ndarray):
     in_between_events = np.array(in_between_events, dtype=int)
     return events_mne, ev_id_dict, in_between_events
 
+
 def median_filter(data):
     return medfilt(data, kernel_size=5)  # Adjust kernel_size as needed
+
 
 class LfpSignal:
     def __init__(
@@ -255,7 +259,6 @@ class LfpSignal:
         )
 
 
-
 if __name__ == "__main__":
     data_path = Path().home() / "data" / "extracted" / "dk1"
     save_path = Path().home() / "data" / "figures"
@@ -304,15 +307,19 @@ if __name__ == "__main__":
     lfp.tmin = -0.3
     lfp.tmax = 0.3
 
-    plots.plot_custom_mne_raw(lfp.raw, "Raw", 100, 5, 1)
+    raws = []
+
     lfp.resample(1000)
-    plots.plot_custom_mne_raw(lfp.raw, "Resampled", 100, 5, 1)
+    raws.append(lfp.raw.copy())
+
     lfp.raw.filter(0.3, 100, fir_design="firwin")
-    plots.plot_custom_mne_raw(lfp.raw, "Filtered", 100, 5, 1)
+    raws.append(lfp.raw.copy())
+
     lfp.raw.notch_filter(freqs=np.arange(60, 121, 60))
-    plots.plot_custom_mne_raw(lfp.raw, "Notched", 100, 5, 1)
+    raws.append(lfp.raw.copy())
+
     lfp.raw.set_eeg_reference(ref_channels=["Ref"])
-    plots.plot_custom_mne_raw(lfp.raw, "Referenced", 100, 5, 1)
+    raws.append(lfp.raw.copy())
 
     no_ref_chans = ("LFP1_vHp", "LFP2_vHp", "LFP3_AON", "LFP4_AON")
     groups = (
@@ -321,6 +328,16 @@ if __name__ == "__main__":
         ("LFP2_vHp", "LFP3_AON"),
         ("LFP2_vHp", "LFP4_AON"),
     )
+    plots.plot_processing_steps(
+        raws,
+        ("Resampled (1000Hz)", "Filtered (1Hz-100Hz)", "Notched(60Hz, 120Hz)", "Referenced"),
+        200,
+        1,
+        1,
+        "LFP4_AON",
+    )
+    lfp.nochans = lfp.raw.copy().pick(no_ref_chans)
+    plots.plot_custom_data(lfp.nochans.get_data(), lfp.nochans.times, no_ref_chans, 200, 1, 1000)
     # for group in groups:
     #     epochs: mne.Epochs = lfp.epochs.copy()
     #     e = epochs.pick(group)

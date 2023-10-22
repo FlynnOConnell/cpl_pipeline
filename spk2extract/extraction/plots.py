@@ -59,51 +59,64 @@ def plot_coh(epoch_object: Epochs):
     plt.ylabel("Frequency (Hz)")
     plt.show()
 
-def plot_custom_mne_raw(raw, title, start, duration, scalings):
-    data, times = raw[
-        :,
-        int(start * raw.info["sfreq"]) : int((start + duration) * raw.info["sfreq"]),
-    ]
-    times = times - times[0]
-    data *= scalings
-    fig, ax = plt.subplots(
-        len(raw.ch_names), 1, sharex=True, figsize=(10, len(raw.ch_names) * 1.5)
-    )
 
+def plot_custom_data(data, times, ch_names, start, duration, fs=None):
+
+    start_idx = int(start * fs)
+    end_idx = int((start + duration) * fs)
+    times = times[start_idx:end_idx] * 1000  # Convert to milliseconds
+    times = times - times[0]
+    data = data[:, start_idx:end_idx]
+
+    fig, ax = plt.subplots(len(ch_names), 1, sharex=True, figsize=(15, len(ch_names) * 2))
     bold_font = {"fontweight": "bold"}
 
-    for i, ch_name in enumerate(raw.ch_names):
-        ax[i].plot(times + start, data[i, :], color="black")
+    for i, ch_name in enumerate(ch_names):
+        ax[i].plot(times, data[i, :], color="black")
         ax[i].set_title(ch_name, **bold_font)
-        ax[i].set_ylabel("mV", **bold_font)
         ax[i].axhline(0, color="gray", linewidth=0.8)
         ax[i].set_facecolor("none")
         ax[i].grid(False)
+        ax[i].spines["top"].set_visible(False)
+        ax[i].spines["right"].set_visible(False)
+        ax[i].set_ylabel("Voltage (mV)", **bold_font)
 
-    ax[-1].set_xlabel("Time (s)", **bold_font)
-    fig.suptitle(title, **bold_font)
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    ax[-1].set_xlabel("Time (ms)", **bold_font)
+    plt.tight_layout()
     plt.show()
 
-def plot_processing_steps(raw, title, start, duration, scalings, channel_name):
-    ch_idx = raw.ch_names.index(channel_name)
-    data, times = raw[
-        ch_idx,
-        int(start * raw.info["sfreq"]):int((start + duration) * raw.info["sfreq"])
-    ]
-    data *= scalings
 
-    fig, ax = plt.subplots(figsize=(15, 4))
+def plot_processing_steps(raw_list, titles, start, duration, scalings, channel_name):
+    n = len(raw_list)
+
+    fig, ax = plt.subplots(n, 1, figsize=(15, 4 * n), sharex=True)
 
     bold_font = {"fontweight": "bold"}
 
-    ax.plot(times + start, data, color="black")
-    ax.set_title(f"{channel_name} - {title}", **bold_font)
-    ax.set_ylabel("Voltage (V)", **bold_font)
-    ax.axhline(0, color="gray", linewidth=0.8)
-    ax.set_facecolor("none")
-    ax.grid(False)
+    for i, (raw, title) in enumerate(zip(raw_list, titles)):
+        ch_idx = raw.ch_names.index(channel_name)
+        data, times = raw[
+            ch_idx,
+            int(start * raw.info["sfreq"]) : int(
+                (start + duration) * raw.info["sfreq"]
+            ),
+        ]
+        data = data.flatten()
+        data *= scalings
 
-    ax.set_xlabel("Time (s)", **bold_font)
+        # convert times to ms
+        times = times - times[0]
+        times = times * 1000
+        ax[i].plot(times + start, data, color="black")
+        ax[i].set_title(f"{channel_name} - {title}", **bold_font)
+        ax[i].set_ylabel("Voltage (mV)", **bold_font)
+        ax[i].axhline(0, color="gray", linewidth=0.8)
+        ax[i].set_facecolor("none")
+        ax[i].grid(False)
+        #     prevent the border around the axis from being drawn
+        ax[i].spines["top"].set_visible(False)
+        ax[i].spines["right"].set_visible(False)
+
+    ax[-1].set_xlabel("Time (ms)", **bold_font)
     plt.tight_layout()
     plt.show()
