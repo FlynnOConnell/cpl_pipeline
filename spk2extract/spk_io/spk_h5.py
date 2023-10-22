@@ -62,6 +62,8 @@ def _chan_arr_groups(h5file: tables.file.File, parent_group: tables.Group, chann
     # Create a group for each channel
     channel_group = h5file.create_group(parent_group, channel.name)
     channel_group._v_attrs['metadata'] = channel.metadata
+    channel_group._v_attrs['type'] = channel.type
+    channel_group._v_attrs['name'] = channel.name
 
     h5file.create_array(channel_group, 'data', channel.data)
     h5file.create_array(channel_group, 'times', channel.times)
@@ -344,11 +346,3 @@ def get_h5_filename(file_dir):
     h5_files = [f for f in file_list if f.endswith(".h5")]
     return os.path.join(file_dir, h5_files[0])
 
-
-if __name__ == "__main__":
-    # get all files with "pre" in the name before .h5
-    path = Path().home() / "spk2extract" / "h5"
-    pre_files = list(path.glob("*pre*.h5"))
-    post_files = list(path.glob("*post*.h5"))
-    testdata = read_h5(pre_files[0])
-    combined_metadata = {}

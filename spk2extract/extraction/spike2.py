@@ -73,6 +73,8 @@ def codes_to_string(codes):
     return "".join(chr(code) for code in codes if code != 0)
 
 
+
+
 class Spike2Data:
     """
     Class for reading and storing data from a Spike2 file.
@@ -127,7 +129,7 @@ class Spike2Data:
     WaveData(spikes=array([[ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,
                 0.00000000e+00,  0.00000000e+00,  0.00000000e+00],), times=array([...]))
 
-    >>> data["LFP1"].spikes
+    >>> data["LFP1"].data
     array([[ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,]])
     >>> data["LFP1"].times
     array([0.00000000e+00,  0.00000000e+00,  0.00000000e+00,])
@@ -223,7 +225,7 @@ class Spike2Data:
         for idx in range(self.max_channels()):
             # Get the sampling frequency of the channel
             fs = np.round(1 / (self.sonfile.ChannelDivide(idx) * self.time_base()), 2)
-            metadata = {"fs": fs, "units": self.sonfile.GetChannelUnits(idx), }
+            metadata = {"fs": fs, "units": self.sonfile.GetChannelUnits(idx), }  # units will be empty for events
             signal, times = [], []
             channel_type = ""
             if self.sonfile.ChannelType(idx) == sp.DataType.Off:
@@ -266,12 +268,6 @@ class Spike2Data:
             self.errors["ReadMarker"] = e
             self.logger.error(f"Error reading marker: {e}")
             return [], []
-
-    def process_wave(self, idx: int = None, ):
-        # Read the waveforms from the channel, up to 2e9, or 2 billion samples at a time which represents
-        # the maximum amount of 30 bit floats that can be stored in memory
-        # noinspection PyArgumentList
-        return self.sonfile.ReadFloats(idx, int(2e9), 0)
 
     def save(self, filepath: str | Path, overwrite_existing=True) -> Path:
         """
@@ -452,14 +448,14 @@ if __name__ == "__main__":
     logger.setLevel(log_level)
     print(f"Log level set to {log_level}")
 
-    path_test = Path().home() / "data" / "aon" / 'dk1'
+    path_test = Path().home() / "data" / "context" / 'dk1'
     save_test = Path().home() / "data" / "extracted" / 'dk1'
     save_test.mkdir(exist_ok=True, parents=True)
-    test_files = [file for file in path_test.glob("*0609*.smr")]
+    test_files = [file for file in path_test.glob("*.smr")]
     for testfile in test_files:
         testdata = Spike2Data(
             testfile,
         )
         testdata.process_channels()
         testdata.save(save_test / str(testdata), overwrite_existing=True)
-        x = 5
+    x = 5

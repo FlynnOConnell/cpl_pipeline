@@ -8,37 +8,14 @@ import mne_connectivity
 import numpy as np
 import pandas as pd
 import seaborn as sns
-import matplotlib
 from matplotlib import pyplot as plt
-from scipy.signal import decimate, butter, filtfilt, medfilt
+from scipy.signal import medfilt
 
 from spk2extract.logs import logger
 from spk2extract.spk_io import spk_h5
-
-# matplotlib.use("TkAgg")
+from spk2extract.extraction import plots
 
 logger.setLevel("INFO")
-sns.set_style("darkgrid")
-
-# Set up 'ggplot' style
-# plt.style.use("ggplot")
-
-# # Configure parameters for publication-ready graphs
-# plt.rcParams["axes.labelsize"] = 20  # Label size
-# plt.rcParams["axes.titlesize"] = 22  # Title size
-# plt.rcParams["xtick.labelsize"] = 14  # x-axis tick label size
-# plt.rcParams["ytick.labelsize"] = 14  # y-axis tick label size
-# plt.rcParams["legend.fontsize"] = 16  # Legend font size
-# plt.rcParams["lines.linewidth"] = 2  # Line width
-# plt.rcParams["axes.titleweight"] = "bold"  # Title weight
-# plt.rcParams["axes.labelweight"] = "bold"  # Label weight
-# plt.rcParams["axes.spines.top"] = False  # Remove top border
-# plt.rcParams["axes.spines.right"] = False  # Remove right border
-# plt.rcParams["axes.spines.left"] = True
-# plt.rcParams["axes.spines.bottom"] = True
-# plt.rcParams["font.weight"] = "bold"
-# plt.rcParams["font.family"] = "sans-serif"
-# plt.rcParams["text.color"] = "black"
 
 def get_h5(datapath, match):
     # recursively find any files that match the pattern
@@ -52,7 +29,9 @@ def get_h5(datapath, match):
             files = list(find_files(datapath, match))
             logger.info(f"Found {len(files)} files matching {match}")
         else:
-            files = list(datapath.glob("*"))  # default to all files if no match string is provided
+            files = list(
+                datapath.glob("*")
+            )  # default to all files if no match string is provided
             logger.info(f"Found {len(files)} files in {datapath}")
         if not files:
             raise FileNotFoundError(f"No files found in {datapath} matching {match}")
@@ -66,7 +45,6 @@ def get_h5(datapath, match):
     return h5_file
 
 def get_data(datapath: Path | str, match: str = None):
-
     # recursively find any files that match the pattern
     def find_files(fpath: Path, wildcard: str) -> Generator[Path, None, None]:
         return (matched_file for matched_file in fpath.glob(wildcard))
@@ -78,7 +56,9 @@ def get_data(datapath: Path | str, match: str = None):
             files = list(find_files(datapath, match))
             logger.info(f"Found {len(files)} files matching {match}")
         else:
-            files = list(datapath.glob("*"))  # default to all files if no match string is provided
+            files = list(
+                datapath.glob("*")
+            )  # default to all files if no match string is provided
             logger.info(f"Found {len(files)} files in {datapath}")
         if not files:
             raise FileNotFoundError(f"No files found in {datapath} matching {match}")
@@ -106,7 +86,6 @@ def get_data(datapath: Path | str, match: str = None):
         times_df[chan] = times
     return spikes_df, times_df, events_arr, event_times_arr
 
-
 def ensure_alternating(ev):
     if len(ev) % 2 != 0:
         return False, "List length should be even for alternating pattern."
@@ -117,68 +96,124 @@ def ensure_alternating(ev):
             return False, f"Expected a digit at index {i+1}, got {ev[i + 1]}"
     return True, "List alternates correctly between letters and digits."
 
+def pad_arrays_to_same_length(arr_list, max_diff=100):
+    """
+    Pads numpy arrays to the same length.
 
-# spikes - raw data
-# times - raw data
-# events - events array
-# event_times - event times array
-# fs - sampling frequency
+    Parameters:
+    - arr_list (list of np.array): The list of arrays to pad
+    - max_diff (int): Maximum allowed difference in lengths
 
-# This class' goals:
-# 1. Apply filters to the raw data
-# 2. Calculate FFT and Frequencies
+    Returns:
+    - list of np.array: List of padded arrays
+    """
+    lengths = [len(arr) for arr in arr_list]
+    max_length = max(lengths)
+    min_length = min(lengths)
 
+    if max_length - min_length > max_diff:
+        raise ValueError("Arrays differ by more than the allowed maximum difference")
 
-def clip_large_amplitudes(data, n_std_dev: float | int = 5):
-    mean_val = np.mean(data)
-    std_dev = np.std(data)
-    upper_threshold = mean_val + n_std_dev * std_dev
-    lower_threshold = mean_val - n_std_dev * std_dev
-    return np.clip(data, lower_threshold, upper_threshold)
+    padded_list = []
+    for arr in arr_list:
+        pad_length = max_length - len(arr)
+        padded_arr = np.pad(arr, (0, pad_length), "constant", constant_values=0)
+        padded_list.append(padded_arr)
 
+    return padded_list
 
-def butter_bandpass_filter(data, lowcut, highcut, fs, order=4):
-    nyquist = 0.5 * fs
-    low = lowcut / nyquist
-    high = highcut / nyquist
-    b, a = butter(order, [low, high], btype="band")
-    y = filtfilt(b, a, data)
-    return y
+def process_events(events: np.ndarray, times: np.ndarray):
+    events_mne = []
+    ev_id_dict = {}
+    in_between_events = []
+    start_time, start_event, prev_event, end_time = None, None, None, None
+    event_id_counter = 1
 
+    for i, event in enumerate(events):
+        if event.isalpha():
+            if start_time is not None and prev_event is not None:
+                interval = f"{start_event}_{prev_event}"
+                event_id = ev_id_dict.setdefault(interval, event_id_counter)
+
+                if event_id == event_id_counter:
+                    event_id_counter += 1
+
+                start_sample = int(
+                    start_time * 1000
+                )  # Converting to int and assuming times are in seconds
+                events_mne.append([start_sample, 0, event_id])
+
+                if end_time is not None:
+                    in_between_events.append(
+                        int(end_time * 1000)
+                    )  # Converting to int and assuming times are in seconds
+
+            start_time, start_event = times[i], event
+        else:
+            end_time, prev_event = times[i], event
+
+    if start_time is not None and prev_event is not None:
+        interval = f"{start_event}_{prev_event}"
+        event_id = ev_id_dict.setdefault(interval, event_id_counter)
+        start_sample = int(
+            start_time * 1000
+        )  # Converting to int and assuming times are in seconds
+        events_mne.append([start_sample, 0, event_id])
+
+        if end_time is not None:
+            in_between_events.append(
+                int(end_time * 1000)
+            )  # Converting to int and assuming times are in seconds
+
+    events_mne = np.array(events_mne, dtype=int)
+    in_between_events = np.array(in_between_events, dtype=int)
+    return events_mne, ev_id_dict, in_between_events
+
+def median_filter(data):
+    return medfilt(data, kernel_size=5)  # Adjust kernel_size as needed
 
 class LfpSignal:
     def __init__(
         self,
-        spikes_df,
+        data,
         fs,
-        ev_spikes_arr=None,
-        ev_times_arr=None,
-        ev_id_dict=None,
-        ev_min_dur=None,
-        window=(),
+        chan_names=None,
+        events=None,
+        event_id=None,
         filename=None,
-        exclude=(),
     ):
-        self._exclude = exclude
+        if isinstance(data, pd.DataFrame):
+            self.data = data.to_numpy().T  # Channels x Time points
+            ch_names = list(data.columns)
+        elif isinstance(data, np.ndarray):
+            self.data = data
+            if chan_names is None:
+                logger.warn("No channel names provided, generating channel names.")
+                ch_names = [f"Ch_{i}" for i in range(self.data.shape[0])]
+            else:
+                ch_names = chan_names
+        else:
+            raise ValueError("Data must be a pandas DataFrame or numpy array.")
+
         self.filename = filename
         self.fs = fs
-        self.events = ev_spikes_arr
-        self.ev_times = ev_times_arr
-        self.ev_id_dict = ev_id_dict
-        self.min_duration = ev_min_dur
-        self.spikes: pd.DataFrame = spikes_df.drop(columns=exclude, errors="ignore")
-        self._channels = list(self.spikes.columns)
-        spikes_arr = self.spikes.to_numpy().T
-        ch_names = list(self.spikes.columns)
+        self.events = events
+        self.event_id = event_id
+        self._channels = ch_names
+
         ch_types = ["eeg"] * len(ch_names)
 
         # mne objects
-        self._tmin = window[0] if len(window) > 0 else 0
-        self._tmax = window[1] if len(window) > 1 else 1
+        self._tmin = -0.5
+        self._tmax = 0.5
         self.info = mne.create_info(ch_names=ch_names, sfreq=fs, ch_types=ch_types)
-        self.raw = mne.io.RawArray(spikes_arr, self.info)
+        self.raw = mne.io.RawArray(self.data, self.info)
         self.filtered = False
         self.notched = False
+
+    def resample(self, fs):
+        self.fs = fs
+        self.raw.resample(fs)
 
     @property
     def tmin(self):
@@ -206,11 +241,11 @@ class LfpSignal:
 
     @property
     def epochs(self):
-        self.tmax = self.tmax if self.tmax is not None else self.min_duration
+        self.tmax = self.tmax if self.tmax is not None else 1
         return mne.Epochs(
             self.raw,
             events=self.events,
-            event_id=self.ev_id_dict,
+            event_id=self.event_id,
             tmin=self.tmin,
             tmax=self.tmax,
             baseline=None,
@@ -219,86 +254,6 @@ class LfpSignal:
             preload=True,
         )
 
-    def filter(self, inplace=True, **kwargs):
-        if inplace:
-            self.raw.filter(**kwargs)
-            self.filtered = True
-        else:
-            return self.raw.copy().filter(**kwargs)
-
-    def notch_filter_raw(self, freqs: list | np.ndarray = None, inplace=True):
-        if freqs is None:
-            freqs = np.arange(60, 121, 60)
-        if inplace:
-            self.raw.notch_filter(freqs=freqs)
-            self.notched = True
-        else:
-            return self.raw.copy().notch_filter(freqs=freqs)
-
-
-def plot_coh(epoch_object: mne.Epochs):
-    # Connectivity Analysis
-    indices = (np.array([0]), np.array([1]))  # Channel indices for connectivity
-    freqs = np.arange(5, 100)
-    n_cycles = freqs / 2
-
-    con = mne_connectivity.spectral_connectivity_epochs(
-        epoch_object,
-        method="coh",
-        mode="cwt_morlet",
-        cwt_freqs=freqs,
-        cwt_n_cycles=n_cycles,
-        sfreq=epoch_object.info["sfreq"],
-        n_jobs=1,
-    )
-    times = epoch_object.times
-    coh = con.get_data()  # The connectivity matrix, shape will be (n_freqs, n_times)
-
-    plt.imshow(
-        np.squeeze(coh),
-        extent=(times[0], times[-1], freqs[0], freqs[-1]),
-        aspect="auto",
-        origin="lower",
-        cmap="jet",
-    )
-    title = f"{epoch_object.ch_names[0]} vs {epoch_object.ch_names[1]}"
-    plt.title(title)
-    plt.xlabel("Time (s)")
-    plt.ylabel("Frequency (Hz)")
-    plt.show()
-
-
-def process_events(events: np.ndarray, times: np.ndarray, fs=2000):
-    processed = []
-    min_dur = np.inf
-    ev_dict = {}
-
-    start_time, end_time = None, None
-    for i in range(0, len(events)):
-        if events[i].isalpha():
-            start_time = times[i]
-            j = i + 1
-
-            # loops through to the last digit in sequence
-            while j < len(events) and not events[j].isalpha():
-                end_time = times[j]
-                j += 1
-
-            # keep an active minimum duration for proper epochs
-            duration = end_time - start_time
-            if duration < min_dur:
-                min_dur = duration
-
-            event_label = f"{events[i]}_{events[j - 1]}"
-            if event_label not in ev_dict:
-                ev_dict[event_label] = len(ev_dict) + 1
-            event_id = ev_dict[event_label]
-            processed.append([int(end_time * fs), 0, event_id])
-    return processed, ev_dict, min_dur
-
-
-def median_filter(data):
-    return medfilt(data, kernel_size=5)  # Adjust kernel_size as needed
 
 
 if __name__ == "__main__":
@@ -307,42 +262,68 @@ if __name__ == "__main__":
     save_path.mkdir(exist_ok=True)
     filelist = list(data_path.glob("*0609*.h5"))
     errorfiles = []
-    for file in filelist:
-        h5 = get_h5(file, match="*.h5")
-        try:
-            test_events = h5["events"]["events"]
-            print(f"Success: {file.stem}")
-        except KeyError:
-            errorfiles.append(file)
-            print(f"Error: {file.stem}")
+    file = filelist[0]
+    h5 = get_h5(file, match="*.h5")
+    events_list, signals_list, other = [], [], []
+    exclude = [
+        "LFP1_AON",
+        "LFP2_AON",
+        "Respirat",
+    ]
+    metadata = h5["channels"]["metadata"]
+
+    exclude += ["VERSION", "CLASS", "TITLE", "metadata"]
+    for chan, item in h5["channels"].items():
+        if chan in exclude:
+            continue
+        if hasattr(item, "items"):
+            if "type" in item.keys():
+                if item["type"] == "event":
+                    tup = (chan, item["data"], item["times"])
+                    events_list.append(tup)
+                elif item["type"] == "signal":
+                    tup = (chan, item["data"], item["times"], item["metadata"])
+                    signals_list.append(tup)
+                else:
+                    other.append(item[chan])
+    padded = pad_arrays_to_same_length([item[1] for item in signals_list])
+    spikes_arr = np.vstack(padded)
+    chans = [item[0] for item in signals_list]
+    events_mne, ev_id_dict, in_between_events = process_events(
+        events_list[0][1], events_list[0][2]
+    )
+
+    lfp = LfpSignal(
+        spikes_arr,
+        2000,
+        chan_names=chans,
+        events=events_mne,
+        event_id=ev_id_dict,
+        filename=file,
+    )
+    lfp.tmin = -0.3
+    lfp.tmax = 0.3
+
+    plots.plot_custom_mne_raw(lfp.raw, "Raw", 100, 5, 1)
+    lfp.resample(1000)
+    plots.plot_custom_mne_raw(lfp.raw, "Resampled", 100, 5, 1)
+    lfp.raw.filter(0.3, 100, fir_design="firwin")
+    plots.plot_custom_mne_raw(lfp.raw, "Filtered", 100, 5, 1)
+    lfp.raw.notch_filter(freqs=np.arange(60, 121, 60))
+    plots.plot_custom_mne_raw(lfp.raw, "Notched", 100, 5, 1)
+    lfp.raw.set_eeg_reference(ref_channels=["Ref"])
+    plots.plot_custom_mne_raw(lfp.raw, "Referenced", 100, 5, 1)
+
+    no_ref_chans = ("LFP1_vHp", "LFP2_vHp", "LFP3_AON", "LFP4_AON")
+    groups = (
+        ("LFP1_vHp", "LFP3_AON"),
+        ("LFP1_vHp", "LFP4_AON"),
+        ("LFP2_vHp", "LFP3_AON"),
+        ("LFP2_vHp", "LFP4_AON"),
+    )
+    # for group in groups:
+    #     epochs: mne.Epochs = lfp.epochs.copy()
+    #     e = epochs.pick(group)
+    #     plot_coh(e)
+
     x = 2
-
-
-    # df_s, df_t, ev, event_times = get_data(file)
-    # ev, event_id_dict, min_duration = process_events(ev, event_times)
-    #
-    # lfp = LfpSignal(
-    #     df_s,
-    #     2000,
-    #     ev_spikes_arr=ev,
-    #     ev_times_arr=event_times,
-    #     filename=file,
-    #     exclude=["LFP1_AON", "LFP2_AON"],
-    #     ev_id_dict=event_id_dict,
-    #     ev_min_dur=min_duration,
-    # )
-    #
-    # lfp.tmin = -0.5
-    # lfp.tmax = 0.5
-    # lfp.raw.filter(0.3, 100, fir_design="firwin")
-    # lfp.raw.notch_filter(freqs=np.arange(60, 121, 60))
-    # raw = lfp.raw.copy()
-    #
-    # chans = ["LFP1_vHp", "LFP3_AON"]
-    # epochs: mne.Epochs = lfp.epochs
-    #
-    # epochs.pick(chans)
-    # epochs['b_1'].compute_psd(method='welch').plot()
-    # epochs['w_1'].compute_psd(method='welch').plot()
-    #
-    # x = 2
