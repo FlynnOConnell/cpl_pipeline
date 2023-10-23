@@ -120,3 +120,4 @@ def plot_processing_steps(raw_list, titles, start, duration, scalings, channel_n
     ax[-1].set_xlabel("Time (ms)", **bold_font)
     plt.tight_layout()
     plt.show()
+

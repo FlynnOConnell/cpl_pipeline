@@ -3,11 +3,11 @@ Spike data extraction utility, the main workhorse of this package.
 """
 from __future__ import annotations
 
+import string
 from itertools import compress
 from pathlib import Path
 
 import numpy as np
-import string
 
 try:
     from sonpy import lib as sp
@@ -18,7 +18,6 @@ except ImportError:
         raise ImportError("sonpy not found. Are you on a M1 Mac?")
 
 from spk2extract.logs import logger
-from spk2extract.utils import check_substring_content
 from spk2extract.defaults import defaults
 from spk2extract import spk_io
 
@@ -71,8 +70,6 @@ def is_ascii_letter(char):
 
 def codes_to_string(codes):
     return "".join(chr(code) for code in codes if code != 0)
-
-
 
 
 class Spike2Data:
@@ -137,8 +134,8 @@ class Spike2Data:
     """
 
     def __init__(
-            self,
-            filepath: Path | str,
+        self,
+        filepath: Path | str,
     ):
         """
         Class for reading and storing data from a Spike2 file.
@@ -203,6 +200,7 @@ class Spike2Data:
         }
 
     def __repr__(self):
+
         return f"{self.filename.stem}"
 
     def __str__(self):
@@ -225,41 +223,55 @@ class Spike2Data:
         for idx in range(self.max_channels()):
             # Get the sampling frequency of the channel
             fs = np.round(1 / (self.sonfile.ChannelDivide(idx) * self.time_base()), 2)
-            metadata = {"fs": fs, "units": self.sonfile.GetChannelUnits(idx), }  # units will be empty for events
+            metadata = {
+                "fs": fs,
+                "units": self.sonfile.GetChannelUnits(idx),
+            }  # units will be empty for events
             signal, times = [], []
             channel_type = ""
             if self.sonfile.ChannelType(idx) == sp.DataType.Off:
+                # contains no data, untitled channels
                 continue
             if self.sonfile.ChannelType(idx) == sp.DataType.Adc:
+                # contains analog - digital converted data
                 signal = self.sonfile.ReadFloats(idx, int(2e9), 0)
                 times = indices_to_time(range(len(signal)), fs)
                 channel_type = "signal"
             if self.sonfile.ChannelType(idx) == sp.DataType.Marker:
+                # contains event markers
                 channel_type = "event"
                 signal, times = self.process_event(idx)
-            self.channels.append(Channel(self.sonfile.GetChannelTitle(idx), channel_type, signal, times, metadata))
+            self.channels.append(
+                Channel(
+                    self.sonfile.GetChannelTitle(idx),
+                    channel_type,
+                    signal,
+                    times,
+                    metadata,
+                )
+            )
 
     def process_event(self, idx: int):
         try:
             marks = self.sonfile.ReadMarkers(idx, int(2e9), 0)
 
-            # Convert the char ascii-encoded ints to a string
+            # convert the char ascii-encoded ints to a string
             char_codes = [
                 codes_to_string([mark.Code1, mark.Code2, mark.Code3, mark.Code4])
                 for mark in marks
             ]
 
-            # Create a boolean mask for filtering both char_codes and ticks
+            # create a boolean mask for filtering both char_codes and ticks
             is_printable_mask = [
                 all(char in string.printable for char in code) for code in char_codes
             ]
 
-            # Filter char_codes and ticks based on the boolean mask
+            # filter char_codes and ticks based on the boolean mask
             filtered_codes = list(compress(char_codes, is_printable_mask))
             ticks = [mark.Tick for mark in marks]
             filtered_ticks = list(compress(ticks, is_printable_mask))
 
-            # Convert the filtered clock ticks to seconds
+            # convert the filtered clock ticks to seconds
             event_time = np.round(ticks_to_time(filtered_ticks, self.time_base()), 3)
 
             return filtered_codes, event_time
@@ -307,10 +319,7 @@ class Spike2Data:
             if overwrite_existing:
                 logger.info(f"Overwriting existing file: {filepath}")
                 spk_io.save_channel_h5(
-                    str(filepath),
-                    "channels",
-                    self.channels,
-                    self.metadata
+                    str(filepath), "channels", self.channels, self.metadata
                 )
                 self.logger.info(f"Saved data to {filepath}")
                 return self.filename
@@ -319,6 +328,11 @@ class Spike2Data:
                     f"{filepath} already exists. Set overwrite_existing=True to overwrite. Skipping h5 write."
                 )
                 pass
+        else:
+            logger.info(f"Saving data to {filepath}")
+            spk_io.save_channel_h5(
+                str(filepath), "channels", self.channels, self.metadata
+            )
         return self.filename
 
     def channel_interval(self, channel: int):
@@ -426,21 +440,6 @@ class Spike2Data:
         """
         return self.sonfile.MaxChannels()
 
-    def bundle_metadata(self):
-        """
-        Bundle the metadata into a dictionary.
-
-        Returns
-        -------
-        metadata : dict
-            A dictionary containing the metadata.
-
-        """
-        return {
-            "filename": self.filename.stem,
-            "recording_length": self.max_time(),
-        }
-
 
 if __name__ == "__main__":
     defaults = defaults()
@@ -448,8 +447,30 @@ if __name__ == "__main__":
     logger.setLevel(log_level)
     print(f"Log level set to {log_level}")
 
-    path_test = Path().home() / "data" / "context" / 'dk1'
-    save_test = Path().home() / "data" / "extracted" / 'dk1'
+    path_test = Path().home() / "data" / "context"
+    save_test = Path().home() / "data" / "extracted"
+    # iterate over each folder in path_test
+    errors = []
+    for animal_path in path_test.iterdir():
+        save_test = save_test / animal_path.stem
+        if not animal_path.is_dir():
+            continue
+        # iterate over each file in folder
+        for file in animal_path.glob("*.smr"):
+            filename = file.stem
+            if (save_test / filename).with_suffix(".h5").exists():
+                logger.info(f"Skipping {file}, already exists.")
+                continue
+            try:
+                data = Spike2Data(file)
+                data.process_channels()
+            except Exception as e:
+                logger.info(f"Error processing {file}: {e}")
+                errors.append(e)
+                continue
+            # process the channels
+            data.save(save_test / str(data), overwrite_existing=True)
+
     save_test.mkdir(exist_ok=True, parents=True)
     test_files = [file for file in path_test.glob("*.smr")]
     for testfile in test_files:
@@ -457,5 +478,5 @@ if __name__ == "__main__":
             testfile,
         )
         testdata.process_channels()
-        testdata.save(save_test / str(testdata), overwrite_existing=True)
+        testdata.save(save_test / str(testdata), overwrite_existing=False)
     x = 5

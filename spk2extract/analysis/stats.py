@@ -6,7 +6,6 @@ from typing import Generator
 import mne
 import numpy as np
 import pandas as pd
-from scipy.signal import medfilt
 
 from spk2extract.logs import logger
 from spk2extract.spk_io import spk_h5
@@ -40,49 +39,6 @@ def get_h5(datapath, match):
     else:
         raise FileNotFoundError(f"Could not find file or directory {datapath}")
     return h5_file
-
-
-def get_data(datapath: Path | str, match: str = None):
-    # recursively find any files that match the pattern
-    def find_files(fpath: Path, wildcard: str) -> Generator[Path, None, None]:
-        return (matched_file for matched_file in fpath.glob(wildcard))
-
-    datapath = Path(datapath)
-
-    if datapath.is_dir():
-        if match:
-            files = list(find_files(datapath, match))
-            logger.info(f"Found {len(files)} files matching {match}")
-        else:
-            files = list(
-                datapath.glob("*")
-            )  # default to all files if no match string is provided
-            logger.info(f"Found {len(files)} files in {datapath}")
-        if not files:
-            raise FileNotFoundError(f"No files found in {datapath} matching {match}")
-        datapath = files[0]
-
-    if datapath.is_file():
-        logger.info(f"Reading {datapath}")
-        h5_file = spk_h5.read_h5(datapath)
-    else:
-        raise FileNotFoundError(f"Could not find file or directory {datapath}")
-
-    spikes_df = pd.DataFrame()
-    times_df = pd.DataFrame()
-
-    events_arr = h5_file["events"]["events"]
-    event_times_arr = h5_file["events"]["times"]
-
-    spikedata = h5_file["spikedata"]
-    for chan, data in spikedata.items():
-        if chan in ["VERSION", "CLASS", "TITLE"]:
-            continue
-        spikes = data["spikes"]
-        times = data["times"]
-        spikes_df[chan] = spikes
-        times_df[chan] = times
-    return spikes_df, times_df, events_arr, event_times_arr
 
 
 def ensure_alternating(ev):
@@ -132,7 +88,7 @@ def process_events(events: np.ndarray, times: np.ndarray):
 
     for i, event in enumerate(events):
         print(event)
-        if event.isalpha(): # a-z
+        if event.isalpha():  # a-z
             print(f"{event} is alpha")
 
             # We know that the event is a letter, so we can check if:
@@ -168,13 +124,37 @@ def process_events(events: np.ndarray, times: np.ndarray):
         ev_store.append([start_sample, 0, event_id])
 
         if end_time is not None:
-            non_interval_events.append(
-                int(end_time)
-            )
+            non_interval_events.append(int(end_time))
 
     ev_store = np.array(ev_store, dtype=int)
     non_interval_events = np.array(non_interval_events, dtype=int)
     return ev_store, id_dict, non_interval_events
+
+
+def process_event_windows(events: np.ndarray, times: np.ndarray):
+    windows = []
+    id_dict = {}
+    event_id_counter = 1
+    start_time, start_event, end_time = None, None, None
+    for i, event in enumerate(events):
+        if event.isalpha():
+            if start_time is not None and end_time is not None:
+                interval = f"{start_event}_{events[i-1]}"
+                event_id = id_dict.setdefault(interval, event_id_counter)
+                if event_id == event_id_counter:
+                    event_id_counter += 1
+                window = (int(start_time * 1000), int(end_time * 1000), event_id)
+                windows.append(window)
+            start_time, start_event = times[i], event
+        else:
+            end_time = times[i]
+    # Handle the last interval
+    if start_time is not None and end_time is not None:
+        interval = f"{start_event}_{events[-1]}"
+        event_id = id_dict.setdefault(interval, event_id_counter)
+        window = (int(start_time * 1000), int(end_time * 1000), event_id)
+        windows.append(window)
+    return windows, id_dict
 
 
 class LfpSignal:
@@ -262,69 +242,88 @@ class LfpSignal:
 
 if __name__ == "__main__":
     data_path = Path().home() / "data" / "extracted" / "dk1"
+
     save_path = Path().home() / "data" / "figures"
     save_path.mkdir(exist_ok=True)
-    filelist = list(data_path.glob("*0609*.h5"))
+    filelist = list(data_path.glob("*.h5"))
     errorfiles = []
-    file = filelist[0]
-    h5 = get_h5(file, match="*.h5")
-    events_list, signals_list, other = [], [], []
-    exclude = [
-        "LFP1_AON",
-        "LFP2_AON",
-        "Respirat",
-    ]
-    metadata = h5["channels"]["metadata"]
+    for file in filelist:
+        h5 = get_h5(file, match="*.h5")
+        events_list, signals_list, other = [], [], []
+        exclude = [
+            "LFP1_AON",
+            "LFP2_AON",
+            "Respirat",
+        ]
+        metadata = h5["channels"]["metadata"]
 
-    exclude += ["VERSION", "CLASS", "TITLE", "metadata"]
-    for chan, item in h5["channels"].items():
-        if chan in exclude:
-            continue
-        if hasattr(item, "items"):
-            if "type" in item.keys():
-                if item["type"] == "event":
-                    tup = (chan, item["data"], item["times"])
-                    events_list.append(tup)
-                elif item["type"] == "signal":
-                    tup = (chan, item["data"], item["times"], item["metadata"])
-                    signals_list.append(tup)
-                else:
-                    other.append(item[chan])
-    padded = pad_arrays_to_same_length([item[1] for item in signals_list])
-    spikes_arr = np.vstack(padded)
-    chans = [item[0] for item in signals_list]
-    events_mne, ev_id_dict, in_between_events = process_events(events_list[0][1], events_list[0][2])
+        exclude += ["VERSION", "CLASS", "TITLE", "metadata"]
+        for chan, item in h5["channels"].items():
+            if chan in exclude:
+                continue
+            if hasattr(item, "items"):
+                if "type" in item.keys():
+                    if item["type"] == "event":
+                        tup = (chan, item["data"], item["times"])
+                        events_list.append(tup)
+                    elif item["type"] == "signal":
+                        tup = (chan, item["data"], item["times"], item["metadata"])
+                        signals_list.append(tup)
+                    else:
+                        other.append(item[chan])
+        padded = pad_arrays_to_same_length([item[1] for item in signals_list])
+        spikes_arr = np.vstack(padded)
+        chans = [item[0] for item in signals_list]
+        events_windows, ev_id_dict = process_event_windows(
+            events_list[0][1], events_list[0][2]
+        )
+        windows = [
+            (start / 1000, end / 1000, ev_id) for start, end, ev_id in events_windows
+        ]
+        df = pd.DataFrame(windows, columns=["Start", "End", "Event_ID"])
 
-    lfp = LfpSignal(
-        spikes_arr,
-        2000,
-        chan_names=chans,
-        events=events_mne,
-        event_id=ev_id_dict,
-        filename=file,
-    )
-    lfp.tmin = -0.3
-    lfp.tmax = 0.3
+        # Calculate event duration
+        df["Duration"] = df["End"] - df["Start"]
 
-    lfp.resample(1000)
-    lfp.raw.filter(0.3, 100, fir_design="firwin")
-    lfp.raw.notch_filter(freqs=np.arange(60, 121, 60))
-    lfp.raw.set_eeg_reference(ref_channels=["Ref"])
+        # Group by Event_ID and compute statistics
+        event_stats = (
+            df.groupby("Event_ID")
+            .agg(
+                num_events=pd.NamedAgg(column="Start", aggfunc="count"),
+                avg_duration=pd.NamedAgg(column="Duration", aggfunc="mean"),
+                median_duration=pd.NamedAgg(column="Duration", aggfunc="median"),
+                min_duration=pd.NamedAgg(column="Duration", aggfunc="min"),
+                max_duration=pd.NamedAgg(column="Duration", aggfunc="max"),
+                std_duration=pd.NamedAgg(column="Duration", aggfunc="std"),
+            )
+            .reset_index()
+        )
 
-    no_ref_chans = ("LFP1_vHp", "LFP2_vHp", "LFP3_AON", "LFP4_AON")
-    groups = (
-        ("LFP1_vHp", "LFP3_AON"),
-        ("LFP1_vHp", "LFP4_AON"),
-        ("LFP2_vHp", "LFP3_AON"),
-        ("LFP2_vHp", "LFP4_AON"),
-    )
+        event_stats["Event_Name"] = event_stats["Event_ID"].map(
+            {v: k for k, v in ev_id_dict.items()}
+        )
+        x=2
 
-    lfp.nochans = lfp.raw.copy().pick(no_ref_chans)
-
-    # plots.plot_custom_data(lfp.nochans.get_data(), lfp.nochans.times, no_ref_chans, 200, 1, 1000)
-    e = []
-    for group in groups:
-        epochs: mne.Epochs = lfp.epochs.copy()
-        e.append(epochs.pick(group))
-
-    x = 2
+        # lfp = LfpSignal(
+        #     spikes_arr,
+        #     2000,
+        #     chan_names=chans,
+        #     events=events_mne,
+        #     event_id=ev_id_dict,
+        #     filename=file,
+        # )
+        # lfp.tmin = -0.3
+        # lfp.tmax = 0.3
+        #
+        # lfp.resample(1000)
+        # lfp.raw.filter(0.3, 100, fir_design="firwin")
+        # lfp.raw.notch_filter(freqs=np.arange(60, 121, 60))
+        # lfp.raw.set_eeg_reference(ref_channels=["Ref"])
+        #
+        # no_ref_chans = ("LFP1_vHp", "LFP2_vHp", "LFP3_AON", "LFP4_AON")
+        # groups = (
+        #     ("LFP1_vHp", "LFP3_AON"),
+        #     ("LFP1_vHp", "LFP4_AON"),
+        #     ("LFP2_vHp", "LFP3_AON"),
+        #     ("LFP2_vHp", "LFP4_AON"),
+        # )
