@@ -120,7 +120,7 @@ def process_events(events: np.ndarray, times: np.ndarray):
         event_id = id_dict.setdefault(event_name, event_id_counter)
         start_sample = int(
             start_time
-        )  # Converting to int and assuming times are in seconds
+        )
         ev_store.append([start_sample, 0, event_id])
 
         if end_time is not None:
@@ -241,68 +241,73 @@ class LfpSignal:
 
 
 if __name__ == "__main__":
-    data_path = Path().home() / "data" / "extracted" / "dk1"
+    data_path = Path().home() / "data" / "extracted"
 
     save_path = Path().home() / "data" / "figures"
     save_path.mkdir(exist_ok=True)
     filelist = list(data_path.glob("*.h5"))
     errorfiles = []
-    for file in filelist:
-        h5 = get_h5(file, match="*.h5")
-        events_list, signals_list, other = [], [], []
-        exclude = [
-            "LFP1_AON",
-            "LFP2_AON",
-            "Respirat",
-        ]
-        metadata = h5["channels"]["metadata"]
+    all_event_stats = pd.DataFrame()
+    animals = list(data_path.iterdir())
+    for animal_path in animals:
+        animal = animal_path.name
+        filelist = list(animal_path.glob("*.h5"))
 
-        exclude += ["VERSION", "CLASS", "TITLE", "metadata"]
-        for chan, item in h5["channels"].items():
-            if chan in exclude:
-                continue
-            if hasattr(item, "items"):
-                if "type" in item.keys():
-                    if item["type"] == "event":
-                        tup = (chan, item["data"], item["times"])
-                        events_list.append(tup)
-                    elif item["type"] == "signal":
-                        tup = (chan, item["data"], item["times"], item["metadata"])
-                        signals_list.append(tup)
-                    else:
-                        other.append(item[chan])
-        padded = pad_arrays_to_same_length([item[1] for item in signals_list])
-        spikes_arr = np.vstack(padded)
-        chans = [item[0] for item in signals_list]
-        events_windows, ev_id_dict = process_event_windows(
-            events_list[0][1], events_list[0][2]
-        )
-        windows = [
-            (start / 1000, end / 1000, ev_id) for start, end, ev_id in events_windows
-        ]
-        df = pd.DataFrame(windows, columns=["Start", "End", "Event_ID"])
+        for file in filelist:
+            h5 = spk_h5.read_h5(file)
+            events_list, signals_list, other = [], [], []
+            exclude = ["LFP1_AON", "LFP2_AON", "Respirat"]
+            metadata = h5["channels"]["metadata"]
+            for chan, item in h5["channels"].items():
+                if chan not in exclude:
+                    if "type" in item:
+                        if item["type"] == "event":
+                            tup = (chan, item["data"], item["times"])
+                            events_list.append(tup)
+                        elif item["type"] == "signal":
+                            tup = (chan, item["data"], item["times"], item["metadata"])
+                            signals_list.append(tup)
 
-        # Calculate event duration
-        df["Duration"] = df["End"] - df["Start"]
-
-        # Group by Event_ID and compute statistics
-        event_stats = (
-            df.groupby("Event_ID")
-            .agg(
-                num_events=pd.NamedAgg(column="Start", aggfunc="count"),
-                avg_duration=pd.NamedAgg(column="Duration", aggfunc="mean"),
-                median_duration=pd.NamedAgg(column="Duration", aggfunc="median"),
-                min_duration=pd.NamedAgg(column="Duration", aggfunc="min"),
-                max_duration=pd.NamedAgg(column="Duration", aggfunc="max"),
-                std_duration=pd.NamedAgg(column="Duration", aggfunc="std"),
+            padded = pad_arrays_to_same_length([item[1] for item in signals_list])
+            spikes_arr = np.vstack(padded)
+            chans = [item[0] for item in signals_list]
+            events_windows, ev_id_dict = process_event_windows(
+                events_list[0][1], events_list[0][2]
             )
-            .reset_index()
-        )
 
-        event_stats["Event_Name"] = event_stats["Event_ID"].map(
-            {v: k for k, v in ev_id_dict.items()}
-        )
-        x=2
+            windows = [
+                (start / 1000, end / 1000, ev_id)
+                for start, end, ev_id in events_windows
+            ]
+            df = pd.DataFrame(windows, columns=["Start", "End", "Event_ID"])
+
+            df["Duration"] = df["End"] - df["Start"]
+            event_stats = (
+                df.groupby("Event_ID")
+                .agg(
+                    num_events=("Start", "count"),
+                    avg_duration=("Duration", "mean"),
+                    median_duration=("Duration", "median"),
+                    min_duration=("Duration", "min"),
+                    max_duration=("Duration", "max"),
+                    std_duration=("Duration", "std"),
+                )
+                .reset_index()
+            )
+
+            event_stats["Event_Name"] = event_stats["Event_ID"].map(
+                {v: k for k, v in ev_id_dict.items()}
+            )
+            event_stats["Animal"] = animal  # Add the animal identifier
+            event_stats["File"] = file.name  # Add the file name
+
+            # Append to the overall DataFrame
+            all_event_stats = pd.concat(
+                [all_event_stats, event_stats], ignore_index=True
+            )
+
+    aes = all_event_stats.copy()
+    aes = aes[aes["num_events"] > 1]
 
         # lfp = LfpSignal(
         #     spikes_arr,

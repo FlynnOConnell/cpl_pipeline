@@ -27,10 +27,10 @@ import seaborn as sns
 # plt.rcParams["text.color"] = "black"
 
 
-def plot_coh(epoch_object: Epochs):
+def plot_coh(epoch_object: Epochs, freqs=None):
     # Connectivity Analysis
     indices = (np.array([0]), np.array([1]))  # Channel indices for connectivity
-    freqs = np.arange(5, 100)
+    freqs = np.arange(5, 100) if freqs is None else freqs
     n_cycles = freqs / 2
 
     con = spectral_connectivity_epochs(
@@ -53,7 +53,7 @@ def plot_coh(epoch_object: Epochs):
         origin="lower",
         cmap="jet",
     )
-    title = f"{epoch_object.ch_names[0]} vs {epoch_object.ch_names[1]}"
+    title = f"Coherence {epoch_object.ch_names[0]} vs {epoch_object.ch_names[1]}"
     plt.title(title)
     plt.xlabel("Time (s)")
     plt.ylabel("Frequency (Hz)")
