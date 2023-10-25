@@ -7,6 +7,7 @@ from typing import List
 import mne
 import numpy as np
 import pandas as pd
+from mne.baseline import rescale
 
 from spk2extract.logs import logger
 
@@ -49,17 +50,6 @@ def pad_arrays_to_same_length(arr_list, max_diff=100):
         padded_list.append(padded_arr)
 
     return padded_list
-
-    # return mne.Epochs(
-    #     self.raw,
-    #     events=self.events,
-    #     event_id=self.event_id,
-    #     tmin=self.tmin,
-    #     tmax=self.tmax,
-    #     baseline=None,
-    #     picks=self.channels,
-    #     detrend=1,
-    # )
 
 
 def extract_file_info(filename):
@@ -122,12 +112,77 @@ if __name__ == "__main__":
             start_events = np.column_stack(
                 [arr[:, 0], np.zeros(arr.shape[0]), arr[:, 2]]
             ).astype(int)
-            end_events = np.column_stack([arr[:, 1], np.zeros(arr.shape[0]), arr[:, 2]]).astype(int)
+            end_events = np.column_stack(
+                [arr[:, 1], np.zeros(arr.shape[0]), arr[:, 2]]
+            ).astype(int)
             ev_start_holder.append(start_events)
             ev_end_holder.append(end_events)
 
         all_data_df["Raw"] = raw_data
         all_data_df["Events"] = event_data
+        all_data_df["Start"] = ev_start_holder
+        all_data_df["End"] = ev_end_holder
+
+        # each row is a session
+        day = all_data_df.iloc[0, :]
+        raw = day["Raw"]  # type: mne.io.Raw
+        start = day["Start"]
+        end = day["End"]
+        start_time = start[0, 0] / 1000
+        end_time = end[-1, 0] / 1000
+
+        iter_freqs = [
+            ("Theta", 4, 7),
+            ("Alpha", 8, 12),
+            ("Beta", 13, 25),
+            ("Gamma", 30, 45),
+        ]
+
+        for band, fmin, fmax in iter_freqs:
+            # (re)load the data to save memory
+            raw = raw.copy().load_data()
+            # bandpass filter
+            raw.filter(
+                fmin,
+                fmax,
+                n_jobs=None,  # use more jobs to speed up.
+                l_trans_bandwidth=1,  # make sure filter params are the same
+                h_trans_bandwidth=1,
+            )  # in each band and skip "auto" option.
+
+            # epoch
+            epochs = mne.Epochs(
+                raw,
+                events_mne,
+                event_id,
+                tmin,
+                tmax,
+                baseline=baseline,
+                reject=dict(grad=4000e-13, eog=350e-6),
+                preload=True,
+            )
+            # remove evoked response
+            epochs.subtract_evoked()
+
+            # get analytic signal (envelope)
+            epochs.apply_hilbert(envelope=True)
+            frequency_map.append(((band, fmin, fmax), epochs.average()))
+            del epochs
+        del raw
+
+        rescale(raw.get_data(), raw.times, (0.0, start_time), mode="zscore", copy=False)
+        raw.load_data()
+
+        raw.filter(0.3, 100, fir_design="firwin")
+        raw.notch_filter(freqs=np.arange(60, 121, 60))
+        raw.set_eeg_reference(ref_channels=["Ref"])
+        raw.drop_channels(["Ref"])
+
+        raw.crop(tmin=0, tmax=1)
+        raw.plot(scalings=1)
+
+
+        chans = raw.ch_names
 
         x = 2
 
