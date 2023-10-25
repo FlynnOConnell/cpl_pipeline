@@ -41,6 +41,7 @@ def get_h5(datapath, match):
         raise FileNotFoundError(f"Could not find file or directory {datapath}")
     return h5_file
 
+
 def get_data(datapath: Path | str, match: str = None):
     # recursively find any files that match the pattern
     def find_files(fpath: Path, wildcard: str) -> Generator[Path, None, None]:
@@ -83,6 +84,7 @@ def get_data(datapath: Path | str, match: str = None):
         times_df[chan] = times
     return spikes_df, times_df, events_arr, event_times_arr
 
+
 def ensure_alternating(ev):
     if len(ev) % 2 != 0:
         return False, "List length should be even for alternating pattern."
@@ -92,6 +94,7 @@ def ensure_alternating(ev):
         if not ev[i + 1].isdigit():
             return False, f"Expected a digit at index {i+1}, got {ev[i + 1]}"
     return True, "List alternates correctly between letters and digits."
+
 
 def pad_arrays_to_same_length(arr_list, max_diff=100):
     """
@@ -118,6 +121,7 @@ def pad_arrays_to_same_length(arr_list, max_diff=100):
         padded_list.append(padded_arr)
 
     return padded_list
+
 
 def process_events(events: np.ndarray, times: np.ndarray):
     ev_store = []
@@ -163,6 +167,7 @@ def process_events(events: np.ndarray, times: np.ndarray):
     non_interval_events = np.array(non_interval_events, dtype=int)
     return ev_store, id_dict, non_interval_events
 
+
 def process_event_windows(events: np.ndarray, times: np.ndarray):
     windows = []
     id_dict = {}
@@ -187,6 +192,7 @@ def process_event_windows(events: np.ndarray, times: np.ndarray):
         window = (int(start_time * 1000), int(end_time * 1000), event_id)
         windows.append(np.array(window))
     return windows, id_dict
+
 
 if __name__ == "__main__":
     data_path = Path().home() / "data" / "extracted"
@@ -243,13 +249,22 @@ if __name__ == "__main__":
             # raw = mne.io.RawArray(spikes_arr, info)
             # fif_savename = cache_animal_path.joinpath(session_name + "_raw")
             ev_savename = cache_animal_path.joinpath(session_name + "_eve")
+            ev_dict_savename = cache_animal_path.joinpath(session_name + "_id_ev")
             #
             # raw.save(fif_savename.with_suffix(".fif"), overwrite=True)
 
             events_mne, ev_id_dict = process_event_windows(
                 events_list[0][1], events_list[0][2]
             )
-            mne.write_events(ev_savename.with_suffix(".fif"), np.array(events_mne), overwrite=True)
+            events_mne_np = np.array(events_mne)
+            keys_np = np.array(list(ev_id_dict.keys()), dtype=object)
+            vals_np = np.array(list(ev_id_dict.values()), dtype=int)
+            np.savez(
+                ev_dict_savename.with_suffix(".npz"), keys=keys_np, values=vals_np
+            )
+            # mne.write_events(
+            #     ev_savename.with_suffix(".fif"), np.array(events_mne), overwrite=True
+            # )
 
             # lfp = LfpSignal(
             #     spikes_arr,

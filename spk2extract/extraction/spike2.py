@@ -53,16 +53,6 @@ class SonfileException(BaseException):
         return f"{self.message}"
 
 
-def indices_to_time(indices, fs):
-    """Spike2 indices are in clock ticks, this converts them to seconds."""
-    return np.array(indices) / float(fs)
-
-
-def ticks_to_time(ticks, time_base):
-    """Converts clock ticks to seconds."""
-    return np.array(ticks) * time_base
-
-
 def is_ascii_letter(char):
     if char in range(65, 91) or char in range(97, 123):
         return True
@@ -71,6 +61,14 @@ def is_ascii_letter(char):
 def codes_to_string(codes):
     return "".join(chr(code) for code in codes if code != 0)
 
+
+def indices_to_time(indices, fs):
+    """Spike2 indices are in clock ticks, this converts them to seconds."""
+    return np.array(indices) / float(fs)
+
+def ticks_to_time(ticks, time_base):
+    """Converts clock ticks to seconds."""
+    return np.array(ticks) * time_base
 
 class Spike2Data:
     """

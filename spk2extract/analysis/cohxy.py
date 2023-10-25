@@ -1,15 +1,34 @@
 from __future__ import annotations
-
+from sklearn.manifold import spectral_embedding  # noqa
+from sklearn.metrics.pairwise import rbf_kernel
 import re
 from pathlib import Path
-from typing import List
 
 import mne
 import numpy as np
 import pandas as pd
+from matplotlib import pyplot as plt
 from mne.baseline import rescale
+from mne.stats import bootstrap_confidence_interval
 
 from spk2extract.logs import logger
+from spk2extract.viz import plots, helpers
+
+
+# # get the timestamps when for each key in the event_id dict
+# for key in id_dict.keys():
+#     if key in ["b_1", "b_0", "w_1", "w_0", "x_1", "x_0"]:
+#         continue
+#     else:
+#         val = id_dict[key]
+#         starts = start[val == start[:, 2], 0]
+#         ends = end[val == end[:, 2], 0]
+#         starts = starts / 1000
+#         ends = ends / 1000
+#         zipped = zip(starts, ends)
+# print("------------------")
+# print(f"animal {row['Animal']} - {row['Date']}")
+# print(f"{key} : {list(zipped)}")
 
 logger.setLevel("INFO")
 
@@ -88,48 +107,128 @@ def extract_file_info(filename):
     return pd.DataFrame([data])
 
 
-if __name__ == "__main__":
+def extract_common_key(filepath):
+    parts = filepath.stem.split("_")
+    return "_".join(parts[:-1])
+
+
+def read_npz_as_dict(npz_path):
+    with np.load(npz_path, allow_pickle=True) as npz_data:
+        return {k: npz_data[k] for k in npz_data.keys()}
+
+
+def gen_sessions(raw_obj: mne.io.RawArray, start, end):
+    for s, e in zip(start, end):
+        yield raw_obj.copy().crop(s, e)
+
+
+def gen_epochs(raw_obj: mne.io.RawArray, start, end):
+    for s, e in zip(start, end):
+        yield raw_obj.copy().crop(s, e).make_fixed_length_events()
+
+
+def get_master_df():
     cache_path = Path().home() / "data" / ".cache"
-    errorfiles = []
     animals = list(cache_path.iterdir())
+
+    master = pd.DataFrame()
     for animal_path in animals:  # each animal has a folder
-        animal_data = []
         cache_animal_path = cache_path / animal_path.name
         cache_animal_path.mkdir(parents=True, exist_ok=True)
 
+        raw_files = sorted(list(animal_path.glob("*_raw*.fif")), key=extract_common_key)
+        event_files = sorted(
+            list(animal_path.glob("*_eve*.fif")), key=extract_common_key
+        )
+        event_id = sorted(list(animal_path.glob("*_id_*.npz")), key=extract_common_key)
         animal = animal_path.name
-        raw_files = list(animal_path.glob("*_raw*.fif"))
-        event_files = list(animal_path.glob("*_eve*.fif"))
+        assert len(raw_files) == len(event_files) == len(event_id)
 
         metadata = [extract_file_info(raw_file.name) for raw_file in raw_files]
         raw_data = [mne.io.read_raw_fif(raw_file) for raw_file in raw_files]
         event_data = [mne.read_events(event_file) for event_file in event_files]
-        all_data_df = pd.concat(metadata)
+        event_id_dicts = [read_npz_as_dict(id_file) for id_file in event_id]
+        ev_id_dict = [
+            {k: v for k, v in zip(ev_id_dict["keys"], ev_id_dict["values"])}
+            for ev_id_dict in event_id_dicts
+        ]
 
         ev_start_holder = []
         ev_end_holder = []
-        for arr in event_data:
+        for (
+            arr
+        ) in (
+            event_data
+        ):  # separate the start and end events to work with mne event structures [start, 0, id]
             start_events = np.column_stack(
                 [arr[:, 0], np.zeros(arr.shape[0]), arr[:, 2]]
             ).astype(int)
             end_events = np.column_stack(
                 [arr[:, 1], np.zeros(arr.shape[0]), arr[:, 2]]
             ).astype(int)
+
             ev_start_holder.append(start_events)
             ev_end_holder.append(end_events)
 
-        all_data_df["Raw"] = raw_data
-        all_data_df["Events"] = event_data
-        all_data_df["Start"] = ev_start_holder
-        all_data_df["End"] = ev_end_holder
+        all_data_dict = {  # each v is a list for each file, sorted to be the smae order
+            "raw": raw_data,
+            "events": event_data,
+            "start": ev_start_holder,
+            "end": ev_end_holder,
+            "event_id": ev_id_dict,
+        }
+        metadata_df = pd.concat(metadata).reset_index(drop=True)
+        all_data_df = pd.DataFrame(all_data_dict)
+        all_data_df = pd.concat([metadata_df, all_data_df], axis=1)
+        master = pd.concat([master, all_data_df], axis=0)
+    return master
 
-        # each row is a session
-        day = all_data_df.iloc[0, :]
-        raw = day["Raw"]  # type: mne.io.Raw
-        start = day["Start"]
-        end = day["End"]
+
+def stat_fun(x):
+    """Return sum of squares."""
+    return np.sum(x**2, axis=0)
+
+
+if __name__ == "__main__":
+    data = get_master_df()
+    data.reset_index(drop=True, inplace=True)
+    num_sessions = data.shape[0]
+    # get the timestamps when for each key in the event_id dict
+    for i in range(num_sessions):
+        row = data.iloc[i, :]
+        id_dict = row["event_id"]
+        raw = row["raw"]
+        start = row["start"]
+        end = row["end"]
         start_time = start[0, 0] / 1000
-        end_time = end[-1, 0] / 1000
+
+        raw.load_data()
+
+        raw.filter(0.3, 100, fir_design="firwin")
+        raw.notch_filter(freqs=np.arange(60, 121, 60))
+        raw.set_eeg_reference(ref_channels=["Ref"])
+        raw.drop_channels(["Ref"])
+
+        def order_func(times, data):
+            this_data = data[:, (times > -0.350) & (times < 0.0)]
+            this_data /= np.sqrt(np.sum(this_data**2, axis=1))[:, np.newaxis]
+            return np.argsort(
+                spectral_embedding(
+                    rbf_kernel(this_data, gamma=1.0), n_components=1, random_state=0
+                ).ravel()
+            )
+
+        tmin, tmax = -0.5, 0
+        epochs = mne.Epochs(
+            raw,
+            row["end"],
+            row["event_id"],
+            tmin,
+            tmax,
+            baseline=None,
+            event_repeated="drop",
+            preload=True,
+        )
 
         iter_freqs = [
             ("Theta", 4, 7),
@@ -138,85 +237,33 @@ if __name__ == "__main__":
             ("Gamma", 30, 45),
         ]
 
+        frequency_map = list()
+        tmin, tmax = -1, 1  # time window (in seconds)
         for band, fmin, fmax in iter_freqs:
-            # (re)load the data to save memory
             raw = raw.copy().load_data()
-            # bandpass filter
             raw.filter(
                 fmin,
                 fmax,
                 n_jobs=None,  # use more jobs to speed up.
                 l_trans_bandwidth=1,  # make sure filter params are the same
                 h_trans_bandwidth=1,
-            )  # in each band and skip "auto" option.
-
-            # epoch
-            epochs = mne.Epochs(
-                raw,
-                events_mne,
-                event_id,
-                tmin,
-                tmax,
-                baseline=baseline,
-                reject=dict(grad=4000e-13, eog=350e-6),
-                preload=True,
             )
-            # remove evoked response
-            epochs.subtract_evoked()
+            plots.plot_coh(raw)
 
-            # get analytic signal (envelope)
-            epochs.apply_hilbert(envelope=True)
-            frequency_map.append(((band, fmin, fmax), epochs.average()))
-            del epochs
-        del raw
+            # epochs = mne.Epochs(
+            #     raw,
+            #     row["end"],
+            #     row["event_id"],
+            #     tmin,
+            #     tmax,
+            #     baseline=None,
+            #     event_repeated="drop",
+            #     preload=True,
+            # )
+            # epochs.subtract_evoked()
+            #
+            # # get analytic signal (envelope)
+            # epochs.apply_hilbert(envelope=True)
+            # frequency_map.append(((band, fmin, fmax), epochs.average()))
 
-        rescale(raw.get_data(), raw.times, (0.0, start_time), mode="zscore", copy=False)
-        raw.load_data()
-
-        raw.filter(0.3, 100, fir_design="firwin")
-        raw.notch_filter(freqs=np.arange(60, 121, 60))
-        raw.set_eeg_reference(ref_channels=["Ref"])
-        raw.drop_channels(["Ref"])
-
-        raw.crop(tmin=0, tmax=1)
-        raw.plot(scalings=1)
-
-
-        chans = raw.ch_names
-
-        x = 2
-
-    #     spikes_arr,
-    #     2000,
-    #     chan_names=chans,
-    #     events=events_mne,
-    #     event_id=ev_id_dict,
-    #     filename=file,
-    # )
-    # lfp.tmin = -1
-    # lfp.tmax = 0
-    #
-    # lfp.resample(1000)
-    # lfp.raw.filter(0.3, 100, fir_design="firwin")
-    # lfp.raw.notch_filter(freqs=np.arange(60, 121, 60))
-    # lfp.raw.set_eeg_reference(ref_channels=["Ref"])
-    #
-    # no_ref_chans = ("LFP1_vHp", "LFP2_vHp", "LFP3_AON", "LFP4_AON")
-    # groups = (
-    #     ("LFP1_vHp", "LFP3_AON"),
-    #     ("LFP1_vHp", "LFP4_AON"),
-    #     ("LFP2_vHp", "LFP3_AON"),
-    #     ("LFP2_vHp", "LFP4_AON"),
-    # )
-    #
-    # lfp.nochans = lfp.raw.copy().pick(no_ref_chans)
-    #
-    # # beta frequencies
-    # freqs = np.arange(13, 30)
-    # # plots.plot_custom_data(lfp.nochans.get_data(), lfp.nochans.times, no_ref_chans, 200, 1, 1000)
-    # for group in groups:
-    #     epochs: mne.Epochs = lfp.epochs.copy()
-    #     # plots.plot_coh(epochs.pick(group))
-    #     beta = epochs.copy().pick(group)
-    #     beta = beta.filter(freqs[0], freqs[-1])
-    #     plots.plot_coh(beta, freqs=freqs)
+        x = 4
