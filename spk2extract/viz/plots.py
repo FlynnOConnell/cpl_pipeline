@@ -3,34 +3,43 @@ from mne import Epochs
 from mne_connectivity import spectral_connectivity_epochs
 from matplotlib import pyplot as plt
 import numpy as np
+from pathlib import Path
 import pandas as pd
 import seaborn as sns
 
-# Set up 'ggplot' style
-# plt.style.use("ggplot")
+def save_figure(path, overwrite=False, fail_silently=False):
+    path = Path(path)
+    if path.exists() and not overwrite:
+        if fail_silently:
+            return
+        else:
+            raise FileExistsError(f"File {path} already exists.")
+    plt.savefig(path)
 
-# # Configure parameters for publication-ready graphs
-# plt.rcParams["axes.labelsize"] = 20  # Label size
-# plt.rcParams["axes.titlesize"] = 22  # Title size
-# plt.rcParams["xtick.labelsize"] = 14  # x-axis tick label size
-# plt.rcParams["ytick.labelsize"] = 14  # y-axis tick label size
-# plt.rcParams["legend.fontsize"] = 16  # Legend font size
-# plt.rcParams["lines.linewidth"] = 2  # Line width
-# plt.rcParams["axes.titleweight"] = "bold"  # Title weight
-# plt.rcParams["axes.labelweight"] = "bold"  # Label weight
-# plt.rcParams["axes.spines.top"] = False  # Remove top border
-# plt.rcParams["axes.spines.right"] = False  # Remove right border
-# plt.rcParams["axes.spines.left"] = True
-# plt.rcParams["axes.spines.bottom"] = True
-# plt.rcParams["font.weight"] = "bold"
-# plt.rcParams["font.family"] = "sans-serif"
-# plt.rcParams["text.color"] = "black"
+def plot_2D_coherence(coh, times, freqs, title, filename, session_path):
+    fig, ax = plt.subplots(figsize=(12, 8))
+    cax = ax.imshow(coh, extent=(times[0], times[-1], freqs[0], freqs[-1]), aspect="auto", origin="lower", cmap="jet", interpolation="bilinear")
+    cbar = fig.colorbar(cax, ax=ax)
+    cbar.set_label("Coherence Value", rotation=270, labelpad=15)
+    ax.set_title(title, fontsize=16, fontweight="bold")
+    ax.set_xlabel("Time (s)", fontsize=14)
+    ax.set_ylabel("Frequency (Hz)", fontsize=14)
+    ax.tick_params(labelsize=12)
+    plt.tight_layout()
+    save_figure(session_path / filename, overwrite=True, fail_silently=True)
+    plt.show()
 
+def plot_3D_coherence(coh, times, freqs):
+    X, Y = np.meshgrid(times, freqs)
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection="3d")
+    ax.plot_surface(X, Y, coh)
+    plt.show()
 
 def plot_coh(epoch_object: Epochs, freqs=None):
-    # Connectivity Analysis
-    indices = (np.array([0]), np.array([1]))  # Channel indices for connectivity
-    freqs = np.arange(5, 100) if freqs is None else freqs
+    # Remaining code for spectral_connectivity_epochs and plotting
+    indices = (np.array([0]), np.array([1]))
+    freqs = np.arange(5, 100) if freqs is None else np.arange(freqs[0], freqs[1])
     n_cycles = freqs / 2
 
     con = spectral_connectivity_epochs(
@@ -44,7 +53,7 @@ def plot_coh(epoch_object: Epochs, freqs=None):
         n_jobs=1,
     )
     times = epoch_object.times
-    coh = con.get_data()  # The connectivity matrix, shape will be (n_freqs, n_times)
+    coh = con.get_data()  # the connectivity matrix, shape will be (n_freqs, n_times)
 
     plt.imshow(
         np.squeeze(coh),
@@ -59,16 +68,16 @@ def plot_coh(epoch_object: Epochs, freqs=None):
     plt.ylabel("Frequency (Hz)")
     plt.show()
 
-
 def plot_custom_data(data, times, ch_names, start, duration, fs=None):
-
     start_idx = int(start * fs)
     end_idx = int((start + duration) * fs)
     times = times[start_idx:end_idx] * 1000  # Convert to milliseconds
     times = times - times[0]
     data = data[:, start_idx:end_idx]
 
-    fig, ax = plt.subplots(len(ch_names), 1, sharex=True, figsize=(15, len(ch_names) * 2))
+    fig, ax = plt.subplots(
+        len(ch_names), 1, sharex=True, figsize=(15, len(ch_names) * 2)
+    )
     bold_font = {"fontweight": "bold"}
 
     for i, ch_name in enumerate(ch_names):
@@ -120,4 +129,3 @@ def plot_processing_steps(raw_list, titles, start, duration, scalings, channel_n
     ax[-1].set_xlabel("Time (ms)", **bold_font)
     plt.tight_layout()
     plt.show()
-

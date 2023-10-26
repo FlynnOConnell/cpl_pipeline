@@ -1,6 +1,11 @@
 from __future__ import annotations
+from itertools import combinations
+from collections import defaultdict
+from mne_connectivity import spectral_connectivity_epochs
 from sklearn.manifold import spectral_embedding  # noqa
 from sklearn.metrics.pairwise import rbf_kernel
+from scipy.signal import coherence
+
 import re
 from pathlib import Path
 
@@ -189,12 +194,29 @@ def stat_fun(x):
     return np.sum(x**2, axis=0)
 
 
+def iter_bands(freqs: tuple):
+    if len(freqs) == 2:
+        yield freqs
+    else:
+        for band, fmin, fmax in freqs:
+            yield band, fmin, fmax
+
+
 if __name__ == "__main__":
+    plots_path = Path().home() / "data" / "plots" / "aon"
+    plots_path.mkdir(parents=True, exist_ok=True)
     data = get_master_df()
     data.reset_index(drop=True, inplace=True)
     num_sessions = data.shape[0]
     # get the timestamps when for each key in the event_id dict
     for i in range(num_sessions):
+        animal_path = plots_path / f"{data.iloc[i]['Animal']}"
+        session_path = (
+            animal_path
+            / f"{data.iloc[i]['Date']}_{data.iloc[i]['Day']}_{data.iloc[i]['Stimset']}_{data.iloc[i]['Context']}"
+        )
+        session_path.mkdir(parents=True, exist_ok=True)
+
         row = data.iloc[i, :]
         id_dict = row["event_id"]
         raw = row["raw"]
@@ -203,11 +225,11 @@ if __name__ == "__main__":
         start_time = start[0, 0] / 1000
 
         raw.load_data()
-
-        raw.filter(0.3, 100, fir_design="firwin")
+        raw_copy = raw.copy()
+        raw_copy.filter(0.3, 100, fir_design="firwin")
         raw.notch_filter(freqs=np.arange(60, 121, 60))
-        raw.set_eeg_reference(ref_channels=["Ref"])
-        raw.drop_channels(["Ref"])
+        raw_copy.set_eeg_reference(ref_channels=["Ref"])
+        raw_copy.drop_channels(["Ref"])
 
         def order_func(times, data):
             this_data = data[:, (times > -0.350) & (times < 0.0)]
@@ -220,7 +242,7 @@ if __name__ == "__main__":
 
         tmin, tmax = -0.5, 0
         epochs = mne.Epochs(
-            raw,
+            raw_copy,
             row["end"],
             row["event_id"],
             tmin,
@@ -231,39 +253,124 @@ if __name__ == "__main__":
         )
 
         iter_freqs = [
-            ("Theta", 4, 7),
-            ("Alpha", 8, 12),
             ("Beta", 13, 25),
             ("Gamma", 30, 45),
         ]
+        freqs = [(13, 25), (30, 45)]
 
         frequency_map = list()
-        tmin, tmax = -1, 1  # time window (in seconds)
+        coh_data = {}
+        freq_data = {}
+        times_data = {}
+
+        tmin, tmax = -1, 0  # time window (in seconds)
+        chans = ["LFP1_vHp", "LFP4_AON"]
         for band, fmin, fmax in iter_freqs:
-            raw = raw.copy().load_data()
-            raw.filter(
+            band_path = session_path / band
+            band_path.mkdir(parents=True, exist_ok=True)
+
+            raw_copy.pick_channels(chans)
+            raw_copy.filter(
                 fmin,
                 fmax,
                 n_jobs=None,  # use more jobs to speed up.
                 l_trans_bandwidth=1,  # make sure filter params are the same
                 h_trans_bandwidth=1,
             )
-            plots.plot_coh(raw)
+            epoch = mne.Epochs(
+                raw_copy,
+                row["end"],
+                row["event_id"],
+                tmin,
+                tmax,
+                baseline=None,
+                event_repeated="drop",
+                preload=True,
+            )
 
-            # epochs = mne.Epochs(
-            #     raw,
-            #     row["end"],
-            #     row["event_id"],
-            #     tmin,
-            #     tmax,
-            #     baseline=None,
-            #     event_repeated="drop",
-            #     preload=True,
-            # )
-            # epochs.subtract_evoked()
-            #
-            # # get analytic signal (envelope)
-            # epochs.apply_hilbert(envelope=True)
-            # frequency_map.append(((band, fmin, fmax), epochs.average()))
+            freqs = np.arange(fmin, fmax)
+            con = spectral_connectivity_epochs(
+                epoch,
+                indices=(np.array([0]), np.array([1])),
+                method="coh",
+                mode="cwt_morlet",
+                cwt_freqs=freqs,
+                cwt_n_cycles=freqs / 2,
+                sfreq=epoch.info["sfreq"],
+                n_jobs=1,
+            )
+            times = epoch.times
+            coh_data = np.squeeze(con.get_data())
 
+            title = f"{band} Coherence {chans[0]} vs {chans[1]}"
+            filename = f"{band}_{chans[0]}_{chans[1]}.png"
+            plots.plot_2D_coherence(
+                coh_data,
+                times,
+                freqs,
+                title,
+                filename,
+                session_path,
+            )
+            stored_signals = defaultdict(lambda: defaultdict(list))
+            for epoch_num, data in enumerate(epoch.get_data()):
+                for epoch_num, data in enumerate(epoch.get_data()):
+                    for chan_idx, chan_name in enumerate(epoch.ch_names):
+                        signal = data[chan_idx, :]
+                        stored_signals[chan_name][band].append(signal)
+
+            highest_coh = 0
+            best_pair = None
+            best_band = None
+            best_coh_freq = None
+
+            sfreq = epoch.info["sfreq"]
+            freqs = np.fft.fftfreq(len(epoch.times), 1 / sfreq)
+
+            # Go through every combination of channels and bands
+            for chan1, chan2 in combinations(stored_signals.keys(), 2):
+                for band in iter_freqs:
+                    band_name, fmin, fmax = band
+                    signals1 = np.array(
+                        stored_signals[chan1][band_name]
+                    )  # Assuming trials x time
+                    signals2 = np.array(stored_signals[chan2][band_name])
+
+                    avg_signal1 = signals1.mean(axis=0)
+                    avg_signal2 = signals2.mean(axis=0)
+
+                    f, coh_values = coherence(avg_signal1, avg_signal2, fs=sfreq)
+
+                    # Restrict to the band
+                    indices = np.where((f >= fmin) & (f <= fmax))
+                    max_coh_value = np.max(coh_values[indices])
+                    max_coh_freq = f[np.argmax(coh_values[indices])]
+
+                    if max_coh_value > highest_coh:
+                        highest_coh = max_coh_value
+                        best_pair = (chan1, chan2)
+                        best_band = band_name
+                        best_coh_freq = max_coh_freq
+
+            plt.figure()
+            plt.plot(
+                epoch.times,
+                np.mean(stored_signals[best_pair[0]][best_band], axis=0),
+                label=f"{best_pair[0]}",
+            )
+            plt.plot(
+                epoch.times,
+                np.mean(stored_signals[best_pair[1]][best_band], axis=0),
+                label=f"{best_pair[1]}",
+            )
+            plt.title(
+                f"Highest Coherence between {best_pair[0]} and {best_pair[1]} at {best_coh_freq} Hz in {best_band} band"
+            )
+            plt.xlabel("Time (s)")
+            plt.ylabel("Amplitude")
+            plt.legend()
+            plt.show()
+            # get analytic signal (envelope)
+            epochs.apply_hilbert(envelope=True)
+            frequency_map.append(((band, fmin, fmax), epochs.average()))
         x = 4
