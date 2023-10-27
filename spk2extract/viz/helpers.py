@@ -11,12 +11,10 @@ from sklearn.model_selection import learning_curve
 
 
 def update_rcparams():
-    # Function to set some easy params and avoid some annoying bugs
     rcParams.update(
         {
+            "font.size": 10,
             "font.weight": "bold",
-            "font.family": "Arial",
-            "font.sans-serif": "Arial",
             "axes.labelweight": "bold",
             "xtick.major.width": "1.3",
             "axes.facecolor": "w",
@@ -25,7 +23,6 @@ def update_rcparams():
             "animation.ffmpeg_path": r"/c/ffmpeg/bin/ffmpeg",
         }
     )
-
 
 def get_handles_from_dict(
     color_dict: dict,

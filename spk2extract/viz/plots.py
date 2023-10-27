@@ -25,9 +25,9 @@ def plot_2D_coherence(coh, times, freqs, title, filename, session_path):
     ax.set_xlabel("Time (s)", fontsize=14)
     ax.set_ylabel("Frequency (Hz)", fontsize=14)
     ax.tick_params(labelsize=12)
+    ax.grid(False)
     plt.tight_layout()
     save_figure(session_path / filename, overwrite=True, fail_silently=True)
-    plt.show()
 
 def plot_3D_coherence(coh, times, freqs):
     X, Y = np.meshgrid(times, freqs)

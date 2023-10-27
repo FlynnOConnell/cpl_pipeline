@@ -1,10 +1,4 @@
 from __future__ import annotations
-from itertools import combinations
-from collections import defaultdict
-from mne_connectivity import spectral_connectivity_epochs
-from sklearn.manifold import spectral_embedding  # noqa
-from sklearn.metrics.pairwise import rbf_kernel
-from scipy.signal import coherence
 
 import re
 from pathlib import Path
@@ -12,13 +6,19 @@ from pathlib import Path
 import mne
 import numpy as np
 import pandas as pd
-from matplotlib import pyplot as plt
-from mne.baseline import rescale
-from mne.stats import bootstrap_confidence_interval
-
+import seaborn as sns
+from matplotlib import pyplot as plt, gridspec
+from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
+from matplotlib.offsetbox import AnchoredOffsetbox, TextArea, HPacker
+from mne_connectivity import spectral_connectivity_epochs
+from scipy.signal import coherence
+from sklearn.manifold import spectral_embedding  # noqa
+from sklearn.metrics.pairwise import rbf_kernel
+from scipy.stats import zscore
 from spk2extract.logs import logger
 from spk2extract.viz import plots, helpers
 
+sns.set_style("darkgrid")
 
 # # get the timestamps when for each key in the event_id dict
 # for key in id_dict.keys():
@@ -202,11 +202,51 @@ def iter_bands(freqs: tuple):
             yield band, fmin, fmax
 
 
+def order_func(times, data):
+    this_data = data[:, (times > -0.350) & (times < 0.0)]
+    this_data /= np.sqrt(np.sum(this_data**2, axis=1))[:, np.newaxis]
+    return np.argsort(
+        spectral_embedding(
+            rbf_kernel(this_data, gamma=1.0), n_components=1, random_state=0
+        ).ravel()
+    )
+
+
+def sliding_window_coherence(signal1, signal2, window_size, step_size, fs):
+    n_points = len(signal1)
+    start_indices = range(0, n_points - window_size, step_size)
+    coherence_values = []
+
+    for start in start_indices:
+        end = start + window_size
+        f, cxy = coherence(signal1[start:end], signal2[start:end], fs=fs)
+        coherence_values.append(np.mean(cxy))
+    return np.array(coherence_values)
+
+
+# Calculate rolling coherence (replace with your actual method)
+def rolling_coherence(x, y, window):
+    coh = []
+    for i in range(len(x) - window):
+        coh.append(np.corrcoef(x[i : i + window], y[i : i + window])[0, 1])
+    return np.array(coh)
+
+
+def robust_scale(data):
+    q1, q3 = np.percentile(data, [25, 75])
+    iqr = q3 - q1
+    median = np.median(data)
+    return (data - median) / iqr
+
+
 if __name__ == "__main__":
+    helpers.update_rcparams()
+
     plots_path = Path().home() / "data" / "plots" / "aon"
     plots_path.mkdir(parents=True, exist_ok=True)
     data = get_master_df()
     data.reset_index(drop=True, inplace=True)
+
     num_sessions = data.shape[0]
     # get the timestamps when for each key in the event_id dict
     for i in range(num_sessions):
@@ -219,38 +259,21 @@ if __name__ == "__main__":
 
         row = data.iloc[i, :]
         id_dict = row["event_id"]
-        raw = row["raw"]
+        raw: mne.io.RawArray = row["raw"]
         start = row["start"]
         end = row["end"]
         start_time = start[0, 0] / 1000
 
         raw.load_data()
-        raw_copy = raw.copy()
+        raw_copy: mne.io.RawArray = raw.copy()
+
+        raw_copy.apply_function(zscore)
+        raw_copy.apply_function(robust_scale)
+
         raw_copy.filter(0.3, 100, fir_design="firwin")
-        raw.notch_filter(freqs=np.arange(60, 121, 60))
+        raw_copy.notch_filter(freqs=np.arange(60, 121, 60))
         raw_copy.set_eeg_reference(ref_channels=["Ref"])
         raw_copy.drop_channels(["Ref"])
-
-        def order_func(times, data):
-            this_data = data[:, (times > -0.350) & (times < 0.0)]
-            this_data /= np.sqrt(np.sum(this_data**2, axis=1))[:, np.newaxis]
-            return np.argsort(
-                spectral_embedding(
-                    rbf_kernel(this_data, gamma=1.0), n_components=1, random_state=0
-                ).ravel()
-            )
-
-        tmin, tmax = -0.5, 0
-        epochs = mne.Epochs(
-            raw_copy,
-            row["end"],
-            row["event_id"],
-            tmin,
-            tmax,
-            baseline=None,
-            event_repeated="drop",
-            preload=True,
-        )
 
         iter_freqs = [
             ("Beta", 13, 25),
@@ -260,8 +283,6 @@ if __name__ == "__main__":
 
         frequency_map = list()
         coh_data = {}
-        freq_data = {}
-        times_data = {}
 
         tmin, tmax = -1, 0  # time window (in seconds)
         chans = ["LFP1_vHp", "LFP4_AON"]
@@ -288,14 +309,14 @@ if __name__ == "__main__":
                 preload=True,
             )
 
-            freqs = np.arange(fmin, fmax)
+            freqs_arange = np.arange(fmin, fmax)
             con = spectral_connectivity_epochs(
                 epoch,
                 indices=(np.array([0]), np.array([1])),
                 method="coh",
                 mode="cwt_morlet",
-                cwt_freqs=freqs,
-                cwt_n_cycles=freqs / 2,
+                cwt_freqs=freqs_arange,
+                cwt_n_cycles=freqs_arange / 2,
                 sfreq=epoch.info["sfreq"],
                 n_jobs=1,
             )
@@ -307,70 +328,71 @@ if __name__ == "__main__":
             plots.plot_2D_coherence(
                 coh_data,
                 times,
-                freqs,
+                np.arange(fmin, fmax),
                 title,
                 filename,
-                session_path,
+                band_path,
             )
-            stored_signals = defaultdict(lambda: defaultdict(list))
-            for epoch_num, data in enumerate(epoch.get_data()):
-                for epoch_num, data in enumerate(epoch.get_data()):
-                    for chan_idx, chan_name in enumerate(epoch.ch_names):
-                        signal = data[chan_idx, :]
-                        stored_signals[chan_name][band].append(signal)
 
-            highest_coh = 0
-            best_pair = None
-            best_band = None
-            best_coh_freq = None
+            for epoch_idx, (epoch_signal_ch1, epoch_signal_ch2) in enumerate(epoch):
+                epochs_path = band_path / "epochs"
+                epochs_path.mkdir(parents=True, exist_ok=True)
+                window_size = 100
+                coh_values = rolling_coherence(
+                    epoch_signal_ch1, epoch_signal_ch2, window_size
+                )
+                epoch_times = epoch.times
+                coh_times = epoch_times[: len(coh_values)]
 
-            sfreq = epoch.info["sfreq"]
-            freqs = np.fft.fftfreq(len(epoch.times), 1 / sfreq)
+                gs = gridspec.GridSpec(3, 1, height_ratios=[0.25, 0.5, 3])
+                gs.update(hspace=0.0)
 
-            # Go through every combination of channels and bands
-            for chan1, chan2 in combinations(stored_signals.keys(), 2):
-                for band in iter_freqs:
-                    band_name, fmin, fmax = band
-                    signals1 = np.array(
-                        stored_signals[chan1][band_name]
-                    )  # Assuming trials x time
-                    signals2 = np.array(stored_signals[chan2][band_name])
+                ax1 = plt.subplot(gs[0])  # Coherence as fill_between
+                ax2 = plt.subplot(gs[1])  # Coherence as heatmap
+                ax3 = plt.subplot(gs[2])  # Signal plot
 
-                    avg_signal1 = signals1.mean(axis=0)
-                    avg_signal2 = signals2.mean(axis=0)
+                ax1.fill_between(coh_times, 0, coh_values, color="cyan")
+                ax1.set_ylim([0, 1.5])
 
-                    f, coh_values = coherence(avg_signal1, avg_signal2, fs=sfreq)
+                # Add heatmap
+                img = ax2.imshow(
+                    [coh_values],
+                    aspect="auto",
+                    cmap="jet",
+                    extent=[coh_times[0], coh_times[-1], 0, 1],
+                )
+                # Plot signals
+                ax3.plot(
+                    epoch.times,
+                    epoch_signal_ch1 * 1000,
+                    linestyle="-",
+                    linewidth=1,
+                    color="black",
+                    zorder=0,
+                )
+                ax3.plot(
+                    epoch.times,
+                    epoch_signal_ch2 * 1000,
+                    linestyle="--",
+                    linewidth=1,
+                    color="r",
+                    zorder=1,
+                )
+                # Align x-axis
+                ax1.set_xlim(ax3.get_xlim())
+                ax2.set_xlim(ax3.get_xlim())
 
-                    # Restrict to the band
-                    indices = np.where((f >= fmin) & (f <= fmax))
-                    max_coh_value = np.max(coh_values[indices])
-                    max_coh_freq = f[np.argmax(coh_values[indices])]
+                ax1.set_xticks([])
+                ax2.set_xticks([])
+                ax3.set_xticks([])
 
-                    if max_coh_value > highest_coh:
-                        highest_coh = max_coh_value
-                        best_pair = (chan1, chan2)
-                        best_band = band_name
-                        best_coh_freq = max_coh_freq
+                ax1.set_yticks([])
+                ax2.set_yticks([])
+                ax3.set_yticks([])
 
-            plt.figure()
-            plt.plot(
-                epoch.times,
-                np.mean(stored_signals[best_pair[0]][best_band], axis=0),
-                label=f"{best_pair[0]}",
-            )
-            plt.plot(
-                epoch.times,
-                np.mean(stored_signals[best_pair[1]][best_band], axis=0),
-                label=f"{best_pair[1]}",
-            )
-            plt.title(
-                f"Highest Coherence between {best_pair[0]} and {best_pair[1]} at {best_coh_freq} Hz in {best_band} band"
-            )
-            plt.xlabel("Time (s)")
-            plt.ylabel("Amplitude")
-            plt.legend()
-            plt.show()
-            # get analytic signal (envelope)
-            epochs.apply_hilbert(envelope=True)
-            frequency_map.append(((band, fmin, fmax), epochs.average()))
+                savename = f"{epoch_idx}"
+                plt.savefig(epochs_path / f"{savename}.png", dpi=300)
+
+            # epoch.apply_hilbert(envelope=True)
+            # frequency_map.append(((band, fmin, fmax), epoch.average()))
         x = 4
