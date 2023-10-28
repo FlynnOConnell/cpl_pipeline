@@ -1,11 +1,15 @@
-import matplotlib
+import mne
 from mne import Epochs
 from mne_connectivity import spectral_connectivity_epochs
+
+import matplotlib
 from matplotlib import pyplot as plt
 import numpy as np
 from pathlib import Path
-import pandas as pd
-import seaborn as sns
+from scipy.stats import ttest_rel
+
+
+
 
 def save_figure(path, overwrite=False, fail_silently=False):
     path = Path(path)
@@ -28,13 +32,6 @@ def plot_2D_coherence(coh, times, freqs, title, filename, session_path):
     ax.grid(False)
     plt.tight_layout()
     save_figure(session_path / filename, overwrite=True, fail_silently=True)
-
-def plot_3D_coherence(coh, times, freqs):
-    X, Y = np.meshgrid(times, freqs)
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection="3d")
-    ax.plot_surface(X, Y, coh)
-    plt.show()
 
 def plot_coh(epoch_object: Epochs, freqs=None):
     # Remaining code for spectral_connectivity_epochs and plotting
@@ -93,7 +90,6 @@ def plot_custom_data(data, times, ch_names, start, duration, fs=None):
     ax[-1].set_xlabel("Time (ms)", **bold_font)
     plt.tight_layout()
     plt.show()
-
 
 def plot_processing_steps(raw_list, titles, start, duration, scalings, channel_name):
     n = len(raw_list)
