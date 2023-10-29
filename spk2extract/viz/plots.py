@@ -33,10 +33,10 @@ def plot_2D_coherence(coh, times, freqs, title, filename, session_path):
     plt.tight_layout()
     save_figure(session_path / filename, overwrite=True, fail_silently=True)
 
-def plot_coh(epoch_object: Epochs, freqs=None):
+def plot_coh(epoch_object: Epochs, freqs=(5, 100)):
     # Remaining code for spectral_connectivity_epochs and plotting
     indices = (np.array([0]), np.array([1]))
-    freqs = np.arange(5, 100) if freqs is None else np.arange(freqs[0], freqs[1])
+    freqs = np.arange(freqs[0], freqs[1], 2)
     n_cycles = freqs / 2
 
     con = spectral_connectivity_epochs(

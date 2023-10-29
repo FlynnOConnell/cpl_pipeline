@@ -1,6 +1,10 @@
 from __future__ import annotations
+import time
+from scipy.stats import ttest_ind, stats
 
+import functools
 import re
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 import matplotlib.cm
@@ -398,6 +402,8 @@ def process_session(raw_arr, events, event_id, fmin, fmax, tmin, tmax):
     epoch = get_filtered_epoch(
         raw, valid_events, valid_event_id, fmin, fmax, tmin, tmax
     )
+    if epoch is None:
+        raise ValueError("Epoch is None")
     freqs_arange = np.arange(fmin, fmax)
     con = spectral_connectivity_epochs(
         epoch,
@@ -411,23 +417,38 @@ def process_session(raw_arr, events, event_id, fmin, fmax, tmin, tmax):
     )
     return epoch, con
 
+def process_row(row, fmin, fmax, tmin, tmax):
+    epoch, con_arr = process_session(
+        row["raw"], row["end"], row["event_id"], fmin, fmax, tmin, tmax
+    )
+    return epoch, con_arr
+
 
 def main():
     helpers.update_rcparams()
     plots_path = Path().home() / "data" / "plots" / "aon"
     plots_path.mkdir(parents=True, exist_ok=True)
-    data = get_master_df()
+    data = get_master_df().reset_index(drop=True)
 
     tmin, tmax = -1, 0  # time window (in seconds)
     fmin, fmax = 13, 25  # frequency range
-    epoch_holder, con_arr_holder = [], []
+    epoch_holder = [None] * len(data)
+    con_arr_holder = [None] * len(data)
 
-    for idx, row in data.iterrows():
-        epoch, con_arr = process_session(
-            row["raw"], row["end"], row["event_id"], fmin, fmax, tmin, tmax
-        )
-        epoch_holder.append(epoch)
-        con_arr_holder.append(con_arr)
+    # the order matters because
+    with ProcessPoolExecutor() as executor:
+        future_to_index = {}
+        func = functools.partial(process_row, fmin=fmin, fmax=fmax, tmin=tmin, tmax=tmax)
+        for idx, row in data.iterrows():
+            future = executor.submit(func, row)
+            future_to_index[future] = idx
+
+        for future in as_completed(future_to_index):
+            idx = future_to_index[future]
+            epoch, con_arr = future.result()
+            epoch_holder[idx] = epoch
+            con_arr_holder[idx] = con_arr
+
     data["epoch"] = epoch_holder
     data["con_arr"] = con_arr_holder
 
@@ -462,71 +483,77 @@ def stats_comparison(epoch1, epoch2, ch_index=0, tmin=None, tmax=None):
     t_stat, p_val = ttest_rel(data1.mean(axis=0), data2.mean(axis=0))
     return t_stat, p_val
 
-def optimal_nfft(n_times):
-    return 2 ** np.ceil(np.log2(n_times))
-
-def plot_psd(epochs1, epochs2, ch_names, fmin=1, fmax=100):
-
-    data1 = epochs1.get_data(picks=ch_names)  # shape (n_epochs, n_channels, n_times)
-
-    data1 = np.mean(data1, axis=0)  # Average over epochs
-    n_fft = optimal_nfft(data1.shape[2])
-    psds1, freqs1 = psd_array_welch(data1, epochs1.info['sfreq'], fmin=fmin, fmax=fmax, n_fft=n_fft)
-
-    data2 = epochs2.get_data(picks=ch_names)
-    data2 = np.mean(data2, axis=0)
-    n_fft_2 = optimal_nfft(data2.shape[2])
-    psds2, freqs2 = psd_array_welch(data2, epochs2.info['sfreq'], fmin=fmin, fmax=fmax, n_fft=n_fft_2)
-
-    plt.figure()
-    plt.loglog(freqs1, np.mean(psds1, axis=0))
-    plt.loglog(freqs2, np.mean(psds2, axis=0))
-    plt.title('Power Spectral Densities')
-    plt.legend(['Condition 1', 'Condition 2'])
-    plt.xlabel('Frequency (Hz)')
-    plt.ylabel('Power (dB)')
-    plt.show()
-
-def plot_coherence(epochs1, epochs2, ch1='AON', ch2='hippocampus', nperseg=1024):
-    sfreq = epochs1.info['sfreq']
-    f, Cxy1 = coherence(epochs1.get_data(picks=ch1).squeeze(), epochs1.get_data(picks=ch2).squeeze(), fs=sfreq, nperseg=nperseg)
-    f, Cxy2 = coherence(epochs2.get_data(picks=ch1).squeeze(), epochs2.get_data(picks=ch2).squeeze(), fs=sfreq, nperseg=nperseg)
-
-    plt.figure()
-    plt.semilogx(f, Cxy1)
-    plt.semilogx(f, Cxy2)
-    plt.title(f'Coherence between {ch1} and {ch2}')
-    plt.legend(['Condition 1', 'Condition 2'])
-    plt.xlabel('Frequency (Hz)')
-    plt.ylabel('Coherence')
-    plt.show()
-
-
 if __name__ == "__main__":
+    t = time.time()
     data = main()
+    end = time.time()
+    print(f"Time taken: {end - t} seconds")
 
-    dk3 = data[data["Animal"] == "dk3"]
+    dk3 = data[data["Animal"] == "dk1"]
     dk3_context = dk3[dk3["Context"] == "context"]
     dk3_nocontext = dk3[dk3["Context"] == "nocontext"]
 
     epochs_context = dk3_context["epoch"].values
     epochs_nocontext = dk3_nocontext["epoch"].values
     key = {"b_1": 1, "b_0": 2, "w_1": 3, "w_0": 4, "x_1": 5, "x_0": 6}
-    for e in epochs_context:
-        e.event_id = key
-    for e in epochs_nocontext:
-        e.event_id = key
+    for large_epoch in epochs_context:
+        large_epoch.event_id = key
+    for large_epoch in epochs_nocontext:
+        large_epoch.event_id = key
+
     con_concat = mne.concatenate_epochs(epochs_context.tolist())
     nocon_concat: mne.Epochs = mne.concatenate_epochs(epochs_nocontext.tolist())
 
-    con_concat.plot_psd(fmin=5, fmax=70, average=True, )
-    nocon_concat.plot_psd(fmin=5, fmax=70, average=True)
-    t_stat, p_val = stats_comparison(con_concat, nocon_concat)
-    print(f"T-statistic: {t_stat}, P-value: {p_val}")
+    fmin, fmax = 10, 100
 
-    avg_con = con_concat.average()
-    avg_nocon = nocon_concat.average()
-    plot_psd(avg_con, avg_nocon, ['LFP1_vHp', 'LFP4_AON'])
+    indices = (np.array([0]), np.array([1]))
+    freqs = np.arange(fmin, fmax, 11)
+
+    con_con = spectral_connectivity_epochs(
+        con_concat,
+        indices=indices,
+        method="coh",
+        mode="cwt_morlet",
+        cwt_freqs=freqs,
+        cwt_n_cycles=freqs / 2,
+        sfreq=con_concat.info["sfreq"],
+        n_jobs=1,
+    )
+    noncon_con = spectral_connectivity_epochs(
+        nocon_concat,
+        indices=indices,
+        method="coh",
+        mode="cwt_morlet",
+        cwt_freqs=freqs,
+        cwt_n_cycles=freqs / 2,
+        sfreq=con_concat.info["sfreq"],
+        n_jobs=1,
+    )
+    con_coh = con_con.get_data()
+    z_scores = np.abs(stats.zscore(con_coh, axis=2))
+    outliers = (z_scores > 2).all(axis=2)
+    con_coh = con_coh[~outliers]
+
+    noncon_coh = noncon_con.get_data()
+    z_scores = np.abs(stats.zscore(noncon_coh, axis=2))
+    outliers = (z_scores > 2).all(axis=2)
+    noncon_coh = noncon_coh[~outliers]
+
+    con_con_avg = np.mean(con_coh, axis=1)
+    noncon_con_avg = np.mean(noncon_coh, axis=1)
+
+    fig, ax = plt.subplots(figsize=(12, 8))
+    ax.plot(freqs, con_con_avg,
+            label="Context")
+    ax.plot(freqs, noncon_con_avg, label="No Context")
+    ax.set_xlabel("Frequency (Hz)", fontsize=14)
+    ax.set_ylabel("Coherence", fontsize=14)
+    ax.set_title("Context vs No Context", fontsize=16, fontweight="bold")
+    ax.legend()
+    plt.tight_layout()
+    plt.show()
+
+    x=4
 
     # plots_path = Path().home() / "data" / "plots" / "aon"
     # plots_path.mkdir(parents=True, exist_ok=True)
