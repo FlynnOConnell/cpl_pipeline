@@ -256,8 +256,9 @@ if __name__ == "__main__":
         for file in filelist:
             h5 = spk_h5.read_h5(file)
             events_list, signals_list, other = [], [], []
-            exclude = ["LFP1_AON", "LFP2_AON", "Respirat"]
+            exclude = ["LFP1_AON", "LFP2_AON"]
             metadata = h5["channels"]["metadata"]
+            respiratory = None
             for chan, item in h5["channels"].items():
                 if chan not in exclude:
                     if "type" in item:
@@ -265,10 +266,13 @@ if __name__ == "__main__":
                             tup = (chan, item["data"], item["times"])
                             events_list.append(tup)
                         elif item["type"] == "signal":
-                            tup = (chan, item["data"], item["times"], item["metadata"])
-                            signals_list.append(tup)
+                            if chan in ['respirat', 'Respirat']:
+                                respiratory = (chan, item["data"], item["times"], item["metadata"])
+                            else:
+                                tup = (chan, item["data"], item["times"], item["metadata"])
+                                signals_list.append(tup)
 
-            padded = pad_arrays_to_same_length([item[1] for item in signals_list])
+            padded = pad_arrays_to_same_length([item[1] for item in signals_list])  # only for reference channel
             spikes_arr = np.vstack(padded)
             chans = [item[0] for item in signals_list]
             events_windows, ev_id_dict = process_event_windows(
@@ -298,6 +302,7 @@ if __name__ == "__main__":
             event_stats["Event_Name"] = event_stats["Event_ID"].map(
                 {v: k for k, v in ev_id_dict.items()}
             )
+
             event_stats["Animal"] = animal  # Add the animal identifier
             event_stats["File"] = file.name  # Add the file name
 
@@ -309,26 +314,3 @@ if __name__ == "__main__":
     aes = all_event_stats.copy()
     aes = aes[aes["num_events"] > 1]
 
-        # lfp = LfpSignal(
-        #     spikes_arr,
-        #     2000,
-        #     chan_names=chans,
-        #     events=events_mne,
-        #     event_id=ev_id_dict,
-        #     filename=file,
-        # )
-        # lfp.tmin = -0.3
-        # lfp.tmax = 0.3
-        #
-        # lfp.resample(1000)
-        # lfp.raw.filter(0.3, 100, fir_design="firwin")
-        # lfp.raw.notch_filter(freqs=np.arange(60, 121, 60))
-        # lfp.raw.set_eeg_reference(ref_channels=["Ref"])
-        #
-        # no_ref_chans = ("LFP1_vHp", "LFP2_vHp", "LFP3_AON", "LFP4_AON")
-        # groups = (
-        #     ("LFP1_vHp", "LFP3_AON"),
-        #     ("LFP1_vHp", "LFP4_AON"),
-        #     ("LFP2_vHp", "LFP3_AON"),
-        #     ("LFP2_vHp", "LFP4_AON"),
-        # )

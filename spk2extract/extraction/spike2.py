@@ -174,7 +174,7 @@ class Spike2Data:
 
         """
         self.logger = logger
-        self.errors = {}  # errors that won't stop the extraction
+        self.errors = {}
         self.filename = Path(filepath)
         self.sonfile = sp.SonFile(str(self.filename), True)
         self.channels = []
@@ -456,9 +456,6 @@ if __name__ == "__main__":
         # iterate over each file in folder
         for file in animal_path.glob("*.smr"):
             filename = file.stem
-            if (save_test / filename).with_suffix(".h5").exists():
-                logger.info(f"Skipping {file}, already exists.")
-                continue
             try:
                 data = Spike2Data(file)
                 data.process_channels()

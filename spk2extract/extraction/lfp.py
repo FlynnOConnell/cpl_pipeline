@@ -6,6 +6,9 @@ from typing import Generator
 import mne
 import numpy as np
 import pandas as pd
+import scipy
+from matplotlib import pyplot as plt
+from scipy import signal
 
 from spk2extract.logs import logger
 from spk2extract.spk_io import spk_h5
@@ -193,6 +196,11 @@ def process_event_windows(events: np.ndarray, times: np.ndarray):
         windows.append(np.array(window))
     return windows, id_dict
 
+def get_first_event_time(events, times):
+    for i, event in enumerate(events):
+        if event.isalpha():
+            return times[i]
+
 
 if __name__ == "__main__":
     data_path = Path().home() / "data" / "extracted"
@@ -211,8 +219,10 @@ if __name__ == "__main__":
 
         for file in filelist:
             session_name = file.stem
+            print(f"Processing {session_name}")
             # skip processed files
             if cache_animal_path.joinpath(file.name).exists():
+                print(f"Skipping {file.name}")
                 continue
 
             h5 = spk_h5.read_h5(file)
@@ -220,12 +230,13 @@ if __name__ == "__main__":
             exclude = [
                 "LFP1_AON",
                 "LFP2_AON",
-                "Respirat",
             ]
             metadata = h5["channels"]["metadata"]
 
+            respiratory = None
             exclude += ["VERSION", "CLASS", "TITLE", "metadata"]
             for chan, item in h5["channels"].items():
+                print(f"Processing {chan}")
                 if chan in exclude:
                     continue
                 if hasattr(item, "items"):
@@ -233,25 +244,33 @@ if __name__ == "__main__":
                         if item["type"] == "event":
                             tup = (chan, item["data"], item["times"])
                             events_list.append(tup)
-                        # elif item["type"] == "signal":
-                        #     tup = (chan, item["data"], item["times"], item["metadata"])
-                        #     signals_list.append(tup)
-                        # else:
-                        #     other.append(item[chan])
-            # padded = pad_arrays_to_same_length([item[1] for item in signals_list])
-            # spikes_arr = np.vstack(padded)
-            # ch_names = [item[0] for item in signals_list]
-            # info = mne.create_info(
-            #     ch_names=ch_names,
-            #     sfreq=2000,
-            #     ch_types=["eeg"] * len(ch_names),
-            # )
-            # raw = mne.io.RawArray(spikes_arr, info)
-            # fif_savename = cache_animal_path.joinpath(session_name + "_raw")
+                        elif item["type"] == "signal":
+                            if chan in ['respirat', 'Respirat']:
+                                respiratory = (chan, item["data"], item["times"], item["metadata"])
+                            else:
+                                tup = (chan, item["data"], item["times"], item["metadata"])
+                                signals_list.append(tup)
+
+            padded = pad_arrays_to_same_length([item[1] for item in signals_list])
+            spikes_arr = np.vstack(padded)
+            ch_names = [item[0] for item in signals_list]
+            info = mne.create_info(
+                ch_names=ch_names,
+                sfreq=2000,
+                ch_types=["eeg"] * len(ch_names),
+            )
+
+            if respiratory is not None:
+                np.save(str(cache_animal_path.joinpath(session_name + "_respiratory_signal")), respiratory[1])
+                np.save(str(cache_animal_path.joinpath(session_name + "_respiratory_times")), respiratory[2])
+
+            raw = mne.io.RawArray(spikes_arr, info)
+
+            fif_savename = cache_animal_path.joinpath(session_name + "_raw")
             ev_savename = cache_animal_path.joinpath(session_name + "_eve")
             ev_dict_savename = cache_animal_path.joinpath(session_name + "_id_ev")
-            #
-            # raw.save(fif_savename.with_suffix(".fif"), overwrite=True)
+
+            raw.save(fif_savename.with_suffix(".fif"), overwrite=True)
 
             events_mne, ev_id_dict = process_event_windows(
                 events_list[0][1], events_list[0][2]
@@ -262,44 +281,7 @@ if __name__ == "__main__":
             np.savez(
                 ev_dict_savename.with_suffix(".npz"), keys=keys_np, values=vals_np
             )
-            # mne.write_events(
-            #     ev_savename.with_suffix(".fif"), np.array(events_mne), overwrite=True
-            # )
-
-            # lfp = LfpSignal(
-            #     spikes_arr,
-            #     2000,
-            #     chan_names=chans,
-            #     events=events_mne,
-            #     event_id=ev_id_dict,
-            #     filename=file,
-            # )
-            # lfp.tmin = -1
-            # lfp.tmax = 0
-            #
-            # lfp.resample(1000)
-            # lfp.raw.filter(0.3, 100, fir_design="firwin")
-            # lfp.raw.notch_filter(freqs=np.arange(60, 121, 60))
-            # lfp.raw.set_eeg_reference(ref_channels=["Ref"])
-            #
-            # no_ref_chans = ("LFP1_vHp", "LFP2_vHp", "LFP3_AON", "LFP4_AON")
-            # groups = (
-            #     ("LFP1_vHp", "LFP3_AON"),
-            #     ("LFP1_vHp", "LFP4_AON"),
-            #     ("LFP2_vHp", "LFP3_AON"),
-            #     ("LFP2_vHp", "LFP4_AON"),
-            # )
-            #
-            # lfp.nochans = lfp.raw.copy().pick(no_ref_chans)
-            #
-            # # beta frequencies
-            # freqs = np.arange(13, 30)
-            # # plots.plot_custom_data(lfp.nochans.get_data(), lfp.nochans.times, no_ref_chans, 200, 1, 1000)
-            # for group in groups:
-            #     epochs: mne.Epochs = lfp.epochs.copy()
-            #     # plots.plot_coh(epochs.pick(group))
-            #     beta = epochs.copy().pick(group)
-            #     beta = beta.filter(freqs[0], freqs[-1])
-            #     plots.plot_coh(beta, freqs=freqs)
-
+            mne.write_events(
+                ev_savename.with_suffix(".fif"), np.array(events_mne), overwrite=True
+            )
     x = 2
