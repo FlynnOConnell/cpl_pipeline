@@ -34,3 +34,8 @@ def get_spk2extract_path(path: Path | str) -> Path:
     else:
         raise FileNotFoundError("The `spk2extract` folder was not found in path")
     return new_path
+
+
+def read_npz_as_dict(npz_path):
+    with np.load(npz_path, allow_pickle=True) as npz_data:
+        return {k: npz_data[k] for k in npz_data.keys()}

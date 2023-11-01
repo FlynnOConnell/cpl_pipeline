@@ -1,14 +1,19 @@
+from __future__ import annotations
+
 import mne
 from mne import Epochs
 from mne_connectivity import spectral_connectivity_epochs
 
 import matplotlib
-from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt, gridspec
 import numpy as np
 from pathlib import Path
+
+from scipy.interpolate import interp1d
 from scipy.stats import ttest_rel
 
-
+from spk2extract.analysis.stats import rolling_coherence
+from spk2extract.logs import logger
 
 
 def save_figure(path, overwrite=False, fail_silently=False):
@@ -125,3 +130,94 @@ def plot_processing_steps(raw_list, titles, start, duration, scalings, channel_n
     ax[-1].set_xlabel("Time (ms)", **bold_font)
     plt.tight_layout()
     plt.show()
+
+
+def plot_all_epoch(epoch, title, savepath=None):
+    for epoch_idx, (epoch_signal_ch1, epoch_signal_ch2) in enumerate(epoch):
+        window_size = 100
+        coh_values = rolling_coherence(epoch_signal_ch1, epoch_signal_ch2, window_size)
+        epoch_times = epoch.times
+        coh_times = epoch_times[: len(coh_values)]
+
+        interp_func = interp1d(coh_times, coh_values, kind="cubic")
+        new_coh_times = np.linspace(coh_times[0], coh_times[-1], 500)
+        new_coh_values = interp_func(new_coh_times)
+
+        # Create grid and subplots
+        gs = gridspec.GridSpec(3, 1, height_ratios=[0.5, 0.25, 3])
+        gs.update(hspace=0.0)
+        ax1 = plt.subplot(gs[0])
+        ax2 = plt.subplot(gs[1])
+        ax3 = plt.subplot(gs[2])
+
+        # General settings
+        ax1.set_title(f"{title}, trial {epoch_idx}")
+        for ax in [ax1, ax2]:
+            ax.grid(False)
+
+        # Plotting data
+        colormap = matplotlib.colormaps["jet"]
+        norm = plt.Normalize(0, 1.5)
+
+        # Coherence as fill_between
+        num_segments = len(new_coh_times) - 1
+        for seg in range(num_segments):
+            color_value = norm(new_coh_values[seg])
+            ax1.fill_between(
+                new_coh_times[seg: seg + 2],
+                0,
+                new_coh_values[seg: seg + 2],
+                color=colormap(color_value),
+            )
+
+        # Coherence as heatmap
+        ax2.imshow(
+            [new_coh_values],
+            aspect="auto",
+            cmap=colormap,
+            norm=norm,
+            extent=[new_coh_times[0], new_coh_times[-1], 0, 1],
+        )
+
+        # Signal plot
+        ax3.plot(
+            epoch.times,
+            epoch_signal_ch1 * 1000,
+            linestyle="-",
+            linewidth=1,
+            color="black",
+        )
+        ax3.plot(
+            epoch.times,
+            epoch_signal_ch2 * 1000,
+            linestyle="--",
+            linewidth=1,
+            color="r",
+        )
+
+        xlim = [new_coh_times[0], new_coh_times[-1]]
+        ax1.set_xlim(xlim)
+        ax1.set_ylim([0, 1.5])
+        ax2.set_xlim(xlim)
+        ax3.set_xlim([-1, 0])
+
+        ax1.set_xticks([])
+        ax2.set_xticks([])
+        ax1.set_yticks([])
+        ax2.set_yticks([])
+
+        xticks = np.linspace(-1, 0, 11)
+        xticklabels = np.linspace(-1000, 0, 11).astype(int).tolist()
+        xticklabels[-1] = "DIG"
+
+        ax3.set_xticks(xticks)
+        ax3.set_xticklabels(xticklabels)
+
+        ax3.axhline(0, color="gray", linewidth=0.5, linestyle="--", alpha=0.5)
+
+        if savepath:
+            plt.savefig(f"{savepath}/{epoch_idx}.png")
+            logger.info(f"Saved {savepath}/{epoch_idx}.png")
+            plt.close("all")
+        else:
+            plt.show()

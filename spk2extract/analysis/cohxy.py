@@ -1,120 +1,31 @@
 from __future__ import annotations
-import time
+
+from itertools import combinations
 
 from fooof import FOOOF
-from scipy.ndimage import median_filter
-from scipy import signal
-from scipy.stats import ttest_ind, stats
 
-import functools
-import re
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
-import matplotlib.cm
 import mne
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from matplotlib import pyplot as plt, gridspec
+from matplotlib import pyplot as plt
 from mne.time_frequency import psd_array_welch
 from mne_connectivity import spectral_connectivity_epochs
-from scipy.interpolate import interp1d
-from scipy.signal import coherence
-from scipy.stats import zscore, ttest_rel
+from scipy.stats import zscore, sem
 from sklearn.manifold import spectral_embedding  # noqa
-from sklearn.metrics.pairwise import rbf_kernel
 
+from spk2extract.analysis.stats import extract_file_info
 from spk2extract.logs import logger
+from spk2extract.spk_io.utils import read_npz_as_dict
+from spk2extract.utils import extract_common_key
 from spk2extract.viz import helpers
+from spk2extract.viz import plots
 
 sns.set_style("darkgrid")
 
-# # get the timestamps when for each key in the event_id dict
-# for key in id_dict.keys():
-#     if key in ["b_1", "b_0", "w_1", "w_0", "x_1", "x_0"]:
-#         continue
-#     else:
-#         val = id_dict[key]
-#         starts = start[val == start[:, 2], 0]
-#         ends = end[val == end[:, 2], 0]
-#         starts = starts / 1000
-#         ends = ends / 1000
-#         zipped = zip(starts, ends)
-# print("------------------")
-# print(f"animal {row['Animal']} - {row['Date']}")
-# print(f"{key} : {list(zipped)}")
-
 logger.setLevel("INFO")
-
-def pad_arrays_to_same_length(arr_list, max_diff=100):
-    """
-    Pads numpy arrays to the same length.
-
-    Parameters:
-    - arr_list (list of np.array): The list of arrays to pad
-    - max_diff (int): Maximum allowed difference in lengths
-
-    Returns:
-    - list of np.array: List of padded arrays
-    """
-    lengths = [len(arr) for arr in arr_list]
-    max_length = max(lengths)
-    min_length = min(lengths)
-
-    if max_length - min_length > max_diff:
-        raise ValueError("Arrays differ by more than the allowed maximum difference")
-
-    padded_list = []
-    for arr in arr_list:
-        pad_length = max_length - len(arr)
-        padded_arr = np.pad(arr, (0, pad_length), "constant", constant_values=0)
-        padded_list.append(padded_arr)
-
-    return padded_list
-
-def extract_file_info(filename):
-    parts = filename.split("_")
-    data = {
-        "Date": None,
-        "Animal": None,
-        "Type": "None",
-        "Context": "None",
-        "Day": "1",
-        "Stimset": "1",
-    }
-
-    has_date = False
-    has_animal = False
-
-    for part in parts:
-        if not has_date and re.match(r"\d{6,8}", part):
-            data["Date"] = pd.to_datetime(part, format="%Y%m%d").strftime("%Y-%m-%d")
-            has_date = True
-        elif not has_animal and re.match(r"[a-zA-Z]+\d+$", part):
-            data["Animal"] = part
-            has_animal = True
-        elif re.match(r"BW", part):
-            data["Type"] = "BW"
-        elif re.match(r"(nocontext|context)", part):
-            data["Context"] = part
-        elif re.match(r"(day\d+|d\d+)", part, re.IGNORECASE):
-            data["Day"] = re.findall(r"\d+", part)[0]
-        elif re.match(r"os\d+", part):
-            data["Stimset"] = re.findall(r"\d+", part)[0]
-
-    if not data["Date"] or not data["Animal"]:
-        data = {k: "error" for k in data.keys()}
-
-    return pd.DataFrame([data])
-
-def extract_common_key(filepath):
-    parts = filepath.stem.split("_")
-    return "_".join(parts[:-1])
-
-def read_npz_as_dict(npz_path):
-    with np.load(npz_path, allow_pickle=True) as npz_data:
-        return {k: npz_data[k] for k in npz_data.keys()}
 
 def _validate_events(event_arr, event_id):
     """
@@ -234,107 +145,6 @@ def get_master_df():
         master = pd.concat([master, all_data_df], axis=0)
     return master
 
-def rolling_coherence(x, y, window, fs=1.0):
-    coh_vals = []
-    for i in range(0, len(x) - window, window // 2):  # 50% overlap
-        f, Cxy = coherence(
-            x[i: i + window], y[i: i + window], fs=fs, nperseg=window // 2
-        )
-        coh_vals.append(
-            np.mean(Cxy)
-        )  # Average coherence across frequencies, adjust as needed
-    return np.array(coh_vals)
-
-def plot_all_epoch(epoch, title, savepath=None):
-    for epoch_idx, (epoch_signal_ch1, epoch_signal_ch2) in enumerate(epoch):
-        window_size = 100
-        coh_values = rolling_coherence(epoch_signal_ch1, epoch_signal_ch2, window_size)
-        epoch_times = epoch.times
-        coh_times = epoch_times[: len(coh_values)]
-
-        interp_func = interp1d(coh_times, coh_values, kind="cubic")
-        new_coh_times = np.linspace(coh_times[0], coh_times[-1], 500)
-        new_coh_values = interp_func(new_coh_times)
-
-        # Create grid and subplots
-        gs = gridspec.GridSpec(3, 1, height_ratios=[0.5, 0.25, 3])
-        gs.update(hspace=0.0)
-        ax1 = plt.subplot(gs[0])
-        ax2 = plt.subplot(gs[1])
-        ax3 = plt.subplot(gs[2])
-
-        # General settings
-        ax1.set_title(f"{title}, trial {epoch_idx}")
-        for ax in [ax1, ax2]:
-            ax.grid(False)
-
-        # Plotting data
-        colormap = matplotlib.colormaps["jet"]
-        norm = plt.Normalize(0, 1.5)
-
-        # Coherence as fill_between
-        num_segments = len(new_coh_times) - 1
-        for seg in range(num_segments):
-            color_value = norm(new_coh_values[seg])
-            ax1.fill_between(
-                new_coh_times[seg: seg + 2],
-                0,
-                new_coh_values[seg: seg + 2],
-                color=colormap(color_value),
-            )
-
-        # Coherence as heatmap
-        ax2.imshow(
-            [new_coh_values],
-            aspect="auto",
-            cmap=colormap,
-            norm=norm,
-            extent=[new_coh_times[0], new_coh_times[-1], 0, 1],
-        )
-
-        # Signal plot
-        ax3.plot(
-            epoch.times,
-            epoch_signal_ch1 * 1000,
-            linestyle="-",
-            linewidth=1,
-            color="black",
-        )
-        ax3.plot(
-            epoch.times,
-            epoch_signal_ch2 * 1000,
-            linestyle="--",
-            linewidth=1,
-            color="r",
-        )
-
-        xlim = [new_coh_times[0], new_coh_times[-1]]
-        ax1.set_xlim(xlim)
-        ax1.set_ylim([0, 1.5])
-        ax2.set_xlim(xlim)
-        ax3.set_xlim([-1, 0])
-
-        ax1.set_xticks([])
-        ax2.set_xticks([])
-        ax1.set_yticks([])
-        ax2.set_yticks([])
-
-        xticks = np.linspace(-1, 0, 11)
-        xticklabels = np.linspace(-1000, 0, 11).astype(int).tolist()
-        xticklabels[-1] = "DIG"
-
-        ax3.set_xticks(xticks)
-        ax3.set_xticklabels(xticklabels)
-
-        ax3.axhline(0, color="gray", linewidth=0.5, linestyle="--", alpha=0.5)
-
-        if savepath:
-            plt.savefig(f"{savepath}/{epoch_idx}.png")
-            logger.info(f"Saved {savepath}/{epoch_idx}.png")
-            plt.close("all")
-        else:
-            plt.show()
-
 def preprocess_raw(raw_signal, fmin=1, fmax=100):
     raw: mne.io.RawArray = raw_signal.copy()
     raw.load_data()
@@ -345,23 +155,10 @@ def preprocess_raw(raw_signal, fmin=1, fmax=100):
     raw.drop_channels(["Ref"])
     return raw
 
-def get_filtered_epoch(raw_obj, events, event_id, fmin, fmax, tmin, tmax, baseline=None):
-    raw = raw_obj.filter(fmin, fmax, l_trans_bandwidth=1, h_trans_bandwidth=1)
-    return mne.Epochs(
-        raw,
-        events,
-        event_id,
-        tmin,
-        tmax,
-        baseline=baseline,
-        event_repeated="drop",
-        preload=True,
-    )
-
 def update_df_with_epochs(df, fmin, fmax, tmin, tmax):
     epochs_holder, con_holder = [], []
     for idx, row in df.iterrows():
-        epoch, con_data = process_epoch(row['raw'], row['events'], row['event_id'], row['baseline'], fmin, fmax, tmin,
+        epoch, con_data = process_epoch(row['raw'], row['end'], row['event_id'], row['baseline'], fmin, fmax, tmin,
                                         tmax)
         epochs_holder.append(epoch)
 
@@ -370,23 +167,23 @@ def update_df_with_epochs(df, fmin, fmax, tmin, tmax):
     df['con_arr'] = con_holder
     return df
 
-
 def process_epoch(raw_arr, events, event_id, baseline, fmin, fmax, tmin, tmax):
     assert fmin < fmax and tmin < tmax, "Ensure fmin < fmax and tmin < tmax"
+
     raw = preprocess_raw(raw_arr, fmin, fmax)
     means = np.mean(baseline, axis=1)
     stds = np.std(baseline, axis=1)
     means = means[:-1]
     stds = stds[:-1]
 
-    # Continue processing
     valid_events, valid_event_id = _validate_events(events, event_id)
 
-    epochs = get_filtered_epoch(raw, valid_events, valid_event_id, fmin, fmax, tmin, tmax)
+    epochs = mne.Epochs(raw, valid_events, valid_event_id, tmin, tmax, baseline=None, event_repeated="drop", preload=True)
+    raw = raw.filter(fmin, fmax, l_trans_bandwidth=1, h_trans_bandwidth=1)
+
     if epochs is None:
         raise ValueError("Epoch is None")
 
-    epochs_data = epochs.get_data()
     for ch in epochs.ch_names:
         ch_idx = epochs.ch_names.index(ch)
         epochs._data[:, ch_idx, :] = (epochs._data[:, ch_idx, :] - means[ch_idx]) / stds[ch_idx]
@@ -405,12 +202,10 @@ def process_epoch(raw_arr, events, event_id, baseline, fmin, fmax, tmin, tmax):
     )
     return epochs, con
 
-
 def main(use_parallel=True):
     helpers.update_rcparams()
     data = get_master_df().reset_index(drop=True)
     return data
-
 
 def optimize_psd_params(sfreq, time_series_length, desired_resolution=None):
     """
@@ -439,115 +234,158 @@ def optimize_psd_params(sfreq, time_series_length, desired_resolution=None):
 
     return n_fft, n_per_seg, n_overlap
 
+def compute_coherence_base(epoch_obj, idxs, coh_freqs):
+    epoch_arr = epoch_obj.get_data()
+    con = spectral_connectivity_epochs(
+        epoch_arr,
+        indices=(np.array([idxs[0]]), np.array([idxs[1]])),
+        method="coh",
+        mode="cwt_morlet",
+        cwt_freqs=coh_freqs,
+        cwt_n_cycles=coh_freqs / 2,
+        sfreq=epoch_obj.info["sfreq"],
+        n_jobs=1,
+    )
+    return con
+
+def compute_coherence_for_channels(epoch_arr, idxs, coh_freqs, bands):
+    con = compute_coherence_base(epoch_arr, idxs, coh_freqs)
+    coh = con.get_data()
+    print(coh.shape)
+    results = {}
+
+    for band, (fmin, fmax) in bands.items():
+        idx = np.where((coh_freqs >= fmin) & (coh_freqs <= fmax))
+        mean_coh = np.mean(coh[:, :, idx], axis=2)
+        results[band] = mean_coh
+    return results
+
+def plot_coherence_results(coherence_results, title, freqs):
+    fig, axes = plt.subplots(1, len(coherence_results.keys()), figsize=(15, 5), sharey=True)
+
+    for ax, (band, coh_data) in zip(axes, coherence_results.items()):
+        # Assuming coh_data.shape is (n_epochs, n_connections, n_frequencies)
+        coh = np.squeeze(coh_data)
+        mean_coh = np.mean(coh_data, axis=0)  # Averaging over epochs
+        sem_coh = np.std(coh_data, axis=0) / np.sqrt(coh_data.shape[0])
+        ax.set_title(f"{band} Band")
+        ax.set_xlabel('Connections')
+        ax.set_ylabel('Coherence')
+
+        for i in range(mean_coh.shape[0]):  # Loop over "n_connections"
+            ax.plot(freqs, mean_coh[i, :], label=f"Connection {i + 1}")
+            ax.fill_between(freqs, mean_coh[i, :] - sem_coh[i, :], mean_coh[i, :] + sem_coh[i, :], alpha=0.3)
+
+    fig.suptitle(title)
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.show()
 
 if __name__ == "__main__":
     data = main(use_parallel=False)
 
-    tmin, tmax = -1, 0
-    fmin, fmax = 1, 100
+    all_areas = ['LFP1_vHp', 'LFP2_vHp', 'LFP3_AON', 'LFP4_AON']
 
-    fm = FOOOF()
+    epoch_tmin, epoch_tmax = -1, 0
+    pre_fmin, pre_fmax = 1, 100
+    lfp_bands = {'beta': (12, 30), 'gamma': (30, 80), 'theta': (4, 12)}
+    chan_indices = np.array(list(combinations(range(4), 2)))
+
+    key = {"b_1": 1, "b_0": 2, "w_1": 3, "w_0": 4, "x_1": 5, "x_0": 6}
     for animal in data["Animal"].unique():
         animal_df = data[data["Animal"] == animal]
-        context_df = animal_df[animal_df["Context"] == "context"]
-        no_context_df = animal_df[animal_df["Context"] == "nocontext"]
+        animal_path = Path().home() / "data" / "plots" / "aon" / animal
+        animal_path.mkdir(parents=True, exist_ok=True)
 
-        updated_context_df = update_df_with_epochs(context_df, fmin, fmax, tmin, tmax)
-        updated_no_context_df = update_df_with_epochs(no_context_df, fmin, fmax, tmin, tmax)
+        for context in ["context", "nocontext"]:
 
-        epochs_context = updated_context_df['epoch'].tolist()
-        epochs_nocontext = updated_no_context_df['epoch'].tolist()
+            context_path = animal_path / context
+            df = update_df_with_epochs(animal_df[animal_df["Context"] == context], pre_fmin, pre_fmax, epoch_tmin,
+                                       epoch_tmax)
+            epochs = df['epoch'].tolist()
 
-        key = {"b_1": 1, "b_0": 2, "w_1": 3, "w_0": 4, "x_1": 5, "x_0": 6}
+            for epoch in epochs:
+                epoch.event_id = key
 
-        for large_epoch in epochs_context:
-            large_epoch.event_id = key
-        for large_epoch in epochs_nocontext:
-            large_epoch.event_id = key
+            concatenated_epochs = mne.concatenate_epochs(epochs)
+            times = concatenated_epochs.times
 
-        picks = ["LFP1_vHp", "LFP3_AON"]
-        con_concat = mne.concatenate_epochs(epochs_context)
-        nocon_concat: mne.Epochs = mne.concatenate_epochs(epochs_nocontext)
-        con_concat.picks = picks
-        nocon_concat.picks = picks
+            n_channel_pairs = len(list(combinations(range(len(all_areas)), 2)))
+            within_band_coh = np.zeros((n_channel_pairs, len(lfp_bands.keys()), len(times)))
+            between_band_coh = np.zeros((n_channel_pairs, len(lfp_bands.keys()), len(times)))
 
-        # PSD calculation settings
-        n_fft, n_per_seg, n_overlap = optimize_psd_params(con_concat.info["sfreq"], con_concat.get_data().shape[2])
+            for i, ch_pair in enumerate(combinations(range(len(all_areas)), 2)):
+                coh_results = compute_coherence_for_channels(concatenated_epochs, ch_pair, np.arange(pre_fmin, pre_fmax),
+                                                             lfp_bands)
+                within_band_coh[i, :, :] = np.array([coh_results[band] for band in lfp_bands.keys()])
+                between_band_coh[i, :, :] = np.array([coh_results[band] for band in lfp_bands.keys()])
+            within_band_coh = np.mean(within_band_coh, axis=0)
+            between_band_coh = np.mean(between_band_coh, axis=0)
 
-        # Calculate and normalize the PSD
-        aon = ['LFP3_AON']
-        vhp = ['LFP1_vHp']
-        title = f'Average Power Spectra: {animal}'
-        subtitle = ''
+            fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+            fig.suptitle(f"{animal} - {context}")
+            for i, (band, coh_data) in enumerate(lfp_bands.items()):
+                axes[0].plot(times, within_band_coh[i, :], label=band)
+                axes[1].plot(times, between_band_coh[i, :], label=band)
+            axes[0].set_title("Within Band")
+            axes[1].set_title("Between Band")
+            plt.show()
 
-        aon_data_context = con_concat.get_data(picks=aon)
-        aon_data_nocontext = nocon_concat.get_data(picks=aon)
-
-        vhp_data_context = con_concat.get_data(picks=vhp)
-        vhp_data_nocontext = nocon_concat.get_data(picks=vhp)
-
-
-        aon_psd_context, freqs = psd_array_welch(aon_data_context, fmin=fmin, fmax=fmax, n_fft=n_fft, n_per_seg=n_per_seg,
-                                                 n_overlap=n_overlap, sfreq=con_concat.info["sfreq"])
-        aon_psd_nocontext, _ = psd_array_welch(aon_data_nocontext, fmin=fmin, fmax=fmax, n_fft=n_fft, n_per_seg=n_per_seg,
-                                               n_overlap=n_overlap, sfreq=nocon_concat.info["sfreq"])
-        vhp_psd_context, _ = psd_array_welch(vhp_data_context, fmin=fmin, fmax=fmax, n_fft=n_fft, n_per_seg=n_per_seg,
-                                             n_overlap=n_overlap, sfreq=con_concat.info["sfreq"])
-        vhp_psd_nocontext, _ = psd_array_welch(vhp_data_nocontext, fmin=fmin, fmax=fmax, n_fft=n_fft, n_per_seg=n_per_seg,
-                                               n_overlap=n_overlap, sfreq=nocon_concat.info["sfreq"])
-
-        # Compute the mean and SEM
-        aon_mean_psd_context = np.mean(aon_psd_context, axis=(0, 1))
-        aon_mean_psd_nocontext = np.mean(aon_psd_nocontext, axis=(0, 1))
-        aon_sem_psd_context = np.std(aon_psd_context, axis=(0, 1)) / np.sqrt(aon_psd_context.shape[0])
-        aon_sem_psd_nocontext = np.std(aon_psd_nocontext, axis=(0, 1)) / np.sqrt(aon_psd_nocontext.shape[0])
-
-        vhp_mean_psd_context = np.mean(vhp_psd_context, axis=(0, 1))
-        vhp_mean_psd_nocontext = np.mean(vhp_psd_nocontext, axis=(0, 1))
-        vhp_sem_psd_context = np.std(vhp_psd_context, axis=(0, 1)) / np.sqrt(vhp_psd_context.shape[0])
-        vhp_sem_psd_nocontext = np.std(vhp_psd_nocontext, axis=(0, 1)) / np.sqrt(vhp_psd_nocontext.shape[0])
-
-        # # Assuming baseline_aon and baseline_vhp contain the baseline PSD for AON and vHp
-        # aon_rel_power_change_context = ((aon_mean_psd_context - baseline_aon) / baseline_aon) * 100
-        # aon_rel_power_change_nocontext = ((aon_mean_psd_nocontext - baseline_aon) / baseline_aon) * 100
+        # plt.figure(figsize=(10, 6))
+        # plt.title(f'Average Beta Power Spectra: {animal}')
         #
-        # vhp_rel_power_change_context = ((vhp_mean_psd_context - baseline_vhp) / baseline_vhp) * 100
-        # vhp_rel_power_change_nocontext = ((vhp_mean_psd_nocontext - baseline_vhp) / baseline_vhp) * 100
+        # plt.fill_between(freqs[beta_indices],
+        #                  beta_mean_psd_aon_context - beta_sem_psd_aon_context,
+        #                  beta_mean_psd_aon_context + beta_sem_psd_aon_context,
+        #                  alpha=0.2)
+        # plt.fill_between(freqs[beta_indices],
+        #                  beta_mean_psd_aon_nocontext - beta_sem_psd_aon_nocontext,
+        #                  beta_mean_psd_aon_nocontext + beta_sem_psd_aon_nocontext,
+        #                  alpha=0.2)
+        # plt.plot(freqs[beta_indices], beta_mean_psd_aon_context, linewidth=2, label='Beta - Context')
+        # plt.plot(freqs[beta_indices], beta_mean_psd_aon_nocontext, linewidth=2, label='Beta - No Context',
+        #          linestyle='--')
+        # plt.fill_between(freqs[beta_indices],
+        #                  beta_mean_psd_vhp_context - beta_sem_psd_vhp_context,
+        #                  beta_mean_psd_vhp_context + beta_sem_psd_vhp_context,
+        #                  alpha=0.2)
+        # plt.fill_between(freqs[beta_indices],
+        #                  beta_mean_psd_vhp_nocontext - beta_sem_psd_vhp_nocontext,
+        #                  beta_mean_psd_vhp_nocontext + beta_sem_psd_vhp_nocontext,
+        #                  alpha=0.2)
+        # plt.plot(freqs[beta_indices], beta_mean_psd_vhp_context, linewidth=2, label='Beta - Context')
+        # plt.plot(freqs[beta_indices], beta_mean_psd_vhp_nocontext, linewidth=2, label='Beta - No Context',)
+        # plt.xlabel('Frequency (Hz)')
+        # plt.ylabel('Power Spectral Density ($V^2/Hz$)')
+        # plt.legend()
+        # plt.show()
+        #
+        # # Plotting
+        # plt.figure(figsize=(10, 6))
+        #
+        # # Plot AON Context vs No Context
+        # plt.fill_between(freqs, aon_mean_psd_context - aon_sem_psd_context, aon_mean_psd_context + aon_sem_psd_context,
+        #                  alpha=0.2)
+        # plt.fill_between(freqs, aon_mean_psd_nocontext - aon_sem_psd_nocontext,
+        #                  aon_mean_psd_nocontext + aon_sem_psd_nocontext, alpha=0.2,)
+        # plt.plot(freqs, aon_mean_psd_context, linewidth=2, label='AON - Context', )
+        # plt.plot(freqs, aon_mean_psd_nocontext, linewidth=2, label='AON - No Context', linestyle='--')
+        #
+        # # Plot vHp Context vs No Context
+        # plt.fill_between(freqs, vhp_mean_psd_context - vhp_sem_psd_context, vhp_mean_psd_context + vhp_sem_psd_context,
+        #                  alpha=0.2,)
+        # plt.fill_between(freqs, vhp_mean_psd_nocontext - vhp_sem_psd_nocontext,
+        #                  vhp_mean_psd_nocontext + vhp_sem_psd_nocontext, alpha=0.2,)
+        # plt.plot(freqs, vhp_mean_psd_context, label='vHp - Context', linewidth=2)
+        # plt.plot(freqs, vhp_mean_psd_nocontext, label='vHp - No Context', linewidth=2, linestyle='--')
+        #
+        # plt.xlabel('Frequency (Hz)')
+        # plt.ylabel('Power Spectral Density ($V^2/Hz$)')
+        # plt.legend()
+        #
+        # plt.title(f'Overlaid Average Power Spectra Across Trials: {animal}')
+        # plt.show()
 
-        # Plotting
-        plt.figure(figsize=(10, 6))
 
-        # Plot AON Context vs No Context
-        plt.fill_between(freqs, aon_mean_psd_context - aon_sem_psd_context, aon_mean_psd_context + aon_sem_psd_context,
-                         alpha=0.2)
-        plt.fill_between(freqs, aon_mean_psd_nocontext - aon_sem_psd_nocontext,
-                         aon_mean_psd_nocontext + aon_sem_psd_nocontext, alpha=0.2,)
-        plt.plot(freqs, aon_mean_psd_context, linewidth=2, label='AON - Context', )
-        plt.plot(freqs, aon_mean_psd_nocontext, linewidth=2, label='AON - No Context', linestyle='--')
-
-        # Plot vHp Context vs No Context
-        plt.fill_between(freqs, vhp_mean_psd_context - vhp_sem_psd_context, vhp_mean_psd_context + vhp_sem_psd_context,
-                         alpha=0.2,)
-        plt.fill_between(freqs, vhp_mean_psd_nocontext - vhp_sem_psd_nocontext,
-                         vhp_mean_psd_nocontext + vhp_sem_psd_nocontext, alpha=0.2,)
-        plt.plot(freqs, vhp_mean_psd_context, label='vHp - Context', linewidth=2)
-        plt.plot(freqs, vhp_mean_psd_nocontext, label='vHp - No Context', linewidth=2, linestyle='--')
-
-        plt.xlabel('Frequency (Hz)')
-        plt.ylabel('Power Spectral Density ($\mu V^2/Hz$)')
-        plt.legend()
-
-        plt.legend()
-        plt.title(f'Overlaid Average Power Spectra Across Trials: {animal}' + '\n' + subtitle)
-        # subtitle underneath title
-
-        plt.tight_layout()
-        plt.show()
-
-        for baseline in data['baseline']:
-            pass
-
-    #
     # indices = (np.array([0]), np.array([1]))
     # freqs = np.arange(fmin, fmax, 11)
     #

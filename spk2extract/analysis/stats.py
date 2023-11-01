@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Generator
 
 import mne
 import numpy as np
 import pandas as pd
+from scipy.signal import coherence
 
 from spk2extract.logs import logger
 from spk2extract.spk_io import spk_h5
@@ -314,3 +316,50 @@ if __name__ == "__main__":
     aes = all_event_stats.copy()
     aes = aes[aes["num_events"] > 1]
 
+
+def extract_file_info(filename):
+    parts = filename.split("_")
+    data = {
+        "Date": None,
+        "Animal": None,
+        "Type": "None",
+        "Context": "None",
+        "Day": "1",
+        "Stimset": "1",
+    }
+
+    has_date = False
+    has_animal = False
+
+    for part in parts:
+        if not has_date and re.match(r"\d{6,8}", part):
+            data["Date"] = pd.to_datetime(part, format="%Y%m%d").strftime("%Y-%m-%d")
+            has_date = True
+        elif not has_animal and re.match(r"[a-zA-Z]+\d+$", part):
+            data["Animal"] = part
+            has_animal = True
+        elif re.match(r"BW", part):
+            data["Type"] = "BW"
+        elif re.match(r"(nocontext|context)", part):
+            data["Context"] = part
+        elif re.match(r"(day\d+|d\d+)", part, re.IGNORECASE):
+            data["Day"] = re.findall(r"\d+", part)[0]
+        elif re.match(r"os\d+", part):
+            data["Stimset"] = re.findall(r"\d+", part)[0]
+
+    if not data["Date"] or not data["Animal"]:
+        data = {k: "error" for k in data.keys()}
+
+    return pd.DataFrame([data])
+
+
+def rolling_coherence(x, y, window, fs=1.0):
+    coh_vals = []
+    for i in range(0, len(x) - window, window // 2):  # 50% overlap
+        f, Cxy = coherence(
+            x[i: i + window], y[i: i + window], fs=fs, nperseg=window // 2
+        )
+        coh_vals.append(
+            np.mean(Cxy)
+        )  # Average coherence across frequencies, adjust as needed
+    return np.array(coh_vals)
