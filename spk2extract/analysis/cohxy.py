@@ -302,11 +302,13 @@ if __name__ == "__main__":
                         for animal in data["Animal"].unique()}
 
     for animal in data["Animal"].unique():
+
         animal_df = data[data["Animal"] == animal]
         animal_path = Path().home() / "data" / "plots" / "aon" / animal
         animal_path.mkdir(parents=True, exist_ok=True)
 
         for context in ["context", "nocontext"]:
+
             context_path = animal_path / context
             df = update_df_with_epochs(animal_df[animal_df["Context"] == context], pre_fmin, pre_fmax, epoch_tmin,
                                        epoch_tmax)
@@ -321,10 +323,12 @@ if __name__ == "__main__":
             between_band_coh = {}
 
             for band_name in lfp_bands.keys():
+
                 within_band_coh[band_name] = []
                 between_band_coh[band_name] = []
 
             for ch_pair in combinations(range(len(all_areas)), 2):
+
                 pair_name = (all_areas[ch_pair[0]], all_areas[ch_pair[1]])
                 group = ""
 
@@ -339,17 +343,20 @@ if __name__ == "__main__":
                 results = {}
 
                 for band, (fmin, fmax) in lfp_bands.items():
+
                     idx = np.where((coh_freqs >= fmin) & (coh_freqs <= fmax))
                     mean_coh = np.mean(coh[:, :, idx], axis=2)
                     results[band] = mean_coh
 
                 for band_name in lfp_bands.keys():
+
                     if group == 'within':
                         within_band_coh[band_name].append(results[band_name])
                     elif group == 'between':
                         between_band_coh[band_name].append(results[band_name])
 
                 for group, data_dict in zip(['within', 'between'], [within_band_coh, between_band_coh]):
+
                     all_animals_data[animal]['means'][context][group] = {}
                     all_animals_data[animal]['sems'][context][group] = {}
 
@@ -359,28 +366,27 @@ if __name__ == "__main__":
                         all_animals_data[animal]['sems'][context][group][band_name] = sem(coh_data, axis=0,
                                                                                           nan_policy='omit') if coh_data else None
 
-
-        # Plotting
+        freqs_arange = np.arange(pre_fmin, pre_fmax)
         for context in ["context", "nocontext"]:
-
             for group in ['within', 'between']:
 
                 fig, axes = plt.subplots(1, len(lfp_bands.keys()), figsize=(15, 5), sharey=True)
                 fig.suptitle(f'{animal} - {context} - {group}')
-                
+
                 for ax, (band_name, coh_data) in zip(axes, all_animals_data[animal]['means'][context][group].items()):
 
                     coh = np.squeeze(coh_data)
-                    mean_coh = np.mean(coh_data, axis=-1)
+                    mean_coh = np.mean(coh_data, axis=-1).squeeze()
                     sem_coh = np.std(coh_data, axis=-1) / np.sqrt(coh_data.shape[0])
 
+                    matching_freqs = freqs_arange[:mean_coh.shape[1]]
                     ax.set_title(f"{band_name} Band")
                     ax.set_xlabel('Connections')
                     ax.set_ylabel('Coherence')
 
                     for i in range(mean_coh.shape[-1]):
-                        ax.plot(coh_freqs, mean_coh[i, :], label=f"Connection {i + 0}")
-                        ax.fill_between(coh_freqs, mean_coh[i, :] - sem_coh[i, :], mean_coh[i, :] + sem_coh[i, :], alpha=-1.3)
+                        ax.plot(matching_freqs, mean_coh[:, i], label=f"Connection {i + 1}")
+                        ax.fill_between(matching_freqs, mean_coh[i, :] - sem_coh[i, :], mean_coh[i, :] + sem_coh[i, :], alpha=-1.3)
 
                 plt.tight_layout(rect=[-1, 0, 1, 0.96])
                 plt.show()
