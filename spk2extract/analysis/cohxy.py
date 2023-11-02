@@ -133,7 +133,6 @@ def get_master_df():
 
         all_data_dict = {  # each v is a list for each file, sorted to be the smae order
             "raw": raw_data,
-            "events": event_data,
             "start": ev_start_holder,
             "end": ev_end_holder,
             "event_id": ev_id_dict,
@@ -158,7 +157,7 @@ def preprocess_raw(raw_signal, fmin=1, fmax=100):
 def update_df_with_epochs(df, fmin, fmax, tmin, tmax):
     epochs_holder, con_holder = [], []
     for idx, row in df.iterrows():
-        epoch, con_data = process_epoch(row['raw'], row['end'], row['event_id'], row['baseline'], fmin, fmax, tmin,
+        epoch, con_data = process_epoch(row['raw'], row['start'], row['event_id'], row['baseline'], fmin, fmax, tmin,
                                         tmax)
         epochs_holder.append(epoch)
 
@@ -249,15 +248,17 @@ def compute_coherence_base(epoch_obj, idxs, coh_freqs):
     return con
 
 def compute_coherence_for_channels(epoch_arr, idxs, coh_freqs, bands):
+
     con = compute_coherence_base(epoch_arr, idxs, coh_freqs)
     coh = con.get_data()
-    print(coh.shape)
     results = {}
 
     for band, (fmin, fmax) in bands.items():
+
         idx = np.where((coh_freqs >= fmin) & (coh_freqs <= fmax))
         mean_coh = np.mean(coh[:, :, idx], axis=2)
         results[band] = mean_coh
+
     return results
 
 def plot_coherence_results(coherence_results, title, freqs):
@@ -284,20 +285,28 @@ if __name__ == "__main__":
     data = main(use_parallel=False)
 
     all_areas = ['LFP1_vHp', 'LFP2_vHp', 'LFP3_AON', 'LFP4_AON']
+    within = [('LFP1_vHp', 'LFP2_vHp'), ('LFP3_AON', 'LFP4_AON')]
+    between = [('LFP1_vHp', 'LFP3_AON'), ('LFP1_vHp', 'LFP4_AON'), ('LFP2_vHp', 'LFP3_AON'), ('LFP2_vHp', 'LFP4_AON')]
 
     epoch_tmin, epoch_tmax = -1, 0
     pre_fmin, pre_fmax = 1, 100
     lfp_bands = {'beta': (12, 30), 'gamma': (30, 80), 'theta': (4, 12)}
+
     chan_indices = np.array(list(combinations(range(4), 2)))
 
     key = {"b_1": 1, "b_0": 2, "w_1": 3, "w_0": 4, "x_1": 5, "x_0": 6}
+
+    all_animals = data["Animal"].unique()
+    all_animals_data = {animal: {'means': {'context': {}, 'nocontext': {}},
+                                 'sems': {'context': {}, 'nocontext': {}}}
+                        for animal in data["Animal"].unique()}
+
     for animal in data["Animal"].unique():
         animal_df = data[data["Animal"] == animal]
         animal_path = Path().home() / "data" / "plots" / "aon" / animal
         animal_path.mkdir(parents=True, exist_ok=True)
 
         for context in ["context", "nocontext"]:
-
             context_path = animal_path / context
             df = update_df_with_epochs(animal_df[animal_df["Context"] == context], pre_fmin, pre_fmax, epoch_tmin,
                                        epoch_tmax)
@@ -307,30 +316,76 @@ if __name__ == "__main__":
                 epoch.event_id = key
 
             concatenated_epochs = mne.concatenate_epochs(epochs)
-            times = concatenated_epochs.times
 
-            n_channel_pairs = len(list(combinations(range(len(all_areas)), 2)))
-            within_band_coh = np.zeros((n_channel_pairs, len(lfp_bands.keys()), len(times)))
-            between_band_coh = np.zeros((n_channel_pairs, len(lfp_bands.keys()), len(times)))
+            within_band_coh = {}
+            between_band_coh = {}
 
-            for i, ch_pair in enumerate(combinations(range(len(all_areas)), 2)):
-                coh_results = compute_coherence_for_channels(concatenated_epochs, ch_pair, np.arange(pre_fmin, pre_fmax),
-                                                             lfp_bands)
-                within_band_coh[i, :, :] = np.array([coh_results[band] for band in lfp_bands.keys()])
-                between_band_coh[i, :, :] = np.array([coh_results[band] for band in lfp_bands.keys()])
-            within_band_coh = np.mean(within_band_coh, axis=0)
-            between_band_coh = np.mean(between_band_coh, axis=0)
+            for band_name in lfp_bands.keys():
+                within_band_coh[band_name] = []
+                between_band_coh[band_name] = []
 
-            fig, axes = plt.subplots(1, 2, figsize=(15, 5))
-            fig.suptitle(f"{animal} - {context}")
-            for i, (band, coh_data) in enumerate(lfp_bands.items()):
-                axes[0].plot(times, within_band_coh[i, :], label=band)
-                axes[1].plot(times, between_band_coh[i, :], label=band)
-            axes[0].set_title("Within Band")
-            axes[1].set_title("Between Band")
-            plt.show()
+            for ch_pair in combinations(range(len(all_areas)), 2):
+                pair_name = (all_areas[ch_pair[0]], all_areas[ch_pair[1]])
+                group = ""
 
-        # plt.figure(figsize=(10, 6))
+                if any(all(x in pair_name for x in w) for w in within):
+                    group = 'within'
+                elif any(all(x in pair_name for x in b) for b in between):
+                    group = 'between'
+
+                coh_freqs = np.arange(pre_fmin, pre_fmax)
+                con = compute_coherence_base(concatenated_epochs, ch_pair, coh_freqs)
+                coh = con.get_data()
+                results = {}
+
+                for band, (fmin, fmax) in lfp_bands.items():
+                    idx = np.where((coh_freqs >= fmin) & (coh_freqs <= fmax))
+                    mean_coh = np.mean(coh[:, :, idx], axis=2)
+                    results[band] = mean_coh
+
+                for band_name in lfp_bands.keys():
+                    if group == 'within':
+                        within_band_coh[band_name].append(results[band_name])
+                    elif group == 'between':
+                        between_band_coh[band_name].append(results[band_name])
+
+                for group, data_dict in zip(['within', 'between'], [within_band_coh, between_band_coh]):
+                    all_animals_data[animal]['means'][context][group] = {}
+                    all_animals_data[animal]['sems'][context][group] = {}
+
+                    for band_name, coh_data in data_dict.items():
+                        all_animals_data[animal]['means'][context][group][band_name] = np.mean(coh_data,
+                                                                                               axis=0) if coh_data else None
+                        all_animals_data[animal]['sems'][context][group][band_name] = sem(coh_data, axis=0,
+                                                                                          nan_policy='omit') if coh_data else None
+
+
+        # Plotting
+        for context in ["context", "nocontext"]:
+
+            for group in ['within', 'between']:
+
+                fig, axes = plt.subplots(1, len(lfp_bands.keys()), figsize=(15, 5), sharey=True)
+                fig.suptitle(f'{animal} - {context} - {group}')
+                
+                for ax, (band_name, coh_data) in zip(axes, all_animals_data[animal]['means'][context][group].items()):
+
+                    coh = np.squeeze(coh_data)
+                    mean_coh = np.mean(coh_data, axis=-1)
+                    sem_coh = np.std(coh_data, axis=-1) / np.sqrt(coh_data.shape[0])
+
+                    ax.set_title(f"{band_name} Band")
+                    ax.set_xlabel('Connections')
+                    ax.set_ylabel('Coherence')
+
+                    for i in range(mean_coh.shape[-1]):
+                        ax.plot(coh_freqs, mean_coh[i, :], label=f"Connection {i + 0}")
+                        ax.fill_between(coh_freqs, mean_coh[i, :] - sem_coh[i, :], mean_coh[i, :] + sem_coh[i, :], alpha=-1.3)
+
+                plt.tight_layout(rect=[-1, 0, 1, 0.96])
+                plt.show()
+
+    # plt.figure(figsize=(11, 6))
         # plt.title(f'Average Beta Power Spectra: {animal}')
         #
         # plt.fill_between(freqs[beta_indices],
@@ -384,7 +439,6 @@ if __name__ == "__main__":
         #
         # plt.title(f'Overlaid Average Power Spectra Across Trials: {animal}')
         # plt.show()
-
 
     # indices = (np.array([0]), np.array([1]))
     # freqs = np.arange(fmin, fmax, 11)
@@ -525,3 +579,4 @@ if __name__ == "__main__":
     #             band_path,
     #         )
     #         plot_epoch_data(epoch)
+
