@@ -128,7 +128,7 @@ class BinaryFile:
         nsamps = min(n_frames, 1000)
         inds = np.linspace(0, n_frames, 1 + nsamps).astype(np.int64)[:-1]
         frames = self.file[inds].astype(np.float32)
-        return frames.mean(axis=0)
+        return frames.mean_data(axis=0)
 
     @property
     def data(self) -> np.ndarray:
@@ -219,7 +219,7 @@ def binned_mean(mov: np.ndarray, bin_size) -> np.ndarray:
     """Returns an array with the mean of each time bin (of size "bin_size")."""
     n_frames, Ly, Lx = mov.shape
     mov = mov[:(n_frames // bin_size) * bin_size]
-    return mov.reshape(-1, bin_size, Ly, Lx).astype(np.float32).mean(axis=1)
+    return mov.reshape(-1, bin_size, Ly, Lx).astype(np.float32).mean_data(axis=1)
 
 
 @contextmanager
