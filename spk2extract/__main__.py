@@ -1,6 +1,6 @@
 import argparse
 import numpy as np
-from . import defaults, version
+from spk2extract import defaults, version
 
 
 def add_args(parser: argparse.ArgumentParser):

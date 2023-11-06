@@ -203,7 +203,8 @@ def get_first_event_time(events, times):
 
 
 if __name__ == "__main__":
-    data_path = Path().home() / "data" / "extracted"
+
+    data_path =  Path("/Volumes/CaTransfer/extracted")
     cache_path = Path().home() / "data" / ".cache"
     filelist = list(data_path.glob("*.h5"))
     errorfiles = []

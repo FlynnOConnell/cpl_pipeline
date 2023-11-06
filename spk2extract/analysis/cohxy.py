@@ -3,7 +3,6 @@ from __future__ import annotations
 from itertools import combinations
 
 import mne_connectivity
-from fooof import FOOOF
 
 from pathlib import Path
 
@@ -80,16 +79,16 @@ def get_baseline(resp_signal, resp_times, wave_signal, first):
     segment_data = wave_signal[:,
                    slowest_breathing_index_spikes_arr:slowest_breathing_index_spikes_arr + baseline_size * 2000]
 
-    return segment_data
+    return np.array(segment_data)
 
 
 def get_master_df():
-    cache_path = Path().home() / "data" / ".cache"
-    animals = list(cache_path.iterdir())
+    data_path = Path().home() / "data" / ".cache"
+    animals = list(data_path.iterdir())
 
     master = pd.DataFrame()
-    for animal_path in animals:  # each animal has a folder
-        cache_animal_path = cache_path / animal_path.name
+    for animal_path in animals:
+        cache_animal_path = data_path / animal_path.name
         cache_animal_path.mkdir(parents=True, exist_ok=True)
 
         raw_files = sorted(list(animal_path.glob("*_raw*.fif")), key=extract_common_key)
@@ -160,10 +159,10 @@ def preprocess_raw(raw_signal, fmin=1, fmax=100):
     return raw
 
 
-def update_df_with_epochs(df, fmin, fmax, tmin, tmax):
+def update_df_with_epochs(df, fmin, fmax, tmin, tmax, evt_row="end",):
     epochs_holder, con_holder = [], []
     for idx, row in df.iterrows():
-        epoch, con_data = process_epoch(row['raw'], row['start'], row['event_id'], row['baseline'], fmin, fmax, tmin,
+        epoch, con_data = process_epoch(row['raw'], row[evt_row], row['event_id'], row['baseline'], fmin, fmax, tmin,
                                         tmax)
         epochs_holder.append(epoch)
 
@@ -184,9 +183,9 @@ def process_epoch(raw_arr, events, event_id, baseline, fmin, fmax, tmin, tmax):
 
     valid_events, valid_event_id = _validate_events(events, event_id)
 
+    raw = raw.filter(fmin, fmax, l_trans_bandwidth=1, h_trans_bandwidth=1)
     epochs = mne.Epochs(raw, valid_events, valid_event_id, tmin, tmax, baseline=None, event_repeated="drop",
                         preload=True)
-    raw = raw.filter(fmin, fmax, l_trans_bandwidth=1, h_trans_bandwidth=1)
 
     if epochs is None:
         raise ValueError("Epoch is None")
@@ -258,9 +257,11 @@ def compute_coherence_base(epoch_obj, idxs, freqs):
     )
     return epoch_connectivity
 
+
 def set_event_id(epoch):
     epoch.event_id = all_event_keys
     return epoch
+
 
 def determine_group(chan_pair_names):
     """
@@ -286,65 +287,113 @@ def determine_group(chan_pair_names):
 
 
 if __name__ == "__main__":
-    
+
     data = main(use_parallel=False)
     epoch_tmin, epoch_tmax = -1, 0
     pre_fmin, pre_fmax = 1, 100
 
     brain_regions_within = [('LFP1_vHp', 'LFP2_vHp'), ('LFP3_AON', 'LFP4_AON')]
-    brain_regions_between = [('LFP1_vHp', 'LFP3_AON'), ('LFP1_vHp', 'LFP4_AON'), ('LFP2_vHp', 'LFP3_AON'), ('LFP2_vHp', 'LFP4_AON')]
+    brain_regions_between = [('LFP1_vHp', 'LFP3_AON'), ('LFP1_vHp', 'LFP4_AON'), ('LFP2_vHp', 'LFP3_AON'),
+                             ('LFP2_vHp', 'LFP4_AON')]
     brain_regions_all = ['LFP1_vHp', 'LFP2_vHp', 'LFP3_AON', 'LFP4_AON']
+
     all_animals = data["Animal"].unique()
     all_event_keys = {"b_1": 1, "b_0": 2, "w_1": 3, "w_0": 4, "x_1": 5, "x_0": 6}
     lfp_bands = {'beta': (12, 30), 'gamma': (30, 80), 'theta': (4, 12)}
     chan_indices = np.array(list(combinations(range(4), 2)))
 
     all_animals_data = {}
-    for animal in all_animals:
-        all_animals_data[animal] = {}
 
+    for animal in all_animals:
+
+        all_animals_data[animal] = {}
         animal_df = data[data["Animal"] == animal]
+
         for context in ["context", "nocontext"]:
+            ev_startend = "end"
+
             all_animals_data[animal][context] = {}
-            df = update_df_with_epochs(animal_df[animal_df["Context"] == context], pre_fmin, pre_fmax, epoch_tmin, epoch_tmax)
+            df_start = update_df_with_epochs(animal_df[animal_df["Context"] == context], pre_fmin, pre_fmax, epoch_tmin,
+                                             epoch_tmax, "start")
+            df = update_df_with_epochs(animal_df[animal_df["Context"] == context], pre_fmin, pre_fmax, epoch_tmin,
+                                       epoch_tmax, "end")
+
+            baseline = df['baseline'].tolist()
+
             epochs = list(map(lambda e: set_event_id(e), df['epoch'].tolist()))
+            epochs_start = list(map(lambda e: set_event_id(e), df_start['epoch'].tolist()))
+
             concatenated_epochs = mne.concatenate_epochs(epochs)
+            concatenated_epochs_start = mne.concatenate_epochs(epochs_start)
 
             for ch_pair in combinations(range(len(brain_regions_all)), 2):
+
                 pair_name = (brain_regions_all[ch_pair[0]], brain_regions_all[ch_pair[1]])
+
                 group = determine_group(pair_name)
                 all_animals_data[animal][context][group] = {}
 
                 con = compute_coherence_base(concatenated_epochs, ch_pair, np.arange(pre_fmin, pre_fmax))
+                con_start = compute_coherence_base(concatenated_epochs_start, ch_pair, np.arange(pre_fmin, pre_fmax))
+
                 connectivity_freqs = np.array(con.freqs)
                 time = np.array(con.times)
 
                 coh = np.squeeze(con.get_data())
+                coh_start = np.squeeze(con_start.get_data())
+
                 mean_coh = None
+                mean_coh_start = None
                 sem_coh = None
+                sem_coh_start = None
                 freqs_coh = None
 
                 for domain in ['time_domain', 'freq_domain']:
+
                     all_animals_data[animal][context][group][domain] = {}
                     for band, (fmin, fmax) in lfp_bands.items():
 
                         idx = np.where((connectivity_freqs >= fmin) & (connectivity_freqs <= fmax))[0]
+
                         if domain == 'time_domain':
                             mean_coh = np.mean(coh[idx, :], axis=0)
                             sem_coh = np.std(coh[idx, :], axis=0) / np.sqrt(coh[idx, :].shape[0])
+
+                            mean_coh_start = np.mean(coh_start[idx, :], axis=0)
+                            sem_coh_start = np.std(coh_start[idx, :], axis=0) / np.sqrt(coh_start[idx, :].shape[0])
+
                         elif domain == 'freq_domain':
                             mean_coh = np.mean(coh[idx, :], axis=1)
                             sem_coh = np.std(coh[idx, :], axis=1) / np.sqrt(coh[idx, :].shape[1])
 
+                            mean_coh_start = np.mean(coh_start[idx, :], axis=1)
+                            sem_coh_start = np.std(coh_start[idx, :], axis=1) / np.sqrt(coh_start[idx, :].shape[1])
+
                         freqs_coh = connectivity_freqs[idx]
-                        all_animals_data[animal][context][group][domain][band] = {'mean': mean_coh, 'sem': sem_coh, 'freqs': freqs_coh}
+                        all_animals_data[animal][context][group][domain][band] = {
+                            'mean': mean_coh,
+                            'mean_start': mean_coh_start,
+                            'sem': sem_coh,
+                            'sem_start': sem_coh_start,
+                            'freqs': freqs_coh,
+                            'baseline': df['baseline'].tolist()
+                        }
+
+                    all_animals_data[animal][context][group]['all'] = {
+                        'mean': coh,
+                        'mean_start': coh_start,
+                        'sem': sem_coh,
+                        'sem_start': sem_coh_start,
+                        'freqs': connectivity_freqs
+                    }
 
         # Plotting
         band_color_map = {'beta': 'r', 'gamma': 'b', 'theta': 'g'}
-        plots_path = Path().home() / 'data' / 'plots' / 'coh'
+        plots_path = Path().home() / 'data' / 'plots' / 'coh2'
         plots_path.mkdir(parents=True, exist_ok=True)
 
         for context in ["context", "nocontext"]:
+
             plots_path_context = plots_path / context
             plots_path_context.mkdir(parents=True, exist_ok=True)
 
@@ -352,32 +401,66 @@ if __name__ == "__main__":
                 plots_path_group = plots_path_context / group
                 plots_path_group.mkdir(parents=True, exist_ok=True)
 
-                fig, (ax_time, ax_freq) = plt.subplots(1, 2, figsize=(15, 6), sharey=True)
-                ax_time.axhline(y=0.5, color='black', linestyle='--', alpha=0.5)
-                ax_freq.axhline(y=0.5, color='black', linestyle='--', alpha=0.5)
-                ax_time.set_yticks(np.arange(0, 1.1, 0.1))
-                ax_freq.set_yticks(np.arange(0, 1.1, 0.1))
-                sns.set_style("darkgrid")
+                fig, (ax_time, ax_freq, ax_all) = plt.subplots(1, 3, figsize=(15, 6), sharey=True)
+                fig.suptitle(f'{animal} - All {context} trials - {group} brain regions - 1s pre dig', fontsize=16,
+                             fontweight='bold')
 
                 for domain, ax in [('time_domain', ax_time), ('freq_domain', ax_freq)]:
+
+                    ax.axhline(y=0.5, color='black', linestyle='--', alpha=0.5)
+                    ax.grid(False)
+
+                    if domain == 'time_domain':
+                        ax.set_xlabel('Time (s)', fontsize=14, fontweight='bold')
+                        ax.set_ylabel('Coherence', fontsize=14, fontweight='bold')
+                        ax.set_ylim(0, 1)
+
+                    elif domain == 'freq_domain':
+                        ax.set_xlabel('Frequency (Hz)', fontsize=14, fontweight='bold')
+                        ax.set_ylabel('Coherence', fontsize=14, fontweight='bold')
+                        ax.set_ylim(0, 1)
+
                     for band_name, coh_data in all_animals_data[animal][context][group][domain].items():
                         y_mean = coh_data['mean']
                         y_sem = coh_data['sem']
-                        x = con.times if domain == 'time_domain' else coh_data['freqs']
+
+                        if domain == 'time_domain':
+                            x = con.times
+                        else:
+                            x = coh_data['freqs']
+
                         color = band_color_map[band_name]
 
+                        # Plot the mean and SEM shading
                         ax.fill_between(x, y_mean - y_sem, y_mean + y_sem, alpha=0.2, color=color)
-                        ax.plot(x, y_mean, linewidth=2, label=f'{band_name}', color=color,)
+                        ax.plot(x, y_mean, linewidth=2, label=f'{band_name}', color=color, )
 
-                    ax.set_xlabel('Time (s)' if domain == 'time_domain' else 'Frequency (Hz)')
-                    title = f'Average Coherence Over {domain.replace("_", " ")}: \n {context} - {group}'
-                    ax.set_title(title, fontsize=14, fontweight='bold')
-                    ax.set_ylim([0, 1])
+                y_mean_all = all_animals_data[animal][context][group]['all']['mean']
+                x_all = con.times
 
-                ax_time.set_ylabel('Coherence')
-                ax_time.legend()
-                ax_freq.legend()
-                plt.savefig(plots_path_group / f'{animal}_{context}_{group}.png', dpi=300, bbox_inches='tight', pad_inches=0.1, )
+                spectro = ax_all.imshow(y_mean_all, cmap='jet', aspect='auto',
+                                        extent=[x_all[0], x_all[-1], 0, 1])
+
+                ax_all.set_xlabel('Time (s)', fontsize=14, fontweight='bold')
+                ax_all.set_ylabel('Frequency (Hz)', fontsize=14, fontweight='bold')
+
+                ax_all.set_title(f"Spatio-Temporal Connectivity", fontsize=14, fontweight='bold')
+                ax_all.grid(False)
+
+                plt.colorbar(spectro, ax=ax_all, label='Coherence')
+
+                ax_time.set_ylabel('Coherence', fontsize=14, fontweight='bold')
+                ax_time.set_ylim(0, 1)
+
+                # Add legends to the plots
+                ax_time.legend(loc='best')
+                ax_freq.legend(loc='best')
+
+                # Display the plot
+                # plt.show()
+                plt.savefig(plots_path_group / f'{animal}_{context}_{group}_digwindow.png', dpi=300,
+                            bbox_inches='tight',
+                            pad_inches=0.1, )
 
     # plt.figure(figsize=(11, 6))
     # plt.title(f'Average Beta Power Spectra: {animal}')

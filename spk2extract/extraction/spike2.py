@@ -15,7 +15,8 @@ except ImportError:
     try:
         import sonpy as sp
     except:
-        raise ImportError("sonpy not found. Are you on a M1 Mac?")
+        pass
+        # raise Warning("sonpy not found. Are you on a M1 Mac?")
 
 from spk2extract.logs import logger
 from spk2extract.defaults import defaults
