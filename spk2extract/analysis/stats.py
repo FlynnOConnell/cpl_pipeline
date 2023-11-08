@@ -316,16 +316,53 @@ if __name__ == "__main__":
     aes = all_event_stats.copy()
     aes = aes[aes["num_events"] > 1]
 
+def extract_file_info_on(filename):
+    parts = filename.split("_")
+    data = {
+        "Paradigm": None,
+        "Animal": None,
+        "Drug": None,
+        "Date": None,
+        "Infusion": None,
+    }
+
+    # Update the loop to handle the new naming convention
+    for part in parts:
+        if re.match(r"\d{6}", part):
+            data["Date"] = pd.to_datetime(part, format="%m%d%y").strftime("%m-%d-%Y")
+        elif re.match(r"R\d+", part):
+            data["Animal"] = part
+        elif re.match(r"day\d+", part, re.IGNORECASE):
+            data["Day"] = re.findall(r"\d+", part)[0]
+        elif re.match(r"(preinfusion|pre-infusion|pre)", part, re.IGNORECASE):
+            data["Infusion"] = "pre"
+        elif re.match(r"(postinfusion|post-infusion|post)", part, re.IGNORECASE):
+            data["Infusion"] = "post"
+        else:
+            # This part is neither date nor animal nor infusion status,
+            # so it could be paradigm or drug. Depending on your exact
+            # naming convention, you might want to add more logic here.
+            if data["Paradigm"] is None:
+                data["Paradigm"] = part
+            elif data["Drug"] is None:
+                data["Drug"] = part
+
+    # Check if we have all required parts
+    required_keys = ["Date", "Animal", "Paradigm", "Drug", "Infusion"]
+    for key in required_keys:
+        if data[key] is None:
+            data = {k: "error" for k in data.keys()}
+            break
+
+    return pd.DataFrame([data])
 
 def extract_file_info(filename):
     parts = filename.split("_")
     data = {
         "Date": None,
         "Animal": None,
-        "Type": "None",
-        "Context": "None",
-        "Day": "1",
-        "Stimset": "1",
+        "Day": None,
+        "Context": None,
     }
 
     has_date = False
@@ -338,14 +375,13 @@ def extract_file_info(filename):
         elif not has_animal and re.match(r"[a-zA-Z]+\d+$", part):
             data["Animal"] = part
             has_animal = True
-        elif re.match(r"BW", part):
-            data["Type"] = "BW"
-        elif re.match(r"(nocontext|context)", part):
+
+        # nocontext or context
+        elif re.match(r"(nocontext|context)", part, re.IGNORECASE):
             data["Context"] = part
+        # day\d+ or d\d+
         elif re.match(r"(day\d+|d\d+)", part, re.IGNORECASE):
             data["Day"] = re.findall(r"\d+", part)[0]
-        elif re.match(r"os\d+", part):
-            data["Stimset"] = re.findall(r"\d+", part)[0]
 
     if not data["Date"] or not data["Animal"]:
         data = {k: "error" for k in data.keys()}
