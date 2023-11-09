@@ -222,7 +222,7 @@ def get_first_event_time(events, times):
 if __name__ == "__main__":
 
     # data_path =  Path("/Volumes/CaTransfer/extracted")  # external hard drive, nfst
-    data_path = Path().home() / "data" / "serotonin"
+    data_path = Path().home() / "data" / 'extracted' / "serotonin"
     cache_path = Path().home() / "data" / ".cache" / 'serotonin'
     errorfiles = []
     all_event_stats = pd.DataFrame()
@@ -280,7 +280,11 @@ if __name__ == "__main__":
                             elif 'lfp' in chan.lower():
                                 lfp_signals_list.append((chan, item["data"], item["times"], item["metadata"]))
                             elif 'u' in chan.lower():
-                                unit_signals_list.append((chan, item["data"], item["times"], item["metadata"]))
+                                try:
+                                    unit_signals_list.append((chan, item["data"], item["times"], item["metadata"]))
+                                except:
+                                    logger.debug(f"Could not process {chan}")
+                                    continue
                             else:
                                 other_signals_list.append((chan, item["data"], item["times"], item["metadata"]))
 
@@ -360,9 +364,11 @@ if __name__ == "__main__":
             events_mne, ev_id_dict = process_event_windows_og(
                 events_list[0][1], events_list[0][2]
             )
+
             events_mne_np = np.array(events_mne)
             keys_np = np.array(list(ev_id_dict.keys()), dtype=object)
             vals_np = np.array(list(ev_id_dict.values()), dtype=int)
+
             np.savez(
                 ev_dict_savename.with_suffix(".npz"), keys=keys_np, values=vals_np
             )

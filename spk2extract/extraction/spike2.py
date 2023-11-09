@@ -446,8 +446,9 @@ if __name__ == "__main__":
     logger.setLevel(log_level)
     print(f"Log level set to {log_level}")
 
-    path_test = Path().home() / "data" / "context"
-    save_test = Path().home() / "data" / "extracted"
+    path_test = Path().home() / "data" / "serotonin"
+    save_test = Path().home() / "data" / "extracted" / "serotonin"
+
     # iterate over each folder in path_test
     errors = []
     for animal_path in path_test.iterdir():
@@ -466,13 +467,3 @@ if __name__ == "__main__":
                 continue
             # process the channels
             data.save(save_test / str(data), overwrite_existing=True)
-
-    save_test.mkdir(exist_ok=True, parents=True)
-    test_files = [file for file in path_test.glob("*.smr")]
-    for testfile in test_files:
-        testdata = Spike2Data(
-            testfile,
-        )
-        testdata.process_channels()
-        testdata.save(save_test / str(testdata), overwrite_existing=False)
-    x = 5
