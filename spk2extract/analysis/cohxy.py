@@ -24,6 +24,7 @@ from spk2extract.utils import extract_common_key
 from spk2extract.viz import helpers
 from spk2extract.viz import plots
 
+import matplotlib
 sns.set_style("darkgrid")
 
 logger.setLevel("INFO")
@@ -147,10 +148,10 @@ def get_master_df():
 def preprocess_raw(raw_signal, fmin=1, fmax=100):
     raw: mne.io.RawArray = raw_signal.copy()
     raw.load_data()
-    raw.filter(fmin, fmax, fir_design="firwin")
     raw.resample(1000)
     raw.notch_filter(np.arange(60, 161, 60), fir_design="firwin")
-    raw.drop_channels(["Ref"])
+    if "Ref" in raw.ch_names:
+        raw.drop_channels(["Ref"])
     return raw
 
 
@@ -350,6 +351,7 @@ if __name__ == "__main__":
 
         all_animals_data[animal] = {}
         animal_df = data[data["Animal"].isin(animal_list)]
+
         for condition in c1:
 
             all_animals_data[animal][condition] = {}
@@ -390,6 +392,13 @@ if __name__ == "__main__":
                 mean_coherence_change_1d = np.mean(mean_coherence_change, axis=1)
                 sem_coherence_change_1d = np.mean(sem_coherence_change, axis=1)
 
+    this_raw = data['raw']
+    this_processed = preprocess_raw(this_raw, pre_fmin, pre_fmax)
+    this_processed.filter(15, 30, fir_design='firwin')
+    this_processed.resample(1000)
+    this_processed.notch_filter(np.arange(60, 161, 60), fir_design="firwin")
+    this_processed.load_data()
+
     # average all animals in all_animals_data[animal][condition][group]['mean'] and ['sem']
     context_mean = np.mean([all_animals_data[animal]['context']['between']['mean'] for animal in all_animals_data], axis=0)
     context_sem = np.mean([all_animals_data[animal]['context']['between']['sem'] for animal in all_animals_data], axis=0)
@@ -417,7 +426,6 @@ if __name__ == "__main__":
     plt.show()
     from spk2extract.viz import plots
 
-    # --
     mydata = data[data["Animal"].isin(animal_list)].iloc[1]
     raw_o = mydata['raw'].copy()
     raw_o.pick_channels(['LFP1_vHp', 'LFP3_AON'])
@@ -434,9 +442,6 @@ if __name__ == "__main__":
     baseline_window = raw_o.crop(tmin=0, tmax=10)
     baseline_data = baseline_window.get_data()
 
-    # for i in range(20):
-    #     plots.plot_custom_data(baseline_data, baseline_window.times, baseline_window.ch_names, i, i+2, fs=fs)
-    #
     # get a trace 0.5s before and after the first event, just 1 row (channel)
     trace = raw[:, int(first_event_times[0] - 0.5 * fs):int(first_event_times[0] + 0.5 * fs)]
     trace = trace[0, :]
@@ -451,13 +456,15 @@ if __name__ == "__main__":
     raw.load_data()
 
     # Define the beta frequency range
-    beta_freq = (12, 30)
+    beta_freq = (15, 30)
 
     # Filter the data for the beta frequency range
-    raw_beta = raw.copy().filter(beta_freq[0], beta_freq[1], fir_design='firwin')
+    raw_temp = mydata['raw'].copy()
+    raw_temp.load_data()
+    raw_beta = raw_temp.copy().filter(beta_freq[0], beta_freq[1], fir_design='firwin')
 
     # Get the data array from the raw and filtered objects
-    data = raw.get_data()
+    data = raw_temp.get_data()
     data_beta = raw_beta.get_data()
 
     # Define the time range for the example trace (in seconds)
@@ -470,20 +477,23 @@ if __name__ == "__main__":
 
     # Find index range for the full trace and the smaller segment
     full_range = np.where((times >= start_time) & (times <= end_time))[0]
+
+    afull_range = np.where((times >= 0) & (times <= 60))[0]
     small_range = np.where((times >= small_start) & (times <= small_end))[0]
 
+    plt.close('all')
     # Plotting
     fig, ax = plt.subplots(2, 1, figsize=(12, 6))
 
     # Plot the full trace
-    ax[0].plot(times[full_range], data[0, full_range], label='Raw LFP', color='black')
-    ax[0].plot(times[full_range], data_beta[0, full_range], label='Beta Filtered', color='red')
-    ax[0].set_xlabel('Time (s)')
+    ax[0].plot(times[full_range], data[0, full_range], label='Raw LFP', color='black', linewidth=2,)
+    ax[0].plot(times[full_range], data_beta[0, full_range], label='Beta Filtered', color='red', linewidth=2,)
+    ax[0].set_xlabel('Time (s)' )
     ax[0].set_ylabel('Voltage (V)')
 
     # Plot the smaller segment with the beta filtered data superimposed
-    ax[1].plot(times[small_range], data[0, small_range], label='Raw LFP', color='black')
-    ax[1].plot(times[small_range], data_beta[0, small_range], label='Beta Filtered', color='red')
+    ax[1].plot(times[small_range], data[0, small_range], label='Raw LFP', color='black', linewidth=2)
+    ax[1].plot(times[small_range], data_beta[0, small_range], label='Beta Filtered', color='red', linewidth=2)
     ax[1].set_xlabel('Time (s)')
     ax[1].set_ylabel('Voltage (V)')
 
@@ -491,42 +501,72 @@ if __name__ == "__main__":
     ax[0].legend()
 
     plt.tight_layout()
+    path = Path().home() / "data" / "plots"
+    plt.savefig(f'{path}_beta_filtering_3.png', dpi=600 ,transparent=True,)
     plt.show()
     plt.close('all')
 
-    # Compute the PSD for the raw and beta-filtered data
-    start_time, end_time = 0, 40
-
-    # Extract the relevant segment of data
+    # extract the relevant segment of data
     start_sample = int(start_time * raw.info['sfreq'])
     end_sample = int(end_time * raw.info['sfreq'])
     data_segment = raw.get_data(start=start_sample, stop=end_sample)
     data_beta_segment = raw_beta.get_data(start=start_sample, stop=end_sample)
 
-    # Compute the PSD for the raw and beta-filtered data
+    # compute the psd for the raw and beta-filtered data
     psd_raw, freqs = mne.time_frequency.psd_array_welch(data_segment, sfreq=raw.info['sfreq'], fmin=1, fmax=100,
                                                         n_fft=int(raw.info['sfreq']))
     psd_beta, _ = mne.time_frequency.psd_array_welch(data_beta_segment, sfreq=raw_beta.info['sfreq'], fmin=1, fmax=100,
                                                      n_fft=int(raw_beta.info['sfreq']))
 
-    # Plotting
+    # Assuming psd_raw, psd_beta, and freqs are already computed and available
+    mean_psd_raw = np.mean(psd_raw, axis=0)
+    mean_psd_beta = np.mean(psd_beta, axis=0)
+
     fig, ax = plt.subplots(figsize=(12, 6))
 
-    # Plot the PSD for raw data
-    ax.semilogy(freqs, np.mean(psd_raw, axis=0), label='Raw LFP', color='black')
+    # Plot lines
+    ax.plot(freqs, mean_psd_raw, label='Raw LFP', color='black', linewidth=3)
+    ax.plot(freqs, mean_psd_beta, label='Beta Filtered', color='red', linewidth=3)
 
-    # Plot the PSD for beta-filtered data
-    ax.semilogy(freqs, np.mean(psd_beta, axis=0), label='Beta Filtered', color='red')
+    # Fill between lines
+    ax.fill_between(freqs, mean_psd_raw, mean_psd_beta, color='gray', alpha=0.3)
 
     ax.set_xlabel('Frequency (Hz)')
     ax.set_ylabel('Power Spectral Density (dB/Hz)')
-    ax.set_title('Power Spectral Density Before and After Beta Filtering')
     ax.legend()
 
-    plt.tight_layout()
     plt.show()
 
-    # avg_coherence_changes = {cond: np.mean(coherence_changes[cond], axis=0) for cond in coherence_changes}
+    raw1 = mydata['raw'].copy()
+    fs = raw1.info['sfreq']
+
+    raw2 = mydata['raw'].copy()
+    raw1.pick_channels(['LFP1_vHp', 'LFP3_AON'])
+    raw2.pick_channels(['LFP2_vHp', 'LFP4_AON'])
+    raw2 = preprocess_raw(raw1, pre_fmin, pre_fmax)
+    raw2.filter(15, 30, fir_design='firwin')
+
+    # Trimming raw1 to match the length of raw3
+    if len(raw1.times) > len(raw2.times):
+        raw1.crop(tmax=raw2.times[-1])
+
+    # Extracting data
+    data_raw1 = raw1.get_data()
+    data_raw3 = raw2.get_data()
+
+    # Calculating the difference
+    difference = data_raw1 - data_raw3
+
+    # Plot the difference
+    times = raw1.times  # Using the time vector from raw1
+    fig, ax = plt.subplots(figsize=(12, 6))
+    ax.plot(times, difference.T)
+    ax.set_xlabel('Time (s)')
+    ax.set_ylabel('Amplitude Difference')
+    ax.set_title('Difference between Original and Preprocessed Signals')
+    plt.show()
+
+    # avg_coherence_changes = {cond: np.mean(coherence_changes[], axis=0) for cond in coherence_changes}
 
                 # sfreq = epochs[0].info['sfreq']
                 # numt = epochs[0].times.size
