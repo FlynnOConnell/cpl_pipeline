@@ -70,7 +70,14 @@ def plot_coh(epoch_object: Epochs, freqs=(5, 100)):
     plt.ylabel("Frequency (Hz)")
     plt.show()
 
-def plot_custom_data(data, times, ch_names, start, duration, fs=None):
+def plot_custom_data(data, times, ch_names, start=None, duration=None, fs=None):
+    if start is None:
+        start = 0
+    if duration is None:
+        duration = times[-1] - start
+    if fs is None:
+        fs = 1 / (times[1] - times[0])
+
     start_idx = int(start * fs)
     end_idx = int((start + duration) * fs)
     times = times[start_idx:end_idx] * 1000  # Convert to milliseconds
@@ -90,7 +97,7 @@ def plot_custom_data(data, times, ch_names, start, duration, fs=None):
         ax[i].grid(False)
         ax[i].spines["top"].set_visible(False)
         ax[i].spines["right"].set_visible(False)
-        ax[i].set_ylabel("Voltage (mV)", **bold_font)
+        ax[i].set_ylabel("Voltage (V)", **bold_font)
 
     ax[-1].set_xlabel("Time (ms)", **bold_font)
     plt.tight_layout()
@@ -130,7 +137,6 @@ def plot_processing_steps(raw_list, titles, start, duration, scalings, channel_n
     ax[-1].set_xlabel("Time (ms)", **bold_font)
     plt.tight_layout()
     plt.show()
-
 
 def plot_all_epoch(epoch, title, savepath=None):
     for epoch_idx, (epoch_signal_ch1, epoch_signal_ch2) in enumerate(epoch):

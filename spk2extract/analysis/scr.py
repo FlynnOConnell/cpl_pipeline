@@ -58,7 +58,6 @@ def _validate_events(event_arr, event_id):
 
     return valid_times, valid_event_id
 
-
 def get_lowest_variance_window(arr, sfreq, window_length_sec=10):
 
     arr = arr.get_data()
@@ -82,7 +81,6 @@ def get_lowest_variance_window(arr, sfreq, window_length_sec=10):
 
     if best_window_data is not None:
         return best_window_data
-
 
 def get_master_df():
     data_path = Path().home() / "data" / ".cache"

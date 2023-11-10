@@ -16,7 +16,7 @@ from mne_connectivity import spectral_connectivity_epochs
 from scipy.stats import zscore, sem
 from sklearn.manifold import spectral_embedding  # noqa
 
-from spk2extract.analysis.stats import extract_file_info
+from spk2extract.analysis.stats import extract_file_info, extract_file_info_on
 from spk2extract.logs import logger
 from spk2extract.spk_io.utils import read_npz_as_dict
 from spk2extract.utils import extract_common_key
@@ -56,30 +56,29 @@ def _validate_events(event_arr, event_id):
 
     return valid_times, valid_event_id
 
+def get_lowest_variance_window(arr, sfreq, window_length_sec=10):
 
-def get_baseline(resp_signal, resp_times, wave_signal, first):
-    wave_signal = wave_signal.get_data()
-    first_event_time = first
-    baseline_size = 10
-    respiratory_signal = np.array(resp_signal[:int(first_event_time)], dtype=float)
-    respiratory_times = np.array(resp_times[:int(first_event_time)], dtype=float)
-    wave_signal = np.array(wave_signal[:, :int(first_event_time * 2000)], dtype=float)
+    arr = arr.get_data()
+    window_length = int(window_length_sec * sfreq)  # Convert seconds to samples
+    step_size = window_length // 2  # 50% overlap
+    lowest_variance = float('inf')
+    best_window = (0, window_length)
+    best_window_data = None
 
-    # Step 1: Identify slow breathing segment using rolling variance
-    rolling_variance = pd.Series(respiratory_signal).rolling(window=baseline_size).var()
-    rolling_variance = rolling_variance.dropna()
-    min_var_index = rolling_variance.idxmin()
-    slowest_breathing_time = respiratory_times[min_var_index]
+    # Iterate over possible windows
+    for start in range(0, arr.shape[-1] - window_length + 1, step_size):
 
-    # Convert this time to an index in spikes_arr
-    slowest_breathing_index_spikes_arr = int(
-        slowest_breathing_time * 2000)  # Conversion factor due to different sampling rates
+        end = start + window_length
+        window = arr[:, start:end]
+        window_variance = np.var(window)
 
-    # Step 2: Extract corresponding segment from spikes_arr
-    segment_data = wave_signal[:,
-                   slowest_breathing_index_spikes_arr:slowest_breathing_index_spikes_arr + baseline_size * 2000]
+        if window_variance < lowest_variance:
+            lowest_variance = window_variance
+            best_window = (start, end)
+            best_window_data = window
 
-    return np.array(segment_data)
+    if best_window_data is not None:
+        return best_window_data
 
 
 def get_master_df():
@@ -87,36 +86,30 @@ def get_master_df():
     # prevent .DS_Store from being read
     animals = [animal for animal in data_path.glob("*") if animal.is_dir()]
     master = pd.DataFrame()
-    for animal_path in animals:
+    for animal_dir in animals:
 
-        cache_animal_path = data_path / animal_path.name
+        cache_animal_path = data_path / animal_dir.name
         cache_animal_path.mkdir(parents=True, exist_ok=True)
 
-        lfp_raw_files = sorted(list(animal_path.glob("*_raw*.fif")), key=extract_common_key)
-        unit_raw_files = sorted(list(animal_path.glob("*_unit*.fif")), key=extract_common_key)
+        lfp_raw = sorted(list(animal_dir.glob("*_lfp_raw*.fif")), key=extract_common_key)
+        unit_raw = sorted(list(animal_dir.glob("*_unit_raw*.fif")), key=extract_common_key)
+        event_files = sorted(list(animal_dir.glob("*_eve*.fif")), key=extract_common_key)
+        event_id = sorted(list(animal_dir.glob("*_id_ev*.npz")), key=extract_common_key)
+        sniff_signal = sorted(list(animal_dir.glob("*_sniff_signal*.npy")), key=extract_common_key)
+        sniff_times = sorted(list(animal_dir.glob("*_sniff_times*.npy")), key=extract_common_key)
 
-        event_files = sorted(list(animal_path.glob("*_eve*.fif")), key=extract_common_key)
-        event_id = sorted(list(animal_path.glob("*_id_*.npz")), key=extract_common_key)
-
-        norm_signal = sorted(animal_path.glob("*_respiratory_signal*.npy"), key=extract_common_key)
-        norm_times = sorted(animal_path.glob("*_respiratory_times*.npy"), key=extract_common_key)
-
-        sniff_signal = sorted(animal_path.glob("*_sniff_signal*.npy"), key=extract_common_key)
-        sniff_times = sorted(animal_path.glob("*_sniff_times*.npy"), key=extract_common_key)
-        raw_files = lfp_raw_files
-
-        metadata = [extract_file_info_2(raw_file.name) for raw_file in raw_files]
-        raw_data = [mne.io.read_raw_fif(raw_file) for raw_file in raw_files]
+        metadata = [extract_file_info_on(raw_file.name) for raw_file in lfp_raw]
+        lfp_data = [mne.io.read_raw_fif(raw_file) for raw_file in lfp_raw]
+        unit_data = [mne.io.read_raw_fif(raw_file) for raw_file in unit_raw]
         event_data = [mne.read_events(event_file) for event_file in event_files]
         event_id_dicts = [read_npz_as_dict(id_file) for id_file in event_id]
-
-        norm_signal = [np.load(str(signal_file)) for signal_file in norm_signal]
-        norm_times = [np.load(str(time_file)) for time_file in norm_times]
+        sniff_signal = [np.load(str(sniff_file)) for sniff_file in sniff_signal]
+        sniff_times = [np.load(str(sniff_file)) for sniff_file in sniff_times]
 
         first_event_times = [event[0][0] for event in event_data]
-        baseline_segment = [get_baseline(resp_signal, resp_times, raw_arr, first_event) for
-                            resp_signal, resp_times, raw_arr, first_event in
-                            zip(norm_signal, norm_times, raw_data, first_event_times)]
+        sfreq = lfp_data[0].info['sfreq']
+
+        baseline_segment = [get_lowest_variance_window(raw, sfreq) for raw in lfp_data]
         # map each baseline channel to its baseline segment
 
         ev_id_dict = [
@@ -135,19 +128,23 @@ def get_master_df():
 
         # TODO: this should be user provided based on needed information
         all_data_dict = {  # each v is a list for each file, sorted to be the smae order
-            "raw": raw_data[0],
-            "raw_unit": unit_raw_files,
+            "raw": lfp_data,
+            "raw_unit": unit_raw,
             "start": ev_start_holder,
-            "end": ev_end_holder,
+            "sniff_sig": sniff_signal,
+            "sniff_times": sniff_times,
             "event_id": ev_id_dict,
             "baseline": baseline_segment,
         }
+        # pop first item in each list with 4 items
+
         metadata_df = pd.concat(metadata).reset_index(drop=True)
         all_data_df = pd.DataFrame(all_data_dict)
+
         all_data_df = pd.concat([metadata_df, all_data_df], axis=1)
         master = pd.concat([master, all_data_df], axis=0)
-    return master
 
+    return master
 
 def preprocess_raw(raw_signal, fmin=1, fmax=100):
     raw: mne.io.RawArray = raw_signal
@@ -156,7 +153,6 @@ def preprocess_raw(raw_signal, fmin=1, fmax=100):
     raw.resample(1000)
     raw.notch_filter(np.arange(60, 161, 60), fir_design="firwin")
     return raw
-
 
 def update_df_with_epochs(df, fmin, fmax, tmin, tmax, evt_row="end", ):
     epochs_holder, con_holder = [], []
@@ -169,7 +165,6 @@ def update_df_with_epochs(df, fmin, fmax, tmin, tmax, evt_row="end", ):
     df['epoch'] = epochs_holder
     df['con_arr'] = con_holder
     return df
-
 
 def process_epoch(raw_arr, events, event_id, baseline, fmin, fmax, tmin, tmax):
     assert fmin < fmax and tmin < tmax, "Ensure fmin < fmax and tmin < tmax"
@@ -205,12 +200,10 @@ def process_epoch(raw_arr, events, event_id, baseline, fmin, fmax, tmin, tmax):
     )
     return epochs, con
 
-
 def main(use_parallel=True):
     helpers.update_rcparams()
     data = get_master_df().reset_index(drop=True)
     return data
-
 
 def optimize_psd_params(sfreq, time_series_length, desired_resolution=None):
     """
@@ -425,19 +418,21 @@ if __name__ == "__main__":
                         ax.set_ylim(0, 1)
 
                     for band_name, coh_data in all_animals_data[animal][condition][condition2][domain].items():
+
                         y_mean = coh_data['mean']
                         y_sem = coh_data['sem']
 
                         if domain == 'time_domain':
                             x = con.times
+
                         else:
                             x = coh_data['freqs']
 
                         color = band_color_map[band_name]
 
                         # Plot the mean and SEM shading
-                        ax.fill_between(x, y_mean - y_sem, y_mean + y_sem, alpha=0.2, color=color)
-                        ax.plot(x, y_mean, linewidth=2, label=f'{band_name}', color=color, )
+                        ax.fill_between(x, y_mean - y_sem, y_mean + y_sem, alpha=0.2, color=color,)
+                        ax.plot(x, y_mean, linewidth=2, label=f'{band_name}', color=color,)
 
                 y_mean_all = all_animals_data[animal][context][condition2]['all']['mean']
                 x_all = con.times

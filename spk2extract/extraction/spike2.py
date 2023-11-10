@@ -62,7 +62,6 @@ def is_ascii_letter(char):
 def codes_to_string(codes):
     return "".join(chr(code) for code in codes if code != 0)
 
-
 def indices_to_time(indices, fs):
     """Spike2 indices are in clock ticks, this converts them to seconds."""
     return np.array(indices) / float(fs)
@@ -206,7 +205,7 @@ class Spike2Data:
         """Allows us to use str(spike_data.SpikeData(file)) to get the filename stem."""
         return f"{self.filename.stem}"
 
-    def process_channels(self):
+    def process_channels(self, ):
         """
         Iterate over the channels in the file.
 
@@ -236,8 +235,7 @@ class Spike2Data:
                 signal = self.sonfile.ReadFloats(idx, int(2e9), 0)
                 times = indices_to_time(range(len(signal)), fs)
                 channel_type = "signal"
-            if self.sonfile.ChannelType(idx) == sp.DataType.Marker:
-                # contains event markers
+            if self.sonfile.ChannelType(idx) in (sp.DataType.Marker, sp.DataType.RealMark, sp.DataType.TextMark, sp.DataType.AdcMark):
                 channel_type = "event"
                 signal, times = self.process_event(idx)
             self.channels.append(
@@ -453,17 +451,18 @@ if __name__ == "__main__":
     errors = []
     for animal_path in path_test.iterdir():
         save_test = save_test / animal_path.stem
+
         if not animal_path.is_dir():
             continue
+
         # iterate over each file in folder
         for file in animal_path.glob("*.smr"):
             filename = file.stem
             try:
                 data = Spike2Data(file)
                 data.process_channels()
+                data.save(save_test / str(data), overwrite_existing=True)
             except Exception as e:
                 logger.info(f"Error processing {file}: {e}")
                 errors.append(e)
                 continue
-            # process the channels
-            data.save(save_test / str(data), overwrite_existing=True)

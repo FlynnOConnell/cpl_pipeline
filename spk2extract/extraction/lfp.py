@@ -224,6 +224,7 @@ if __name__ == "__main__":
     # data_path =  Path("/Volumes/CaTransfer/extracted")  # external hard drive, nfst
     data_path = Path().home() / "data" / 'extracted' / "serotonin"
     cache_path = Path().home() / "data" / ".cache" / 'serotonin'
+
     errorfiles = []
     all_event_stats = pd.DataFrame()
     animals = [p for p in data_path.iterdir() if p.is_dir()]
@@ -235,7 +236,7 @@ if __name__ == "__main__":
 
         animal = animal_path.name
 
-        for file in animal_path.glob("*.h5"):
+        for file in animal_path.glob("*111921*.h5"):
 
             session_name = file.stem
             print(f"Processing {session_name}")
@@ -336,17 +337,9 @@ if __name__ == "__main__":
                 unit_raw = mne.io.RawArray(unit_spikes_arr, unit_info)
                 unit_raw.save(fif_savename.with_name(f"{session_name}_unit_raw.fif"), overwrite=True)
 
-            if respiratory is not None:
-                np.save(str(cache_animal_path.joinpath(session_name + "_respiratory_signal")), respiratory[1])
-                np.save(str(cache_animal_path.joinpath(session_name + "_respiratory_times")), respiratory[2])
-
             if sniff is not None:
                 np.save(str(cache_animal_path.joinpath(session_name + "_sniff_signal")), sniff[1])
                 np.save(str(cache_animal_path.joinpath(session_name + "_sniff_times")), sniff[2])
-
-            if reference is not None:
-                np.save(str(cache_animal_path.joinpath(session_name + "_reference_signal")), reference[1])
-                np.save(str(cache_animal_path.joinpath(session_name + "_reference_times")), reference[2])
 
             if other_signals_list:
                 other_info = mne.create_info(
