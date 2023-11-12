@@ -37,7 +37,6 @@ class Channel:
     def __str__(self):
         return f"{self.name}"
 
-
 class SonfileException(BaseException):
     """
     Exception for sonfile being wrong filetype.
@@ -53,11 +52,9 @@ class SonfileException(BaseException):
     def __repr__(self):
         return f"{self.message}"
 
-
 def is_ascii_letter(char):
     if char in range(65, 91) or char in range(97, 123):
         return True
-
 
 def codes_to_string(codes):
     return "".join(chr(code) for code in codes if code != 0)

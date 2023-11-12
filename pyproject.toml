@@ -14,8 +14,6 @@ maintainers = [
     {name = "Flynn O'Connell", email="Flynnoconnell@gmail.com"},
 ]
 keywords = ["spike sorting", "spike extraction", "spike detection", "spike sorting validation"]
-platforms = ["any"]
-requires-python = ">=3.9,<3.10"
 readme = "README.md"
 classifiers = [
     'Intended Audience :: Science/Research',
