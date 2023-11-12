@@ -171,8 +171,8 @@ class Spike2Data:
             Whether the file is 32bit (old) or 64bit (new).
         recording_length : float
             The total recording length, in seconds.
-
         """
+
         self.logger = logger
         self.errors = {}
         self.filename = Path(filepath)
@@ -190,6 +190,7 @@ class Spike2Data:
                     f"{self.filename} is not a valid file, though it does contain the correct extension. \n"
                     f"Double check the file contains valid data."
                 )
+
         self.bitrate = 32 if self.sonfile.is32file() else 64
         self.metadata = {
             "bitrate": self.bitrate,
@@ -198,11 +199,9 @@ class Spike2Data:
         }
 
     def __repr__(self):
-
         return f"{self.filename.stem}"
 
     def __str__(self):
-        """Allows us to use str(spike_data.SpikeData(file)) to get the filename stem."""
         return f"{self.filename.stem}"
 
     def process_channels(self, ):
@@ -225,8 +224,10 @@ class Spike2Data:
                 "fs": fs,
                 "units": self.sonfile.GetChannelUnits(idx),
             }  # units will be empty for events
+
             signal, times = [], []
             channel_type = ""
+
             if self.sonfile.ChannelType(idx) == sp.DataType.Off:
                 # contains no data, untitled channels
                 continue
@@ -249,6 +250,11 @@ class Spike2Data:
             )
 
     def process_event(self, idx: int):
+        """
+        Process event channels, i.e. channels that contain events.
+
+        Event times are converted to seconds.
+        """
         try:
             marks = self.sonfile.ReadMarkers(idx, int(2e9), 0)
 
@@ -433,12 +439,12 @@ class Spike2Data:
     def max_channels(self):
         """
         The number of channels in the file.
-
         """
         return self.sonfile.MaxChannels()
 
 
 if __name__ == "__main__":
+
     defaults = defaults()
     log_level = defaults["log_level"]
     logger.setLevel(log_level)

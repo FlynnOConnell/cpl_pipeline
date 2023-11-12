@@ -154,7 +154,6 @@ def preprocess_raw(raw_signal, fmin=1, fmax=100):
         raw.drop_channels(["Ref"])
     return raw
 
-
 def update_df_with_epochs(df, fmin, fmax, tmin, tmax, evt_row="end",):
     epochs_holder, con_holder = [], []
     for idx, row in df.iterrows():
