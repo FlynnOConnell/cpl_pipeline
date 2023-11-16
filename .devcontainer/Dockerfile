@@ -15,8 +15,7 @@ RUN adduser --disabled-password \
     $username
 
 COPY ../environment.yml /tmp/
-COPY ../requirements.txt /tmp/
-RUN chown $uid:$gid /tmp/environment.yml /tmp/requirements.txt
+RUN chown $uid:$gid /tmp/environment.yml
 
 USER root
 RUN apt-get update && apt-get install -y wget
