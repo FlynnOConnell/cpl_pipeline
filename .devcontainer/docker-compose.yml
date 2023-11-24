@@ -7,7 +7,7 @@ services:
         - uid=1000
         - gid=100
       context: ..
-      dockerfile: docker/Dockerfile
+      dockerfile: .devcontainer/Dockerfile
     volumes:
       - ..:/home/spk_user/app
     init: true
