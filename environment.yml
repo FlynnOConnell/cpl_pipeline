@@ -24,6 +24,8 @@ dependencies:
   - pyqtgraph
   - pyopenssl
   - pyqt-stubs
+  - mne
+  - mne_connectivity
 
 # Image and IO
   - h5py
@@ -31,6 +33,7 @@ dependencies:
   - Opencv
   - openpyxl
   - OpenSSL
+  - pytables
 
 # Compilation
   - compilers
