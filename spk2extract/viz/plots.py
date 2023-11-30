@@ -12,7 +12,6 @@ from pathlib import Path
 from scipy.interpolate import interp1d
 from scipy.stats import ttest_rel
 
-from spk2extract.analysis.stats import rolling_coherence
 from spk2extract.logs import logger
 
 
@@ -141,7 +140,8 @@ def plot_processing_steps(raw_list, titles, start, duration, scalings, channel_n
 def plot_all_epoch(epoch, title, savepath=None):
     for epoch_idx, (epoch_signal_ch1, epoch_signal_ch2) in enumerate(epoch):
         window_size = 100
-        coh_values = rolling_coherence(epoch_signal_ch1, epoch_signal_ch2, window_size)
+        # coh_values = rolling_coherence(epoch_signal_ch1, epoch_signal_ch2, window_size)
+        coh_values = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         epoch_times = epoch.times
         coh_times = epoch_times[: len(coh_values)]
 

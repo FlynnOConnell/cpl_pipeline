@@ -26,6 +26,7 @@ dependencies:
   - pyqt-stubs
   - mne
   - mne-connectivity
+  - vispy
 
 # Image and IO
   - h5py

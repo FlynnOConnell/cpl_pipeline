@@ -2,6 +2,11 @@ FROM continuumio/miniconda3
 
 WORKDIR /app
 
+# Install OpenGL libraries
+RUN apt-get update && apt-get install -y \
+    libgl1-mesa-glx \
+    && rm -rf /var/lib/apt/lists/*
+
 # Create the environment:
 COPY environment.yml .
 RUN conda env create -f environment.yml
