@@ -41,11 +41,18 @@ def parse_args(parser: argparse.ArgumentParser):
             print(set_param_msg.format(k, ops[k]))
     return args, ops
 
+def test(parser: argparse.ArgumentParser):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("ops", type=str, default=None)
+    parser.add_argument("test", type=str, default=None)
+    parser.add_argument("-v", "--verbose", action='count', type=str, help= "Provides a detailed description of the argument")
+
+    args: argparse.Namespace = parser.parse_args()
+    print(args)
 
 def main():
     from spk2extract import gui
     gui.run()
-
 
 if __name__ == "__main__":
     main()

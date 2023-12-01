@@ -22,7 +22,6 @@ from spk2extract.logs import logger
 from spk2extract.defaults import defaults
 from spk2extract import spk_io
 
-
 class Channel:
     def __init__(self, name, chan_type, data, times, metadata):
         self.name = name
