@@ -2,7 +2,7 @@ from .version import version
 from pathlib import Path
 
 def defaults():
-    """default options to run spike extraction"""
+    """default options to run spike extract"""
     return {
         "spk2extract_version": version,  # current version of package
         "data_path": Path().home() / "data",  # path to data

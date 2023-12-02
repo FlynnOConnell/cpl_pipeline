@@ -27,7 +27,7 @@ docs_extras = [
 setup(
     name='spk2extract',
     version='0.0.1',
-    description='Signal extraction utilities.',
+    description='Signal extract utilities.',
     author='Flynn OConnell',
     author_email='Flynnoconnell@gmail.com',
     url='https://www.github.com/Flynnoconnell/spk2extract',

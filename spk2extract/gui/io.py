@@ -2,7 +2,7 @@ import os
 import numpy as np
 
 from PyQt5.QtWidgets import QFileDialog, QMessageBox
-from spk2extract.extraction import Spike2Data
+from spk2extract.extract import Spike2Data
 
 def select_base_folder(parent):
     dlg_kwargs = {

@@ -9,7 +9,7 @@ from typing import Iterable
 
 import tables
 
-import spk2extract.extraction
+import spk2extract.extract
 from spk2extract.logs import logger
 
 import numpy as np

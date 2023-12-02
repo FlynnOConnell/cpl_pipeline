@@ -20,6 +20,8 @@ dependencies:
   - matplotlib
   - seaborn
   - datashader
+  - tifffile
+  - statsmodels
   - pyqt=5
   - pyqtgraph
   - pyopenssl
@@ -27,6 +29,7 @@ dependencies:
   - mne
   - mne-connectivity
   - vispy
+  - umap-learn
 
 # Image and IO
   - h5py
