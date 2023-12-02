@@ -220,16 +220,19 @@ class ProcessChannel:
         self.chan_num = chan_num
         self.dir_manager = dir_manager
         self.overwrite = overwrite
-        self.status_path = self.dir_manager.base_path / "status.npy"
+        self._data_dir =  Path(os.path.join(self.dir_manager.base_path, 'data', self.get_chan_str()))
+        self._plots_dir = Path(os.path.join(self.dir_manager.base_path, 'plots', self.get_chan_str()))
+        self._plots_dir.mkdir(parents=True, exist_ok=True)
+        self._data_dir.mkdir(parents=True, exist_ok=True)
 
-    def load_status(self):
-        if self.status_path.is_file():
-            return np.load(self.status_path, allow_pickle=True).item()
-        else:
-            return {}
-
-    def save_status(self, status):
-        np.save(self.status_path, np.array([status], dtype=object))
+        self._files = {'raw_waveforms': os.path.join(self._data_dir, 'raw_waveforms.npy'),
+                       'raw_times' : os.path.join(self._data_dir, 'raw_times.npy'),
+                       'raw_metrics' : os.path.join(self._data_dir, 'metrics.npy'),
+                       'raw_pca' : os.path.join(self._data_dir, 'raw_waveforms_pca.npy'),
+                       # 'slopes' : os.path.join(self._data_dir, 'spike_slopes.npy'),
+                       # 'recording_cutoff' : os.path.join(self._data_dir, 'cutoff_time.txt'),
+                       # 'detection_threshold' : os.path.join(self._data_dir, 'detection_threshold.txt')
+                     }
 
     def get_chan(self):
         """The channel number to use when saving."""
@@ -409,32 +412,24 @@ class ProcessChannel:
         while True:
             if not isinstance(self.spikes, np.ndarray):
                 self.spikes = np.array(self.spikes)
+
             logger.info(f"|- --- Analyzing channel {self.chan_num + 1} --- -|")
-            if self.spikes.size == 0:
-                (
-                    self.dir_manager.reports / self.get_chan_str() / "no_spikes.txt"
-                ).write_text(
-                    "No spikes were found on this channel."
-                    " The most likely cause is an early recording cutoff."
-                )
-                warnings.warn(
-                    "No spikes were found on this channel. The most likely cause is an early recording cutoff."
-                )
-                (
-                    self.dir_manager.reports / self.get_chan_str() / "success.txt"
-                ).write_text("Sorting finished. No spikes found")
-                return
+            self.check_spikes(self.spikes, self.times)
+            if not self.overwrite:
+                if all([os.path.exists(f) for f in self._files.values()]):
+                    logger.info(f"|- --- Channel {self.chan_num + 1} already processed, skipping --- -|")
+                    break
 
             # PCA / UMAP
             filt = clust.filter_signal(
                 self.spikes,
                 self.sampling_rate,
-                freq=[300.0, 3000.0]
+                freq=(300.0, 3000.0)
             )
 
             spikes, times, threth  = clust.detect_spikes(
                 filt,
-                [0.5, 1.0],
+                (0.5, 1.0),
                 self.sampling_rate,
             )
             scaled_slices = clust.scale_waveforms(spikes)
@@ -455,23 +450,6 @@ class ProcessChannel:
                 scaled_slices, pca_n_pc, True
             )
 
-            np.save(
-                self.dir_manager.data / self.get_chan_str() / "raw_waveforms.npy",
-                self.spikes,
-            )
-            np.save(
-                self.dir_manager.data / self.get_chan_str() / "raw_waveforms_pca.npy",
-                pca_slices,
-            )
-            np.save(
-                self.dir_manager.data / self.get_chan_str() / "raw_times.npy",
-                self.times,
-            )
-            np.save(
-                self.dir_manager.data / self.get_chan_str() / "metrics.npy",
-                self.metrics,
-            )
-
             fig = plt.figure()
             x = np.arange(0, len(pca_graph_vars) + 1)
             pca_graph_vars.insert(0, 0)
@@ -487,14 +465,37 @@ class ProcessChannel:
             plt.title("Variance ratios explained by PCs (cumulative)")
             plt.xlabel("PC #")
             plt.ylabel("Explained variance ratio")
-            fig.savefig(
-                self.dir_manager.plots / self.get_chan_str() / "pca_variance.png",
-                bbox_inches="tight",
-            )
+            fig.savefig(self._plots_dir / "pca_variance_explained.png", bbox_inches="tight",)
             plt.close("all")
 
             self.iter_clusters(self.times, pca_n_pc)
             break
+
+    def check_spikes(self, spikes, times):
+        """
+        Checks for spikes in the data. If none are found, writes a warning and returns.
+
+        Parameters
+        ----------
+        spikes : ndarray
+            Array of spike waveforms.
+        times : ndarray
+            Array of spike times.
+
+        Returns
+        -------
+        None
+            Writes a warning and returns if no spikes are found.
+
+        """
+        if spikes.size == 0:
+            (self._data_dir / "no_spikes.txt").write_text(
+                "No spikes were found on this channel."
+                " The most likely cause is an early recording cutoff."
+            )
+            warnings.warn("No spikes were found on this channel. The most likely cause is an early recording cutoff.")
+            (self._data_dir / "no_spikes.txt").write_text("Sorting finished. No spikes found")
+            return
 
     def iter_clusters(self, spike_times, n_pc):
         """
@@ -525,14 +526,11 @@ class ProcessChannel:
             # if not self.dir_manager.should_process(self.chan_num, num_clust):
             #     continue
             logger.info(f"For {num_clust} in tested_clusters -> {tested_clusters}")
-            cluster_data_path = (
-                self.dir_manager.data / self.get_chan_str() / f"{num_clust}_clusters"
-            )
+            cluster_data_path = (self._data_dir / f"{num_clust}_clusters")
+            cluster_plot_path = (self._data_dir / f"{num_clust}_clusters")
             cluster_data_path.mkdir(parents=True, exist_ok=True)
-            cluster_plot_path = (
-                self.dir_manager.plots / self.get_chan_str() / f"{num_clust}_clusters"
-            )
             cluster_plot_path.mkdir(parents=True, exist_ok=True)
+
             try:
                 model, predictions, bic = ClusterGMM(self.params).fit(
                     self.metrics, num_clust
@@ -555,15 +553,10 @@ class ProcessChannel:
                 logger.warning(
                     f"There are too few waveforms to properly sort cluster {num_clust + 3}"
                 )
+                with open(cluster_data_path / "invalid_sort.txt", "w+",) as f:
+                    f.write("There are too few waveforms to properly sort this clustering")
                 with open(
-                    self.dir_manager.plots / self.get_chan_str() / "invalid_sort.txt",
-                    "w+",
-                ) as f:
-                    f.write(
-                        "There are too few waveforms to properly sort this clustering"
-                    )
-                with open(
-                    self.dir_manager.plots / self.get_chan_str() / "invalid_sort.txt",
+                    cluster_data_path  / "invalid_sort.txt",
                     "w+",
                 ) as f:
                     f.write(
@@ -577,9 +570,7 @@ class ProcessChannel:
             for cluster in range(num_clust):
                 logger.info(f"{cluster}")
                 this_clust_data = cluster_data_path / f"cluster_{cluster}"
-                this_clust_plot = cluster_plot_path / f"cluster_{cluster}"
                 this_clust_data.mkdir(parents=True, exist_ok=True)
-                this_clust_plot.mkdir(parents=True, exist_ok=True)
 
                 idx = np.where(predictions[:] == cluster)[0]
                 cluster_amplitudes = self.metrics[:, 0][idx]
@@ -630,13 +621,12 @@ class ProcessChannel:
 
             # Plot Mahalanobis distances between cluster pairs
             for this_cluster in range(num_clust):
-                savename = cluster_plot_path / this_cluster / "Mahalonobis_cluster.png"
+                savename = self._plots_dir / f"cluster_{this_cluster}" / "mahalonobis_cluster"
                 mahalanobis_dist = clust.get_mahalanobis_distances_to_cluster(
                     self.metrics, model, predictions, this_cluster
                 )
                 title = "Mahalanobis distance to cluster %i" % this_cluster
                 plot_mahalanobis_to_cluster(mahalanobis_dist, title, str(savename))
-            self.dir_manager.save_status(self.get_chan(), num_clust)
             pbm.update_cluster_bar()
 
     def superplots(self, maxclust: int):

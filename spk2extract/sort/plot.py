@@ -905,6 +905,8 @@ def plot_mahalanobis_to_cluster(distances, title=None, save_file=None):
         ax.set_title(title)
 
     if save_file is not None:
+        # Create the directory if it does not exist
+        os.makedirs(os.path.dirname(save_file), exist_ok=True)
         fig.savefig(f"{save_file}.png", bbox_inches="tight", dpi=300)
         plt.close(fig)
         return None, None

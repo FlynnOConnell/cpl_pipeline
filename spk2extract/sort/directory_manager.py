@@ -54,72 +54,26 @@ class DirectoryManager:
         self.base_path = params.cfg_path.parent / self.filename
         self.directories = [
             self.plots,
-            self.reports,
             self.data,
         ]
         self.num_channels = num_chan
-        self.idx = 0  # not used, could hold index for sorting each channel
-
-        self.status_path = self.base_path / "status.npy"
         self.overwrite = params.get_section("run")["overwrite"]
         self.min_clusters = int(params.get_section("cluster")["min-clusters"])
         self.max_clusters = int(params.get_section("cluster")["max-clusters"])
-        # Channel x Cluster boolean array
-        self.status_data = np.zeros(
-            (self.num_channels, (self.max_clusters - 1)),
-            dtype=bool,
-        )
-        self.load_status()
-
-    def check_processed(
-        self,
-):
-        # If a channel is missing, just redo all of them (for now)
-        return np.any(self.status_data == False)
-
-    def load_status(self):
-        if self.status_path.is_file():
-            logger.info(f"Loading status file: {self.status_path}")
-            self.status_data = np.load(self.status_path)
-        else:
-            logger.warning(f"Status file not found: {self.status_path}")
-
-    def save_status(self, channel, cluster):
-        # Account for 0 indexing here, rather than in main script
-        channel_idx = channel - 1
-        cluster_idx = cluster - 1
-        self.status_data[channel_idx, cluster_idx] = True
-        np.save(self.status_path, self.status_data)
-
-    def should_process(
-        self,
-        channel,
-        cluster,
-    ):
-        if self.overwrite:
-            return True
-        return not self.status_data[channel, cluster]
 
     @property
     def plots(self):
         """
         Path : Directory for storing plots.
         """
-        return self.base_path / "Plots"
-
-    @property
-    def reports(self):
-        """
-        Path : Directory for storing reports.
-        """
-        return self.base_path / "Reports"
+        return self.base_path / "plots"
 
     @property
     def data(self):
         """
         Path : Directory for storing intermediate files.
         """
-        return self.base_path / "Data"
+        return self.base_path / "data"
 
     @property
     def channel(self):
