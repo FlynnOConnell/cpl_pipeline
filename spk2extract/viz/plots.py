@@ -14,8 +14,7 @@ from pathlib import Path
 from scipy.interpolate import interp1d
 from scipy.stats import ttest_rel
 
-from spk2extract.logs import logger
-
+from spk2extract.logger import logger
 
 def save_figure(path, overwrite=False, fail_silently=False):
     path = Path(path)
@@ -229,51 +228,3 @@ def plot_all_epoch(epoch, title, savepath=None):
             plt.close("all")
         else:
             plt.show()
-
-def make_unit_plots(file_dir, unit_name, save_dir=None):
-    """Makes waveform plots for sorted unit in unit_waveforms_plots
-
-    Parameters
-    ----------
-    file_dir : str, full path to recording directory
-    fs : float, smapling rate in Hz
-    """
-
-    if isinstance(unit_name, int):
-        unit_num = unit_name
-        unit_name = 'unit%03i' % unit_num
-    else:
-        unit_num = dio.h5io.parse_unit_number(unit_name)
-
-    waveforms, descriptor, fs = dio.h5io.get_unit_waveforms(file_dir, unit_name)
-    fs_str = '%g samples per ms' % (fs/10/1000.0)  # since both theses plots
-                                                   # downsample by 10 and then to convert to samples/ms
-
-    fig, ax = blech_waveforms_datashader.waveforms_datashader(waveforms)
-    ax.set_xlabel('Samples (%s)' % fs_str)
-    ax.set_ylabel('Voltage (microvolts)')
-    unit_title = (('Unit %i, total waveforms = %i\nElectrode: %i, '
-                   'Single Unit: %i, RSU: %i, FSU: %i') %
-                  (unit_num, waveforms.shape[0],
-                   descriptor['electrode_number'],
-                   descriptor['single_unit'],
-                   descriptor['regular_spiking'],
-                   descriptor['fast_spiking']))
-    ax.set_title(unit_title)
-    fig.savefig(os.path.join(save_dir, 'Unit%i.png' % unit_num))
-    plt.close('all')
-
-    # Plot mean and SEM of waveforms
-    # Downsample by 10 to remove upsampling from de-jittering
-    fig, ax = plt.subplots(figsize=(12,8))
-    mean_wave = np.mean(waveforms[:, ::10], axis=0)
-    std_wave = np.std(waveforms[:, ::10], axis=0)
-    mean_x = np.arange(mean_wave.shape[0]) + 1
-    ax.plot(mean_x, mean_wave, linewidth=4.0)
-    ax.fill_between(mean_x, mean_wave - std_wave,
-                     mean_wave + std_wave, alpha=0.4)
-    ax.set_xlabel('Samples (%s)' % fs_str)
-    ax.set_ylabel('Voltage (microvolts)')
-    ax.set_title(unit_title)
-    fig.savefig(os.path.join(save_dir, 'Unit%i_mean_sd.png' % unit_num))
-    plt.close('all')

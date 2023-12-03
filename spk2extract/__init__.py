@@ -16,14 +16,14 @@ except ImportError:
 from pathlib import Path
 from . import spk_io, gui, utils, defaults, sort
 
-__name__ = "spk2extract"
+__name__ = "cp_extract"
 __author__ = "Flynn OConnell"
 __all__ = [
     "spk_io",
     "gui",
     "utils",
     "defaults",
-    "sort"
+    "sort",
 ]
 
 # Version
@@ -51,9 +51,6 @@ def _init_directories():
             "log_dir": cpe_dir / "logs",
         }
 
-def get_logger():
-    from .logs import logger
-    return logger
 
 directories = _init_directories()
 __all__.extend(list(directories.keys()))

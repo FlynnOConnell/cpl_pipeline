@@ -12,10 +12,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-import numpy as np
-
-from logger import logger
-from spk_config import SortConfig
+from spk2extract.logger import logger
+from .spk_config import SortConfig
 
 
 class DirectoryManager:

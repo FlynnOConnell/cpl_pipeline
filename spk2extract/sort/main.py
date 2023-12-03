@@ -9,10 +9,8 @@ import math
 import multiprocessing
 from pathlib import Path
 
-import h5py
-
 from directory_manager import DirectoryManager
-from logger import logger
+from spk2extract.logger import logger
 from sorter import sort
 from spk_config import SortConfig
 from utils.progress import ProgressBarManager
@@ -155,7 +153,7 @@ def run(params: SortConfig, parallel: bool = True, overwrite: bool = False):
 
 def main():
     logger.setLevel("CRITICAL")
-    my_data = Path.home() / "data" / "extracted" / "serotonin" / 'r11' # datapath
+    my_data = Path('/media/flynn/Ventoy/data/serotonin/r11/')
 
     main_params = SortConfig(my_data)
     main_params.save_to_ini()

@@ -22,7 +22,7 @@ import pandas as pd
 from PIL import ImageFont, ImageDraw, Image
 from sklearn.decomposition import PCA
 
-from logger import logger
+from spk2extract.logger import logger
 import cluster as clust  # avoid naming conflicts
 from directory_manager import DirectoryManager
 from plot import plot_cluster_features, plot_mahalanobis_to_cluster

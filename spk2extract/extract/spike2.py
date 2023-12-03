@@ -18,7 +18,7 @@ except ImportError:
         pass
         # raise Warning("sonpy not found. Are you on a M1 Mac?")
 
-from spk2extract.logs import logger
+from spk2extract.logger import logger
 from spk2extract.defaults import defaults
 from spk2extract import spk_io
 

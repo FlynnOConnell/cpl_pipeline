@@ -1,12 +1,25 @@
 import argparse
 import numpy as np
-from spk2extract import defaults, version
+from spk2extract import version
+from spk2extract.defaults import defaults
 
 
 def add_args(parser: argparse.ArgumentParser):
-    # TODO: add args
+    """
+    Adds config options arguments to parser.
+    """
+    parser.add_argument("--version", action="version", version=version)
+    parser.add_argument("--sort", default=None, help="Run autosort pipeline")
+    parser.add_argument('--extract', default=None, help='Run extract pipeline')
+    parser.add_argument('--ops', default=None, help='path to options.npy file')
+    parser.add_argument('--test', default=None, help='Run tests on pipeline')
+    parser.add_argument('--gui', default=None, help='Open GUI')
+    parser.add_argument('--verbose', default=None, help='Display help information')
+    parser.add_argument(
+        "--config", default=defaults(), help="Path to configuration .ini file, including filename."
+    )
+    parser.add_argument("--path", default=[], help="Path to data folder")
     return parser
-
 
 def parse_args(parser: argparse.ArgumentParser):
     """
@@ -16,6 +29,7 @@ def parse_args(parser: argparse.ArgumentParser):
     dargs = vars(args)
     ops0 = defaults()
     ops = np.load(args.ops, allow_pickle=True).item() if args.ops else {}
+    config = np.load(args.config, allow_pickle=True).item() if args.config else {}
     set_param_msg = "->> Setting {0} to {1}"
     # options defined in the cli take precedence over the ones in the ops file
     for k in ops0:
