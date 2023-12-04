@@ -13,7 +13,7 @@ import shutil
 from pathlib import Path
 
 from spk2extract.logger import logger
-from .spk_config import SortConfig
+from spk2extract.sort.spk_config import SortConfig
 
 
 class DirectoryManager:

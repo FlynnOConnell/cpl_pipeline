@@ -63,7 +63,7 @@ class SortConfig:
 
     """
 
-    def __init__(self, cfg_path: Path | str):
+    def __init__(self, cfg_path: Path | str | None = None):
         """
         Initialize a new SpkConfig object to manage configurations for the AutoSort pipeline.
 
@@ -71,24 +71,20 @@ class SortConfig:
         ----------
         cfg_path : str or Path, optional
             The path to the configuration file. Defaults to the repository config.
+
         """
 
+        if cfg_path is None:
+            cfg_path = Path.home() / "default_config.ini"
         self.cfg_path = Path(cfg_path)
-
-        if cfg_path.is_dir():
-            self.cfg_path = cfg_path / "default_config.ini"
         if not self.cfg_path.is_file():
-            default_config_url = "https://github.com/FlynnOConnell/clustersort/blob/master/default_config.ini"
-            try:
-                response = requests.get(default_config_url)
-                response.raise_for_status()
+            if self.cfg_path.is_dir():
+                # if the provided path is a directory, append the filename
+                self.cfg_path /= "default_config.ini"
+            else:
+                self.cfg_path.parent.mkdir(parents=True, exist_ok=True)
+                self.download_default_config()
 
-                with open(self.cfg_path, 'wb') as file:
-                    file.write(response.content)
-                print(f"Default configuration file downloaded to {self.cfg_path}")
-
-            except requests.exceptions.RequestException as e:
-                raise Exception(f"Failed to download the default configuration file: {e}")
 
         self.set_default_config()
         self.config = self.read_config()
@@ -159,6 +155,22 @@ class SortConfig:
             for key, value in self.config.items(section):
                 params[key] = value
         return params
+
+    def download_default_config(self,):
+        """
+        Downloads the default configuration file from the github repository.
+        """
+        default_config_url = "https://github.com/FlynnOConnell/clustersort/raw/master/default_config.ini"
+        try:
+            response = requests.get(default_config_url)
+            response.raise_for_status()
+
+            with open(self.cfg_path, 'wb') as file:
+                file.write(response.content)
+            print(f"Default configuration file downloaded to {self.cfg_path}")
+        except requests.exceptions.RequestException as e:
+            raise Exception(f"Failed to download the default configuration file: {e}")
+
 
     @property
     def run(self):
@@ -279,10 +291,8 @@ class SortConfig:
 
         config = configparser.ConfigParser()
 
-        config["base"] = {"path": f"{self.cfg_path}"}
-
         config["path"] = {
-            "data": str(self.cfg_path / "data"),
+            "data": str(self.cfg_path),
         }
 
         config["run"] = {

@@ -9,9 +9,9 @@ import math
 import multiprocessing
 from pathlib import Path
 
-from directory_manager import DirectoryManager
+from spk2extract.sort.directory_manager import DirectoryManager
 from spk2extract.logger import logger
-from sorter import sort
+from spk2extract.sort.sorter import sort
 from spk_config import SortConfig
 from utils.progress import ProgressBarManager
 from spk2extract.spk_io import read_h5
@@ -54,6 +54,7 @@ def run(params: SortConfig, parallel: bool = True, overwrite: bool = False):
     pbm = ProgressBarManager()
     logger.info(f"{params.get_section('path')}")
     # If the script is being run automatically, on Fridays it will run a greater number of files
+    n_files = 1
     if params.run["run-type"] == "Auto":
         if datetime.datetime.weekday(datetime.date.today()) == 4:
             n_files = int(params.run["weekend-run"])
@@ -64,9 +65,20 @@ def run(params: SortConfig, parallel: bool = True, overwrite: bool = False):
     else:
         raise Exception('Run type choice is not valid. Options are "Manual" or "Auto"')
 
-    runpath = Path.home() / 'data' / 'extracted' / 'serotonin' / 'r11'
+    # TODO: Add a check for the number of files in the directory
+    runpath = Path(params.get_section("path")["data"])
+    if runpath.is_file():
+        runfiles = [runpath]
+    runfiles = []
+    for f in runpath.iterdir():
+        if f.is_file() and f.suffix == ".h5":
+            runfiles.append(f)
+            logger.info(f"Found file: {f}")
+    if len(runfiles) == 0:
+        raise Exception("No files found in the specified directory.")
+    runfiles = runfiles[:n_files]
+
     num_cpu = int(params.run["cores-used"]) if parallel else 1
-    runfiles = [f for f in runpath.iterdir() if f.is_file()][:n_files]
     pbm.init_file_bar(len(runfiles))
 
     for curr_file in runfiles:
@@ -153,7 +165,7 @@ def run(params: SortConfig, parallel: bool = True, overwrite: bool = False):
 
 def main():
     logger.setLevel("CRITICAL")
-    my_data = Path('/media/flynn/Ventoy/data/serotonin/r11/')
+    my_data = Path('/media/thom/hub/data/serotonin/extracted/r11')
 
     main_params = SortConfig(my_data)
     main_params.save_to_ini()

@@ -3,7 +3,7 @@
 #   $ conda env create -f environment.yml  # `mamba` works too for this command
 #   $ conda activate spk2py-dev
 
-name: spk2extract
+name: cpe
 channels:
   - conda-forge
   - default
