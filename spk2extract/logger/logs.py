@@ -184,10 +184,10 @@ def set_log_level(verbose, match=None, return_old=False):
         verbose = logging_types[verbose]
     else:
         raise TypeError('verbose must be a bool or string')
-    logger = logging.getLogger('spk')
-    old_verbose = logger.level
+    _logger = logging.getLogger('spk')
+    old_verbose = _logger.level
     old_match = _lh._spk_set_match(match)
-    logger.setLevel(verbose)
+    _logger.setLevel(verbose)
     if verbose <= logging.DEBUG:
         _lf._spk_set_prepend(True)
     else:

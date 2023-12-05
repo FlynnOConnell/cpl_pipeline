@@ -125,7 +125,7 @@ def compute_waveform_metrics(waves, n_pc=3, umap=False):
 
         data[i,2] = (wave[minima]-wave[maxima])/(minima-maxima)
 
-    # Scale waveforms to energy before running PCA
+    # scale waveforms to energy before running PCA
     if umap:
         pc_waves = implement_umap(waves, n_pc=n_pc)
     else:
@@ -767,8 +767,9 @@ class BlechClust(object):
         return out
 
     def _check_spike_detection(self):
-        '''Check to see if spike detection has been run on all recording directories
-        '''
+        """
+        Check to see if spike detection has been run on all recording directories
+        """
         out = []
         for rec in  self.rec_dirs:
             try:

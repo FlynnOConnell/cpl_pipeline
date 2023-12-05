@@ -8,6 +8,21 @@ from pathlib import Path
 from typing import Any
 
 
+def download_default_config(path_to_save: Path | str = None):
+    """
+    Downloads the default configuration file from the github repository.
+    """
+    default_config_url = "https://github.com/FlynnOConnell/clustersort/raw/master/default_config.ini"
+    try:
+        response = requests.get(default_config_url)
+        response.raise_for_status()
+        with open(path_to_save, 'wb') as file:
+            file.write(response.content)
+        print(f"Default configuration file downloaded to {path_to_save}")
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"Failed to download the default configuration file: {e}")
+
+
 class SortConfig:
     """
     Initialize a new SpkConfig object to manage configurations for the cpsort pipeline.
@@ -63,7 +78,7 @@ class SortConfig:
 
     """
 
-    def __init__(self, cfg_path: Path | str | None = None):
+    def __init__(self, cfg_path: Path | str):
         """
         Initialize a new SpkConfig object to manage configurations for the AutoSort pipeline.
 
@@ -71,22 +86,26 @@ class SortConfig:
         ----------
         cfg_path : str or Path, optional
             The path to the configuration file. Defaults to the repository config.
-
         """
-
-        if cfg_path is None:
-            cfg_path = Path.home() / "default_config.ini"
         self.cfg_path = Path(cfg_path)
-        if not self.cfg_path.is_file():
-            if self.cfg_path.is_dir():
-                # if the provided path is a directory, append the filename
-                self.cfg_path /= "default_config.ini"
-            else:
-                self.cfg_path.parent.mkdir(parents=True, exist_ok=True)
-                self.download_default_config()
+        if self.cfg_path.is_dir():
+            # if the provided path is a directory, append the filename
+            config_file = self.cfg_path.glob("*.ini")
+            if len(list(config_file)) == 0:
+                self.cfg_path = self.cfg_path / "default_config.ini"
+                download_default_config(self.cfg_path)
 
+            elif len(list(config_file)) > 1:
+                raise Exception(f"Multiple configuration files found in {self.cfg_path}")
+            else :
+                self.cfg_path = list(config_file)[0]
+        if self.cfg_path.is_file():
+            # if the provided path is a file, use it
+            pass
+        else:
+            self.cfg_path.parent.mkdir(parents=True, exist_ok=True)
+            download_default_config(self.cfg_path)
 
-        self.set_default_config()
         self.config = self.read_config()
         self.all_params = self.get_all()
         self._validate_config()
@@ -156,20 +175,6 @@ class SortConfig:
                 params[key] = value
         return params
 
-    def download_default_config(self,):
-        """
-        Downloads the default configuration file from the github repository.
-        """
-        default_config_url = "https://github.com/FlynnOConnell/clustersort/raw/master/default_config.ini"
-        try:
-            response = requests.get(default_config_url)
-            response.raise_for_status()
-
-            with open(self.cfg_path, 'wb') as file:
-                file.write(response.content)
-            print(f"Default configuration file downloaded to {self.cfg_path}")
-        except requests.exceptions.RequestException as e:
-            raise Exception(f"Failed to download the default configuration file: {e}")
 
 
     @property
@@ -281,72 +286,6 @@ class SortConfig:
         config.read(self.cfg_path)
         return config
 
-    def set_default_config(self) -> None:
-        """
-        Sets the default configurations for all sections. Writes these to the configuration file.
-        """
-        assert (
-            self.cfg_path.is_file()
-        ), f"Parent directory {self.cfg_path} does not exist"  # this should never fail
-
-        config = configparser.ConfigParser()
-
-        config["path"] = {
-            "data": str(self.cfg_path),
-        }
-
-        config["run"] = {
-            "overwrite": "0",
-            "resort-limit": "3",
-            "cores-used": "8",
-            "weekday-run": "2",
-            "weekend-run": "8",
-            "run-type": "Auto",
-            "manual-run": "2",
-        }
-
-        config["cluster"] = {
-            "min-clusters": "2",  # must be >= 2
-            "max-clusters": "7",
-            "max-iterations": "1000",
-            "convergence-criterion": ".0001",
-            "restarts": "10",
-            "l-ratio-cutoff": ".1",
-            "intra-cluster-cutoff": "3",
-        }
-
-        config["breach"] = {
-            "disconnect-voltage": "1500",
-            "max-breach-rate": ".2",
-            "max-breach-count": "10",
-            "max-breach-avg": "20",
-        }
-
-        config["filter"] = {"low-cutoff": "300", "high-cutoff": "3000"}
-
-        config["spike"] = {
-            "pre-time": "0.2",
-            "post-time": "0.6",
-        }
-
-        config["detection"] = {"spike-detection": "2.0", "artifact-removal": "10.0"}
-
-        config["pca"] = {
-            "variance-explained": ".95",
-            "use-percent-variance": "1",
-            "principal-component-n": "5",
-        }
-
-        config["postprocess"] = {
-            "reanalyze": "0",
-            "simple-gmm": "1",
-            "image-size": "70",
-            "temporary-dir": str(Path.home() / "tmp_python"),
-        }
-
-        with open(self.cfg_path, "w") as configfile:
-            config.write(configfile)
-
     def reload_from_ini(self):
         self.config = self.read_config()
         self.all_params = self.get_all()
@@ -371,9 +310,3 @@ class SortConfig:
             f"Run type {self.run['run-type']} is not valid. Options "
             f"are 'Auto' or 'Manual'"
         )
-        assert self.path["data"] != "None", (
-            "Data path contains no files. Please check that your data path is correct."
-        )
-        if int(self.cluster["min-clusters"]) < 2:
-            self.set("cluster", "min-clusters", 2)
-            self.save_to_ini()

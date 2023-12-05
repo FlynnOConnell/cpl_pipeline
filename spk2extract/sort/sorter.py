@@ -23,23 +23,22 @@ from PIL import ImageFont, ImageDraw, Image
 from sklearn.decomposition import PCA
 
 from spk2extract.logger import logger
-import cluster as clust  # avoid naming conflicts
-from cluster import ClusterGMM
-from directory_manager import DirectoryManager
-from plot import plot_cluster_features, plot_mahalanobis_to_cluster
-from spk_config import SortConfig
-from utils.progress import ProgressBarManager
+from spk2extract.sort import cluster as clust  # avoid naming conflicts
+from spk2extract.sort.directory_manager import DirectoryManager
+from spk2extract.sort.plot import plot_cluster_features, plot_mahalanobis_to_cluster
+from spk2extract.sort.spk_config import SortConfig
+from spk2extract.sort.utils.progress import ProgressBarManager
 
 
 # Factory
 def sort(
-    filename: str | Path,
-    data: dict | NamedTuple,
-    sampling_rate: float,
-    params: SortConfig,
-    dir_manager: DirectoryManager,
-    chan_num: int,
-    overwrite: bool = False,
+        filename: str | Path,
+        data: dict | NamedTuple,
+        sampling_rate: float,
+        params: SortConfig,
+        dir_manager: DirectoryManager,
+        chan_num: int,
+        overwrite: bool = False,
 ):
     """
     Factory method for running the spike sorting process on a single channel.
@@ -71,39 +70,6 @@ def sort(
     proc = ProcessChannel(filename, data, sampling_rate, params, dir_manager, chan_num, overwrite=overwrite)
     proc.process_channel()
 
-
-def infofile(
-    filename: str, path: str | Path, sort_time: float | str, params: SortConfig
-):
-    """
-    Dumps run info to a .info file.
-
-    Parameters
-    ----------
-    filename : str
-        Name of the HDF5 file being processed.
-    path : str or Path
-        The directory path where the .info file will be saved.
-    sort_time : float or str
-        Time taken for sorting.
-    params : SortConfig
-        Instance of SpkConfig with parameters used for sorting.
-
-    Returns
-    -------
-    None
-    """
-    config = configparser.ConfigParser()
-    config["METADATA"] = {
-        "h5 File": filename,
-        "Run Time": sort_time,
-        "Run Date": date.today().strftime("%m/%d/%y"),
-    }
-    config["PARAMS USED"] = params.get_all()
-    with open(
-        path + "/" + os.path.splitext(filename)[0] + "_" + "sort.info", "w"
-    ) as info_file:
-        config.write(info_file)
 
 # TODO: Making this a class doesn't accomplish much, refactor to functions
 class ProcessChannel:
@@ -203,6 +169,7 @@ class ProcessChannel:
             Whether to overwrite existing files.
 
         """
+        self.scaled_slices = None
         self.data_columns = None
         self.metrics = None
         self.filename = filename
@@ -221,19 +188,19 @@ class ProcessChannel:
         self.chan_num = chan_num
         self.dir_manager = dir_manager
         self.overwrite = overwrite
-        self._data_dir =  Path(os.path.join(self.dir_manager.base_path, 'data', self.get_chan_str()))
+        self._data_dir = Path(os.path.join(self.dir_manager.base_path, 'data', self.get_chan_str()))
         self._plots_dir = Path(os.path.join(self.dir_manager.base_path, 'plots', self.get_chan_str()))
         self._plots_dir.mkdir(parents=True, exist_ok=True)
         self._data_dir.mkdir(parents=True, exist_ok=True)
 
         self._files = {'raw_waveforms': os.path.join(self._data_dir, 'raw_waveforms.npy'),
-                       'raw_times' : os.path.join(self._data_dir, 'raw_times.npy'),
-                       'raw_metrics' : os.path.join(self._data_dir, 'metrics.npy'),
-                       'raw_pca' : os.path.join(self._data_dir, 'raw_waveforms_pca.npy'),
+                       'raw_times': os.path.join(self._data_dir, 'raw_times.npy'),
+                       'raw_metrics': os.path.join(self._data_dir, 'metrics.npy'),
+                       'raw_pca': os.path.join(self._data_dir, 'raw_waveforms_pca.npy'),
                        # 'slopes' : os.path.join(self._data_dir, 'spike_slopes.npy'),
                        # 'recording_cutoff' : os.path.join(self._data_dir, 'cutoff_time.txt'),
                        # 'detection_threshold' : os.path.join(self._data_dir, 'detection_threshold.txt')
-                     }
+                       }
 
     def get_chan(self):
         """The channel number to use when saving."""
@@ -379,7 +346,7 @@ class ProcessChannel:
         return float(self.params.breach["voltage-cutoff"])
 
     def process_channel(
-        self,
+            self,
     ):
         """
         Executes spike sorting for a single recording channel.
@@ -415,7 +382,7 @@ class ProcessChannel:
                 self.spikes = np.array(self.spikes)
 
             logger.info(f"|- --- Analyzing channel {self.chan_num + 1} --- -|")
-            self.check_spikes(self.spikes, self.times)
+            self.check_spikes(self.spikes)
             if not self.overwrite:
                 if all([os.path.exists(f) for f in self._files.values()]):
                     logger.info(f"|- --- Channel {self.chan_num + 1} already processed, skipping --- -|")
@@ -428,17 +395,17 @@ class ProcessChannel:
                 freq=(300.0, 3000.0)
             )
 
-            spikes, times, threth  = clust.detect_spikes(
+            spikes, times, thresh = clust.detect_spikes(
                 filt,
                 (0.5, 1.0),
                 self.sampling_rate,
             )
-            scaled_slices = clust.scale_waveforms(spikes)
+            self.scaled_slices = clust.scale_waveforms(spikes)
 
             pca = PCA()
-            pca_slices = pca.fit_transform(scaled_slices)
+            pca_slices = pca.fit_transform(self.scaled_slices)
             pca_cumulative_var = np.cumsum(pca.explained_variance_ratio_)
-            pca_graph_vars = list(pca_cumulative_var[0 : np.where(pca_cumulative_var > 0.999)[0][0] + 1])
+            pca_graph_vars = list(pca_cumulative_var[0: np.where(pca_cumulative_var > 0.999)[0][0] + 1])
             pca_n_pc = (
                 np.where(pca_cumulative_var > self.pvar)[0][0] + 1
                 if self.usepvar == 1
@@ -448,7 +415,7 @@ class ProcessChannel:
             pca_var_explained = float(pca_cumulative_var[pca_n_pc - 1])
 
             self.metrics, self.data_columns = clust.compute_waveform_metrics(
-                scaled_slices, pca_n_pc, True
+                pca_slices, pca_n_pc, True
             )
 
             fig = plt.figure()
@@ -466,13 +433,13 @@ class ProcessChannel:
             plt.title("Variance ratios explained by PCs (cumulative)")
             plt.xlabel("PC #")
             plt.ylabel("Explained variance ratio")
-            fig.savefig(self._plots_dir / "pca_variance_explained.png", bbox_inches="tight",)
+            fig.savefig(self._plots_dir / "pca_variance_explained.png", bbox_inches="tight", )
             plt.close("all")
 
-            self.iter_clusters(self.times, pca_n_pc)
+            self.iter_clusters(self.times)
             break
 
-    def check_spikes(self, spikes, times):
+    def check_spikes(self, spikes):
         """
         Checks for spikes in the data. If none are found, writes a warning and returns.
 
@@ -498,21 +465,19 @@ class ProcessChannel:
             (self._data_dir / "no_spikes.txt").write_text("Sorting finished. No spikes found")
             return
 
-    def iter_clusters(self, spike_times, n_pc):
+    def iter_clusters(self, n_pc):
         """
         Iterates through each cluster, performs GMM-based clustering, and saves the results.
 
         Parameters
         ----------
-        spike_times : ndarray
-            1D array of spike times.
         n_pc : int
             Number of principal components to use.
 
         """
-        from cluster import ClusterGMM
+        from spk2extract.sort.cluster import ClusterGMM
 
-        # Be careful with cluster numbers, they are 0-indexed
+        # careful with cluster numbers are 0-indexed, make sure they match directories
         tested_clusters = np.arange(self.min_clusters, self.max_clusters)
         clust_results = pd.DataFrame(
             columns=["clusters", "converged", "BIC", "spikes_per_cluster"],
@@ -520,15 +485,15 @@ class ProcessChannel:
         )
         logger.info(f"Testing {len(tested_clusters)} clusters")
 
-        spikes_per_clust = []  # 2, 3, 4 ,5 etc.. clusters
+        spikes_per_clust = []
         pbm = ProgressBarManager()
         pbm.init_cluster_bar(len(tested_clusters))
+
+        # we test clusters of 2+, loop through each cluster of 2, 3, 4, 5, etc...
         for num_clust in tested_clusters:
-            # if not self.dir_manager.should_process(self.chan_num, num_clust):
-            #     continue
             logger.info(f"For {num_clust} in tested_clusters -> {tested_clusters}")
-            cluster_data_path = (self._data_dir / f"{num_clust}_clusters")
-            cluster_plot_path = (self._data_dir / f"{num_clust}_clusters")
+            cluster_data_path = (self._data_dir / f"{num_clust}_clusters")  # /path/to/data/channel_1/2_clusters
+            cluster_plot_path = (self._plots_dir / f"{num_clust}_clusters")  # /path/to/plots/channel_1/2_clusters
             cluster_data_path.mkdir(parents=True, exist_ok=True)
             cluster_plot_path.mkdir(parents=True, exist_ok=True)
 
@@ -546,23 +511,16 @@ class ProcessChannel:
                 continue
 
             # If there are too few waveforms
-            # no fmt
+            # nofmt
             if np.any([
-                    len(np.where(predictions[:] == cluster)[0]) <= n_pc + 2
-                    for cluster in range(num_clust)
-                ]):
-                logger.warning(
-                    f"There are too few waveforms to properly sort cluster {num_clust + 3}"
-                )
-                with open(cluster_data_path / "invalid_sort.txt", "w+",) as f:
+                len(np.where(predictions[:] == cluster)[0]) <= n_pc + 2
+                for cluster in range(num_clust)
+            ]):
+                logger.warning(f"There are too few waveforms to properly sort cluster {num_clust + 3}")
+                with open(cluster_data_path / "invalid_sort.txt", "w+", ) as f:
+                    f.write("There are too few waveforms to properly sort this cluster")
+                with open(cluster_data_path / "invalid_sort.txt", "w+", ) as f:
                     f.write("There are too few waveforms to properly sort this clustering")
-                with open(
-                    cluster_data_path  / "invalid_sort.txt",
-                    "w+",
-                ) as f:
-                    f.write(
-                        "There are too few waveforms to properly sort this clustering"
-                    )
                 continue
 
             # Sometimes large amplitude noise interrupts the gmm because the amplitude has
@@ -570,7 +528,7 @@ class ProcessChannel:
             # wf_amplitude_sd_cutoff larger than the cluster mean.
             for cluster in range(num_clust):
                 logger.info(f"{cluster}")
-                this_clust_data = cluster_data_path / f"cluster_{cluster}"
+                this_clust_data = cluster_data_path / f"cluster_{cluster}"  # /path/to/data/channel_1/2_clusters/cluster_1
                 this_clust_data.mkdir(parents=True, exist_ok=True)
 
                 idx = np.where(predictions[:] == cluster)[0]
@@ -603,12 +561,10 @@ class ProcessChannel:
                 np.save(this_clust_data / "cluster_2ms_v.npy", v2ms)
 
             clust_results.loc[num_clust] = [num_clust, True, bic, spikes_per_clust]
-            feature_pairs = itertools.combinations(
-                list(range(self.metrics.shape[1])), 2
-            )
+            feature_pairs = itertools.combinations(list(range(self.metrics.shape[1])), 2)
+
             for f1, f2 in feature_pairs:
                 logger.info(f"Plotting {(f1, f2)}")
-                fn = "%sVS%s.png" % (self.data_columns[f1], self.data_columns[f2])
                 feat_str = f"{self.data_columns[f1]}_vs_{self.data_columns[f2]}"
                 feat_str = feat_str.replace(" ", "")
                 savename = cluster_plot_path / feat_str
@@ -663,7 +619,7 @@ class ProcessChannel:
                     outpath + "/" + channel
                 )  # create an output path for each channel
                 for soln in range(
-                    3, maxclust + 1
+                        3, maxclust + 1
                 ):  # for each number hpc_cluster solution
                     finalpath = outpath + "/" + channel + "/" + str(soln) + "_clusters"
                     os.mkdir(finalpath)  # create output folders
@@ -699,15 +655,15 @@ class ProcessChannel:
                         if not np.shape(isi)[0:2] == (480, 640):
                             isi = cv2.resize(isi, (640, 480))
                         blank = (
-                            np.ones((240, 640, 3), np.uint8) * 255
+                                np.ones((240, 640, 3), np.uint8) * 255
                         )  # make whitespace for info
                         text = (
-                            "Electrode: "
-                            + channel
-                            + "\nSolution: "
-                            + str(soln)
-                            + "\nCluster: "
-                            + str(cluster)
+                                "Electrode: "
+                                + channel
+                                + "\nSolution: "
+                                + str(soln)
+                                + "\nCluster: "
+                                + str(cluster)
                         )  # text to output to whitespace (hpc_cluster, channel, and solution numbers)
                         cv2_im_rgb = cv2.cvtColor(
                             blank, cv2.COLOR_BGR2RGB
@@ -804,12 +760,12 @@ class ProcessChannel:
                 logger.warning(f"{e}")
                 pass
         with pd.ExcelWriter(
-            os.path.split(path)[0] + f"/{os.path.split(path)[-1]}_compiled_isoi.xlsx",
-            engine="xlsxwriter",
+                os.path.split(path)[0] + f"/{os.path.split(path)[-1]}_compiled_isoi.xlsx",
+                engine="xlsxwriter",
         ) as outwrite:
             file_isoi.to_excel(outwrite, sheet_name="iso_data", index=False)
             if (
-                errorfiles.size == 0
+                    errorfiles.size == 0
             ):  # if there are no error csv's add some nans and output to the Excel
                 errorfiles = errorfiles.append(
                     [{"channel": "nan", "solution": "nan", "file": "nan"}]

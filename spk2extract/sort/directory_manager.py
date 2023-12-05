@@ -35,7 +35,7 @@ class DirectoryManager:
     Temporary files are cached according to your operating system.
         - On Windows, this is typically in the AppData/Local/Temp directory.
         - On Linux, this is typically in the /tmp directory.
-        - On macOS, this is typically in the /var/folders directory.
+        - On macOS, this is typically in the /var directory.
 
     """
 
@@ -45,6 +45,8 @@ class DirectoryManager:
         ----------
         filepath : str or Path
             Full filepath of the data file being processed.
+        params : SortConfig
+            Configuration parameters for spike sorting.
         """
         self.filename = Path(filepath).stem
         self.filetype = Path(filepath).suffix  # .h5, .nwb, .npy

@@ -13,8 +13,8 @@ from spk2extract import utils
 from spk2extract.sort.directory_manager import DirectoryManager
 from spk2extract.logger import logger
 from spk2extract.sort.sorter import sort
-from spk_config import SortConfig
-from utils.progress import ProgressBarManager
+from spk2extract.sort.spk_config import SortConfig
+from spk2extract.sort.utils.progress import ProgressBarManager
 from spk2extract.spk_io import read_h5
 
 def run(params: SortConfig, parallel: bool = True, overwrite: bool = False):
@@ -51,7 +51,6 @@ def run(params: SortConfig, parallel: bool = True, overwrite: bool = False):
     pbm = ProgressBarManager()
     logger.info(f"{params.get_section('path')}")
     # If the script is being run automatically, on Fridays it will run a greater number of files
-    n_files = 1
     if params.run["run-type"] == "Auto":
         if datetime.datetime.weekday(datetime.date.today()) == 4:
             n_files = int(params.run["weekend-run"])
@@ -63,21 +62,16 @@ def run(params: SortConfig, parallel: bool = True, overwrite: bool = False):
         raise Exception('Run type choice is not valid. Options are "Manual" or "Auto"')
 
     # TODO: Add a check for the number of files in the directory
-    runpath = Path(params.get_section("path")["data"])
-    if runpath.is_file():
-        runfiles = [runpath]
-    runfiles = []
-    for f in runpath.iterdir():
-        if f.is_file() and f.suffix == ".h5":
-            runfiles.append(f)
-            logger.info(f"Found file: {f}")
-    if len(runfiles) == 0:
-        raise Exception("No files found in the specified directory.")
-    runfiles = runfiles[:n_files]
+    runpath = Path(params.get_section("path")["run"])
+    data_files = list(runpath.glob("*.h5"))
+    if len(data_files) == 0:
+        logger.info(f"No files found in {runpath}")
+        return
+    runfiles = data_files[:n_files]
 
     num_cpu = int(params.run["cores-used"]) if parallel else 1
-    pbm.init_file_bar(len(runfiles))
 
+    pbm.init_file_bar(len(runfiles))
     for curr_file in runfiles:
         if curr_file.suffix != ".h5":
             continue
@@ -89,7 +83,6 @@ def run(params: SortConfig, parallel: bool = True, overwrite: bool = False):
         for key in ['VERSION', "CLASS", "TITLE"]:
             if key in all_data.keys():
                 del all_data[key]
-        all_data = all_data
 
         unit_data = {}
         for key in all_data.keys():

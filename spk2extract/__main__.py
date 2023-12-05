@@ -4,19 +4,43 @@ import argparse
 import logger
 from sort.run_sort import run
 from spk2extract.sort.spk_config import SortConfig
+from spk2extract.defaults import defaults
 # import gui
 
 def main():
     parser = argparse.ArgumentParser(description='Run spike sorting.')
-    parser.add_argument('--path', type=str, help='Path to data files')
+    parser.add_argument('-p', '--path', type=str, help='Path to data files')
+    parser.add_argument('-c', '--config', type=str, help='Path to config ini')
+    parser.add_argument('-o', '--overwrite', action='store_true', help='Overwrite existing files')
+    parser.add_argument('-l', '--loglevel', action='store_true', help='Overwrite existing files')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output')
     parser.add_argument('--parallel', action='store_true', help='Run in parallel')
-    parser.add_argument('--overwrite', action='store_true', help='Overwrite existing files')
+    parser.add_argument('--sort', action='store_true', help='Run sorting')
     args = parser.parse_args()
 
-    logger.set_log_level("CRITICAL")
-    main_params = SortConfig(Path(args.path))
-    main_params.save_to_ini()
-    run(main_params, parallel=args.parallel, overwrite=args.overwrite)
+    ops = defaults()
+    if args.path is None:
+        args.path = ops['data_path']
+    if args.config is None:
+        args.config = ops['config_path']
+    if args.overwrite is None:
+        args.overwrite = ops['overwrite']
+    if args.loglevel is None:
+        args.loglevel = ops['loglevel']
+    if args.parallel is None:
+        args.parallel = ops['parallel']
+    if args.verbose is None:
+        args.verbose = ops['verbose']
+
+    logger.set_log_level(verbose=args.loglevel)
+    config = SortConfig(Path(args.config)) # the config contains the path to the data
+    if args.sort:
+        run(config, parallel=args.parallel, overwrite=args.overwrite)
+    else:
+        pass
+        # gui.run(config)
+
+def blech():
 
 if __name__ == "__main__":
     main()

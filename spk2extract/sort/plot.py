@@ -1,16 +1,12 @@
-import pandas as pd
 import numpy as np
-import h5py
 import os
 import umap
 import pywt
 import itertools as it
-from scipy.stats import sem
-from scipy.ndimage.filters import gaussian_filter1d
 from statsmodels.stats.diagnostic import lilliefors
 from sklearn.decomposition import PCA
-from utils.shader import waveforms_datashader
 import matplotlib
+from spk2extract.sort.utils.shader import waveforms_datashader
 
 matplotlib.use("Agg")
 import pylab as plt
@@ -408,7 +404,8 @@ def plot_cluster_pca(clusters):
     return fig, axs
 
 def plot_cluster_raster(clusters):
-    """Plot raster view of a cluster from blechpy.analysis.spike_sorting
+    """
+    Plot raster view of a cluster from blechpy.analysis.spike_sorting
 
     Parameters
     ----------
@@ -429,13 +426,12 @@ def plot_cluster_raster(clusters):
         pcs = pca.transform(c["spike_waveforms"])
         st = c["spike_times"]
         plt.scatter(st, pcs[:, 0], s=5, color=colors[i], label=str(i))
-
     plt.legend(loc="best")
-
     return fig
 
 def plot_waveforms(waveforms, title=None, save_file=None, threshold=None):
-    """Plots a cluster with isi and violation info for viewing
+    """
+    Plots a cluster with isi and violation info for viewing
     """
     fig, ax = waveforms_datashader(
         waveforms, threshold
@@ -910,8 +906,6 @@ def make_unit_plots(file_dir, unit_name, save_dir=None):
     if isinstance(unit_name, int):
         unit_num = unit_name
         unit_name = 'unit%03i' % unit_num
-    else:
-        unit_num = dio.h5io.parse_unit_number(unit_name)
 
     waveforms, descriptor, fs = dio.h5io.get_unit_waveforms(file_dir, unit_name)
     fs_str = '%g samples per ms' % (fs/10/1000.0)  # since both theses plots
