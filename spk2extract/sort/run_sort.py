@@ -9,16 +9,13 @@ import math
 import multiprocessing
 from pathlib import Path
 
+from spk2extract import utils
 from spk2extract.sort.directory_manager import DirectoryManager
 from spk2extract.logger import logger
 from spk2extract.sort.sorter import sort
 from spk_config import SortConfig
 from utils.progress import ProgressBarManager
 from spk2extract.spk_io import read_h5
-
-def check_substring_content(main_string, substring):
-    """Checks if any combination of the substring is in the main string."""
-    return substring.lower() in main_string.lower()
 
 def run(params: SortConfig, parallel: bool = True, overwrite: bool = False):
     """
@@ -96,7 +93,7 @@ def run(params: SortConfig, parallel: bool = True, overwrite: bool = False):
 
         unit_data = {}
         for key in all_data.keys():
-            if check_substring_content(key, "U"):
+            if utils.check_substring_content(key, "U"):
                 unit_data[key] = all_data[key]
         num_chan = len(unit_data)
 

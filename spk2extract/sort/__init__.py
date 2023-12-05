@@ -28,9 +28,8 @@ TAB-completion and introspection capabilities.
 
 """
 from . import directory_manager
-from . import main
 from . import sorter
 from . import spk_config
 from . import utils
 
-__all__ = ["directory_manager", "main", "sorter", "spk_config", "utils"]
+__all__ = ["directory_manager", "sorter", "spk_config", "utils"]

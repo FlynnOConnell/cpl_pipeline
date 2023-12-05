@@ -4,11 +4,9 @@ import os
 
 import numpy as np
 
-
-# Useful for cache usage
 class CacheDict(dict):
     """
-    A simple dictionary that prevents itself from growing too much.
+    A dictionary that prevents itself from growing too much.
     """
 
     def __init__(self, maxentries):
@@ -53,10 +51,6 @@ def check_substring_content(main_string, substring):
     """Checks if any combination of the substring is in the main string."""
     return substring.lower() in main_string.lower()
 
-if __name__ == "__main__":
-    _test()
-
-
 def pad_arrays_to_same_length(arr_list, max_diff=100):
     """
     Pads numpy arrays to the same length.
@@ -83,7 +77,9 @@ def pad_arrays_to_same_length(arr_list, max_diff=100):
 
     return padded_list
 
-
 def extract_common_key(filepath):
     parts = filepath.stem.split("_")
     return "_".join(parts[:-1])
+
+if __name__ == "__main__":
+    _test()

@@ -57,5 +57,5 @@ dependencies:
   - numpydoc=1.4.0
 
   - pip:
-    - sonpy
+#    - sonpy
     - termcolor

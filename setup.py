@@ -1,28 +1,10 @@
+import platform
+
 from setuptools import find_packages, setup
 
-reqs = [
-    'numpy<=1.24',
-    'numba',
-    'scipy',
-    'pandas',
-    'scikit-learn',
-    'scikit-image',
-    'matplotlib',
-    'pyOpenSSL',
-    'datashader',
-    'pip',
-    'h5py',
-    'pillow',
-    'opencv-python',
-    'imageio'
-]
-
-docs_extras = [
-    'Sphinx >= 6.2.1',
-    'sphinx-design',
-    'pydata-sphinx-theme',
-    'numpydoc'
-]
+pyreq = '>3.8.0'
+if platform.machine() != 'arm64':
+    pyreq = '3.9.0'
 
 setup(
     name='spk2extract',
@@ -32,8 +14,6 @@ setup(
     author_email='Flynnoconnell@gmail.com',
     url='https://www.github.com/Flynnoconnell/spk2extract',
     packages=find_packages(),
-    install_requires=reqs,
-    extras_require={'docs': docs_extras},
     include_package_data=True,
     zip_safe=False,
     classifiers = [
@@ -53,5 +33,4 @@ setup(
         'Operating System :: Unix',
         'Operating System :: MacOS',
     ],
-    python_requires='>=3.9,<3.10',
 )

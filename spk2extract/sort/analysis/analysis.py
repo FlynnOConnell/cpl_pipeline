@@ -262,6 +262,7 @@ def spike_time_acorr(X, binsize=1, max_t=20):
     counts = counts / (len(X) * binsize)
     return counts, bin_centers, bin_edges
 
+
 def check_taste_response(time, spikes, win_size=1500):
     pre_idx = np.where((time >= -win_size) & (time < 0))[0]
     post_idx = np.where((time >= 0) & (time < win_size))[0]

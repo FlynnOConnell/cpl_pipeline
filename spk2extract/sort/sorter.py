@@ -24,6 +24,7 @@ from sklearn.decomposition import PCA
 
 from spk2extract.logger import logger
 import cluster as clust  # avoid naming conflicts
+from cluster import ClusterGMM
 from directory_manager import DirectoryManager
 from plot import plot_cluster_features, plot_mahalanobis_to_cluster
 from spk_config import SortConfig

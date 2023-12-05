@@ -7,7 +7,6 @@ name = "spk2extract"
 version = "0.0.1"
 # TODO: add `license-files` once PEP 639 is accepted (see meson-python#88)
 license = {file = "LICENSE.txt"}
-
 description = "Spike extraction utilities for python"
 authors = [{name = "Flynn O'Connell"}]
 maintainers = [
@@ -32,6 +31,8 @@ classifiers = [
     'Operating System :: Unix',
     'Operating System :: MacOS',
 ]
+dynamic = ["version", "dependencies"]
+
 
 [project.urls]
 homepage = "https://www.github.com/Flynnoconnell/spk2extract"
