@@ -9,6 +9,7 @@ from scipy.spatial.distance import mahalanobis
 from scipy.stats import chi2
 from sklearn.mixture import GaussianMixture
 
+
 def cluster_gmm(data, n_clusters, n_iter, restarts, threshold):
     """
     Cluster the data using a Gaussian Mixture Model (GMM).

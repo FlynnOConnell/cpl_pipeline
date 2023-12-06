@@ -17,6 +17,7 @@ from spk2extract.sort.spk_config import SortConfig
 from spk2extract.sort.utils.progress import ProgressBarManager
 from spk2extract.spk_io import read_h5
 
+
 def run(params: SortConfig, parallel: bool = True, overwrite: bool = False):
     """
     Entry point for the clustersort package.
@@ -80,7 +81,7 @@ def run(params: SortConfig, parallel: bool = True, overwrite: bool = False):
         all_data = h5file["channels"]
 
         # Extract only the unit data
-        for key in ['VERSION', "CLASS", "TITLE"]:
+        for key in ["VERSION", "CLASS", "TITLE"]:
             if key in all_data.keys():
                 del all_data[key]
 
@@ -153,13 +154,15 @@ def run(params: SortConfig, parallel: bool = True, overwrite: bool = False):
         pbm.update_file_bar()
     pbm.close_file_bar()
 
+
 def main():
     logger.setLevel("CRITICAL")
-    my_data = Path('/media/thom/hub/data/serotonin/extracted/r11')
+    my_data = Path("/media/thom/hub/data/serotonin/extracted/r11")
 
     main_params = SortConfig(my_data)
     main_params.save_to_ini()
     run(main_params, parallel=False, overwrite=True)
+
 
 if __name__ == "__main__":
     main()

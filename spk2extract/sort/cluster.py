@@ -14,28 +14,40 @@ from scipy.signal import butter, filtfilt
 from spk2extract.sort.spk_config import SortConfig
 
 
-def get_filtered_electrode(data, freq = [300.0, 3000.0], sampling_rate = 30000.0):
+def get_filtered_electrode(data, freq=[300.0, 3000.0], sampling_rate=30000.0):
     el = data
-    m, n = butter(2, [2.0*freq[0]/sampling_rate, 2.0*freq[1]/sampling_rate], btype = 'bandpass')
+    m, n = butter(
+        2,
+        [2.0 * freq[0] / sampling_rate, 2.0 * freq[1] / sampling_rate],
+        btype="bandpass",
+    )
     filt_el = filtfilt(m, n, el)
     return filt_el
 
-def get_waveforms(el_trace, spike_times, snapshot = [0.5, 1.0],
-                  sampling_rate = 30000.0, bandpass=[300, 3000]):
+
+def get_waveforms(
+    el_trace,
+    spike_times,
+    snapshot=[0.5, 1.0],
+    sampling_rate=30000.0,
+    bandpass=[300, 3000],
+):
 
     # Filter and extract waveforms
-    filt_el = get_filtered_electrode(el_trace, freq=bandpass,
-                                     sampling_rate=sampling_rate)
+    filt_el = get_filtered_electrode(
+        el_trace, freq=bandpass, sampling_rate=sampling_rate
+    )
     del el_trace
-    pre_pts = int((snapshot[0]+0.1) * (sampling_rate/1000))
-    post_pts = int((snapshot[1]+0.2) * (sampling_rate/1000))
-    slices = np.zeros((spike_times.shape[0], pre_pts+post_pts))
+    pre_pts = int((snapshot[0] + 0.1) * (sampling_rate / 1000))
+    post_pts = int((snapshot[1] + 0.2) * (sampling_rate / 1000))
+    slices = np.zeros((spike_times.shape[0], pre_pts + post_pts))
     for i, st in enumerate(spike_times):
-        slices[i, :] = filt_el[st - pre_pts: st + post_pts]
+        slices[i, :] = filt_el[st - pre_pts : st + post_pts]
 
     slices_dj, times_dj = dejitter(slices, spike_times, snapshot, sampling_rate)
 
-    return slices_dj, sampling_rate*10
+    return slices_dj, sampling_rate * 10
+
 
 def detect_spikes(filt_el, spike_snapshot, fs, thresh=None):
     """
@@ -67,7 +79,7 @@ def detect_spikes(filt_el, spike_snapshot, fs, thresh=None):
     snapshot = np.arange(
         -(spike_snapshot[0] + 0.1) * fs / 1000,
         1 + (spike_snapshot[1] + 0.1) * fs / 1000,
-        ).astype("int64")
+    ).astype("int64")
     if thresh is None:
         thresh = get_detection_threshold(filt_el)
 
@@ -88,6 +100,7 @@ def detect_spikes(filt_el, spike_snapshot, fs, thresh=None):
 
     waves_dj, times_dj = dejitter(np.array(waves), np.array(times), spike_snapshot, fs)
     return waves_dj, times_dj, thresh
+
 
 def group_consecutives(arr):
     """
@@ -116,10 +129,11 @@ def group_consecutives(arr):
     out.append(arr[prev:])
     return out
 
+
 def filter_signal(
-        signal,
-        sampling_rate: int | float,
-        freq,
+    signal,
+    sampling_rate: int | float,
+    freq,
 ):
     """
     Apply a bandpass filter to the input electrode signal using a Butterworth digital and analog filter design.
@@ -148,6 +162,7 @@ def filter_signal(
     filt_el = filtfilt(m, n, signal)
     return filt_el
 
+
 def get_detection_threshold(filt_el):
     """
     Calculates the spike detection threshold as 5x the median absolute deviation
@@ -167,8 +182,9 @@ def get_detection_threshold(filt_el):
     th = 5.0 * np.median(np.abs(filt_el) / 0.6745)
     return m - th
 
+
 def dejitter(
-        slices: list[np.ndarray] | np.ndarray, spike_times, spike_snapshot, sampling_rate
+    slices: list[np.ndarray] | np.ndarray, spike_times, spike_snapshot, sampling_rate
 ):
     """
     Adjust the alignment of extracted spike waveforms to minimize jitter.
@@ -220,6 +236,7 @@ def dejitter(
                 spike_times_dejittered.append(spike_times[i])
     return np.array(slices_dejittered), np.array(spike_times_dejittered)
 
+
 def implement_wavelet_transform(waves, n_pc=10):
     coeffs = pywt.wavedec(waves, "haar", axis=1)
     all_coeffs = np.column_stack(coeffs)
@@ -231,14 +248,17 @@ def implement_wavelet_transform(waves, n_pc=10):
     idx = np.argsort(p_vals)
     return all_coeffs[:, idx[:n_pc]]
 
+
 def implement_pca(scaled_slices):
     pca = PCA()
     pca_slices = pca.fit_transform(scaled_slices)
     return pca_slices, pca.explained_variance_ratio_
 
+
 def implement_umap(waves, n_pc=3, n_neighbors=30, min_dist=0.0):
     reducer = umap.UMAP(n_components=n_pc, n_neighbors=n_neighbors, min_dist=min_dist)
     return reducer.fit_transform(waves)
+
 
 def get_waveform_energy(waves):
     """
@@ -252,7 +272,8 @@ def get_waveform_energy(waves):
     -------
     np.array
     """
-    return np.sqrt(np.sum(waves**2, axis=1)) / waves.shape[1]
+    return np.sqrt(np.sum(waves ** 2, axis=1)) / waves.shape[1]
+
 
 def get_spike_slopes(waves):
     """
@@ -279,7 +300,11 @@ def get_spike_slopes(waves):
 
     return slopes
 
-def get_ISI_and_violations(spike_times, fs,):
+
+def get_ISI_and_violations(
+    spike_times,
+    fs,
+):
     """
     Returns array of inter-spike-intervals (ms) and corresponding number of 1ms and 2ms violations.
 
@@ -303,6 +328,7 @@ def get_ISI_and_violations(spike_times, fs,):
     violations2 = np.sum(isi < 2.0)
 
     return isi, violations1, violations2
+
 
 def scale_waveforms(waves, energy=None):
     """
@@ -336,6 +362,7 @@ def scale_waveforms(waves, energy=None):
 
     return scaled_slices
 
+
 def compute_waveform_metrics(waves, n_pc=3, use_umap=False):
     """
 
@@ -357,7 +384,7 @@ def compute_waveform_metrics(waves, n_pc=3, use_umap=False):
     data = np.zeros((waves.shape[0], 3))
     for i, wave in enumerate(waves):
         data[i, 0] = np.min(wave)
-        data[i, 1] = np.sqrt(np.sum(wave**2)) / len(wave)
+        data[i, 1] = np.sqrt(np.sum(wave ** 2)) / len(wave)
         peaks = find_peaks(wave)[0]
         minima = np.argmin(wave)
         if not any(peaks < minima):
@@ -378,6 +405,7 @@ def compute_waveform_metrics(waves, n_pc=3, use_umap=False):
     data_columns = ["amplitude", "energy", "spike_slope"]
     data_columns.extend(["PC%i" % i for i in range(n_pc)])
     return data, data_columns
+
 
 def get_mahalanobis_distances_to_cluster(data, model, clusters, target_cluster):
     """
@@ -412,6 +440,7 @@ def get_mahalanobis_distances_to_cluster(data, model, clusters, target_cluster):
         out_distances[other_cluster] = mahalanobis_dist
 
     return out_distances
+
 
 def get_recording_cutoff(
     filt_el,
@@ -478,8 +507,10 @@ def get_recording_cutoff(
 
     return recording_cutoff
 
+
 def UMAP_METRICS(waves, n_pc):
     return compute_waveform_metrics(waves, n_pc, use_umap=True)
+
 
 class ClusterGMM:
     def __init__(
@@ -490,9 +521,15 @@ class ClusterGMM:
         thresh: int | float = None,
     ):
         self.cluster_params = config.get_section("cluster")
-        self.n_iters = n_iters if n_iters else int(self.cluster_params["max-iterations"])
-        self.n_restarts = n_restarts if n_restarts else int(self.cluster_params["restarts"])
-        self.thresh = thresh if thresh else float(self.cluster_params["convergence-criterion"])
+        self.n_iters = (
+            n_iters if n_iters else int(self.cluster_params["max-iterations"])
+        )
+        self.n_restarts = (
+            n_restarts if n_restarts else int(self.cluster_params["restarts"])
+        )
+        self.thresh = (
+            thresh if thresh else float(self.cluster_params["convergence-criterion"])
+        )
 
     def fit(self, data_features, n_clusters):
         """

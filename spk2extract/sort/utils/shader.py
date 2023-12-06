@@ -24,7 +24,9 @@ import numpy as np
 import pandas as pd
 
 
-def waveforms_datashader(waveforms: np.ndarray, x_values: np.ndarray, dir_name="datashader_temp"):
+def waveforms_datashader(
+    waveforms: np.ndarray, x_values: np.ndarray, dir_name="datashader_temp"
+):
     """
     Create a Datashader image from an array of waveforms.
 

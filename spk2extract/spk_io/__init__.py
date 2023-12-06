@@ -9,5 +9,5 @@ __all__ = [
     "read_h5",
     "write_h5",
     "load_from_h5",
-    "save_channel_h5"
+    "save_channel_h5",
 ]

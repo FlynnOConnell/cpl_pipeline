@@ -16,6 +16,7 @@ from scipy.stats import ttest_rel
 
 from spk2extract.logger import logger
 
+
 def save_figure(path, overwrite=False, fail_silently=False):
     path = Path(path)
     if path.exists() and not overwrite:
@@ -25,9 +26,17 @@ def save_figure(path, overwrite=False, fail_silently=False):
             raise FileExistsError(f"File {path} already exists.")
     plt.savefig(path)
 
+
 def plot_2D_coherence(coh, times, freqs, title, filename, session_path):
     fig, ax = plt.subplots(figsize=(12, 8))
-    cax = ax.imshow(coh, extent=(times[0], times[-1], freqs[0], freqs[-1]), aspect="auto", origin="lower", cmap="jet", interpolation="bilinear")
+    cax = ax.imshow(
+        coh,
+        extent=(times[0], times[-1], freqs[0], freqs[-1]),
+        aspect="auto",
+        origin="lower",
+        cmap="jet",
+        interpolation="bilinear",
+    )
     cbar = fig.colorbar(cax, ax=ax)
     cbar.set_label("Coherence Value", rotation=270, labelpad=15)
     ax.set_title(title, fontsize=16, fontweight="bold")
@@ -37,6 +46,7 @@ def plot_2D_coherence(coh, times, freqs, title, filename, session_path):
     ax.grid(False)
     plt.tight_layout()
     save_figure(session_path / filename, overwrite=True, fail_silently=True)
+
 
 def plot_coh(epoch_object: Epochs, freqs=(5, 100)):
     # Remaining code for spectral_connectivity_epochs and plotting
@@ -70,6 +80,7 @@ def plot_coh(epoch_object: Epochs, freqs=(5, 100)):
     plt.ylabel("Frequency (Hz)")
     plt.show()
 
+
 def plot_custom_data(data, times, ch_names, start=None, duration=None, fs=None):
     if start is None:
         start = 0
@@ -102,6 +113,7 @@ def plot_custom_data(data, times, ch_names, start=None, duration=None, fs=None):
     ax[-1].set_xlabel("Time (ms)", **bold_font)
     plt.tight_layout()
     plt.show()
+
 
 def plot_processing_steps(raw_list, titles, start, duration, scalings, channel_name):
     n = len(raw_list)
@@ -138,6 +150,7 @@ def plot_processing_steps(raw_list, titles, start, duration, scalings, channel_n
     plt.tight_layout()
     plt.show()
 
+
 def plot_all_epoch(epoch, title, savepath=None):
     for epoch_idx, (epoch_signal_ch1, epoch_signal_ch2) in enumerate(epoch):
         window_size = 100
@@ -171,9 +184,9 @@ def plot_all_epoch(epoch, title, savepath=None):
         for seg in range(num_segments):
             color_value = norm(new_coh_values[seg])
             ax1.fill_between(
-                new_coh_times[seg: seg + 2],
+                new_coh_times[seg : seg + 2],
                 0,
-                new_coh_values[seg: seg + 2],
+                new_coh_values[seg : seg + 2],
                 color=colormap(color_value),
             )
 

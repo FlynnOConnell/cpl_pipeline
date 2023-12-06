@@ -1,9 +1,9 @@
 """
 ===============
-``extract``
+``cpl_extract``
 ===============
 
-*spk2extract. A spike 2 data extract utility for extracellular recordings.*
+*cpl_extract. A utility for extraction and sorting of extracellular recordings.*
 
 """
 try:
@@ -16,7 +16,7 @@ except ImportError:
 from pathlib import Path
 from . import spk_io, gui, utils, defaults, sort
 
-__name__ = "cp_extract"
+__name__ = "cpl_extract"
 __author__ = "Flynn OConnell"
 __all__ = [
     "spk_io",
@@ -31,7 +31,7 @@ version = "0.0.1"
 
 # Platform-dependent directories
 def _init_directories():
-    cpe_dir = Path().home() / "cp_extract"
+    cpe_dir = Path().home() / "cpl_extract"
     if not cpe_dir.exists():
         cpe_dir.mkdir(exist_ok=True)
 
@@ -41,7 +41,7 @@ def _init_directories():
             "cache_dir": user_cache_dir(__name__),
             "config_dir": user_config_dir(__name__),
             "log_dir": user_log_dir(__name__),
-            "cpe_dir": cpe_dir
+            "cpe_dir": cpe_dir,
         }
     else:
         return {

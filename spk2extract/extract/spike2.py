@@ -8,6 +8,7 @@ from itertools import compress
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 try:
     from sonpy import lib as sp
@@ -22,19 +23,36 @@ from spk2extract.logger import logger
 from spk2extract.defaults import defaults
 from spk2extract import spk_io
 
+# any type that contains "Mark" or "mark" is an event channel:
+# - Marker
+# - RealMark
+# - TextMark
+# - AdcMark
+
+EVENTS = [
+    sp.DataType.Marker,
+    sp.DataType.RealMark,
+    sp.DataType.TextMark,
+    sp.DataType.AdcMark,
+    sp.DataType.RealMark,
+]
+
+ADC = [sp.DataType.Adc]
+
+
 class Channel:
-    def __init__(self, name, chan_type, data, times, metadata):
+    def __init__(self, name, chan_type, chan_data, times):
         self.name = name
         self.type = chan_type
-        self.data: np.ndarray = data
+        self.data: np.ndarray = chan_data
         self.times: np.ndarray = times
-        self.metadata = metadata
 
     def __repr__(self):
         return f"{self.name}"
 
     def __str__(self):
         return f"{self.name}"
+
 
 class SonfileException(BaseException):
     """
@@ -51,20 +69,25 @@ class SonfileException(BaseException):
     def __repr__(self):
         return f"{self.message}"
 
+
 def is_ascii_letter(char):
     if char in range(65, 91) or char in range(97, 123):
         return True
 
+
 def codes_to_string(codes):
     return "".join(chr(code) for code in codes if code != 0)
+
 
 def indices_to_time(indices, fs):
     """Spike2 indices are in clock ticks, this converts them to seconds."""
     return np.array(indices) / float(fs)
 
+
 def ticks_to_time(ticks, time_base):
     """Converts clock ticks to seconds."""
     return np.array(ticks) * time_base
+
 
 class Spike2Data:
     """
@@ -173,7 +196,42 @@ class Spike2Data:
         self.errors = {}
         self.filename = Path(filepath)
         self.sonfile = sp.SonFile(str(self.filename), True)
-        self.channels = []
+
+        self.data = pd.DataFrame(
+            columns=[
+                "idx",
+                "name",
+                "type",
+                "fs",
+                "units",
+                "bitrate",
+                "recording_length",
+                "filename",
+            ]
+        )
+        self.data["idx"] = range(self._max_channels())  # the index stored by sonpy
+        self.data["name"] = [
+            self.sonfile.GetChannelTitle(idx) for idx in range(self._max_channels())
+        ]
+        self.data["type"] = [
+            self.sonfile.ChannelType(idx) for idx in range(self._max_channels())
+        ]
+        self.data["fs"] = [
+            np.round(1 / (self.sonfile.ChannelDivide(idx) * self._time_base()), 2)
+            for idx in range(self._max_channels())
+        ]
+        self.data["units"] = [
+            self.sonfile.GetChannelUnits(idx) for idx in range(self._max_channels())
+        ]
+        self.data["bitrate"] = 32 if self.sonfile.is32file() else 64
+        self.data["recording_length"] = self._max_time()
+        self.data["filename"] = self.filename.stem
+
+        self.events = self.data[self.data["type"].isin(EVENTS)]
+        self.waves = self.data[self.data["type"].isin(ADC)]
+
+        # filter out any types = DataType.Off
+        self.data = self.data[self.data["type"] != sp.DataType.Off]
 
         if self.sonfile.GetOpenError() != 0:
             if self.filename.suffix not in [".smr", ".smrx"]:
@@ -187,70 +245,33 @@ class Spike2Data:
                     f"Double check the file contains valid data."
                 )
 
-        self.bitrate = 32 if self.sonfile.is32file() else 64
-        self.metadata = {
-            "bitrate": self.bitrate,
-            "filename": self.filename.stem,
-            "recording_length": self.max_time(),
-        }
-
     def __repr__(self):
         return f"{self.filename.stem}"
 
     def __str__(self):
         return f"{self.filename.stem}"
 
-    def process_channels(self, ):
-        """
-        Iterate over the channels in the file.
+    def extract(self, *args):
+        """Extract "waves" or "events" into hdf5 cache."""
+        for k in args:
+            if k == "events":
+                df = self.events
+                for x in df.index:
+                    # process_event() needs access to just the index
+                    self._process_event(x)
+            elif k == "waves":
+                # process_signal() needs access to full dataframe
+                self._process_signal(self.waves)
+            else:
+                raise ValueError(f"Invalid argument {k}.")
 
-        Yields
-        -------
-        idx : int
-            The channel index.
-        title : str
-            The channel title.
-        type : int
-            The channel type.
-        """
-        for idx in range(self.max_channels()):
-            # Get the sampling frequency of the channel
-            fs = np.round(1 / (self.sonfile.ChannelDivide(idx) * self.time_base()), 2)
-            metadata = {
-                "fs": fs,
-                "units": self.sonfile.GetChannelUnits(idx),
-            }  # units will be empty for events
-
-            signal, times = [], []
-            channel_type = ""
-
-            if self.sonfile.ChannelType(idx) == sp.DataType.Off:
-                # contains no data, untitled channels
-                continue
-            if self.sonfile.ChannelType(idx) == sp.DataType.Adc:
-                # contains analog - digital converted data
-                signal = self.sonfile.ReadFloats(idx, int(2e9), 0)
-                times = indices_to_time(range(len(signal)), fs)
-                channel_type = "signal"
-            if self.sonfile.ChannelType(idx) in (sp.DataType.Marker, sp.DataType.RealMark, sp.DataType.TextMark, sp.DataType.AdcMark):
-                channel_type = "event"
-                signal, times = self.process_event(idx)
-            self.channels.append(
-                Channel(
-                    self.sonfile.GetChannelTitle(idx),
-                    channel_type,
-                    signal,
-                    times,
-                    metadata,
-                )
-            )
-
-    def process_event(self, idx: int):
+    def _process_event(self, idx: int):
         """
         Process event channels, i.e. channels that contain events.
 
         Event times are converted to seconds.
         """
+        logger.info(f"Processing event channel {idx}")
         try:
             marks = self.sonfile.ReadMarkers(idx, int(2e9), 0)
 
@@ -271,13 +292,29 @@ class Spike2Data:
             filtered_ticks = list(compress(ticks, is_printable_mask))
 
             # convert the filtered clock ticks to seconds
-            event_time = np.round(ticks_to_time(filtered_ticks, self.time_base()), 3)
+            event_time = np.round(ticks_to_time(filtered_ticks, self._time_base()), 3)
 
             return filtered_codes, event_time
 
         except SonfileException as e:
             self.errors["ReadMarker"] = e
             self.logger.error(f"Error reading marker: {e}")
+            return [], []
+
+    def _process_signal(self, row):
+        """
+        Process signal channels, i.e. channels that contain waveforms.
+
+        Waveforms are converted to seconds.
+        """
+        try:
+            idx, name, chantype, fs, units, bitrate, length, fname = row
+            signal = self.sonfile.ReadFloats(idx, int(2e9), 0)
+            times = indices_to_time(range(len(signal)), fs)
+            return signal, times
+        except SonfileException as e:
+            self.errors["ReadFloats"] = e
+            self.logger.error(f"Error reading floats: {e}")
             return [], []
 
     def save(self, filepath: str | Path, overwrite_existing=True) -> Path:
@@ -334,7 +371,8 @@ class Spike2Data:
             )
         return self.filename
 
-    def channel_interval(self, channel: int):
+    # wrappers for sonfile methods with additional information
+    def _channel_interval(self, channel: int):
         """
         Get the waveform sample interval, in clock ticks.
 
@@ -344,7 +382,7 @@ class Spike2Data:
         """
         return self.sonfile.ChannelDivide(channel)
 
-    def channel_sample_period(self, channel: int):
+    def _channel_sample_period(self, channel: int):
         """
         Get the waveform sample period, in seconds.
 
@@ -361,9 +399,9 @@ class Spike2Data:
             The waveform sample interval, in seconds.
 
         """
-        return self.channel_interval(channel) / self.time_base
+        return self._channel_interval(channel) / self._time_base
 
-    def channel_num_ticks(self, channel: int):
+    def _channel_num_ticks(self, channel: int):
         """
         Get the number of clock ticks in the channel.
 
@@ -378,9 +416,9 @@ class Spike2Data:
             The number of clock ticks.
 
         """
-        return self.max_time() / self.channel_sample_period(channel)
+        return self._max_time() / self._channel_sample_period(channel)
 
-    def channel_max_ticks(self, channel: int):
+    def _channel_max_ticks(self, channel: int):
         """
         Get the last time-point in the array, in ticks.
 
@@ -397,14 +435,14 @@ class Spike2Data:
         """
         return self.sonfile.ChannelMaxTime(channel)
 
-    def channel_max_time(self, channel: int):
+    def _channel_max_time(self, channel: int):
         """
         Get the last time-point in the channel-array, in seconds.
 
         """
-        return self.channel_max_ticks(channel) * self.time_base()
+        return self._channel_max_ticks(channel) * self._time_base()
 
-    def time_base(self):
+    def _time_base(self):
         """
         The number of seconds per clock tick.
 
@@ -419,20 +457,20 @@ class Spike2Data:
         """
         return self.sonfile.GetTimeBase()
 
-    def max_ticks(self):
+    def _max_ticks(self):
         """
         The total number of clock ticks in the file.
         """
         return self.sonfile.MaxTime()
 
-    def max_time(self):
+    def _max_time(self):
         """
         The total recording length, in seconds.
 
         """
-        return self.max_ticks() * self.time_base()
+        return self._max_ticks() * self._time_base()
 
-    def max_channels(self):
+    def _max_channels(self):
         """
         The number of channels in the file.
         """
@@ -440,32 +478,18 @@ class Spike2Data:
 
 
 if __name__ == "__main__":
-
     defaults = defaults()
     log_level = defaults["log_level"]
     logger.setLevel(log_level)
     print(f"Log level set to {log_level}")
 
-    path_test = Path().home() / "data" / "serotonin"
+    path_test = Path("/media/thom/hub/data/serotonin/raw/")
+    animal = list(path_test.glob("*.smr"))[0]
+
     save_test = Path().home() / "data" / "extracted" / "serotonin"
+    save_test.mkdir(exist_ok=True, parents=True)
 
-    # iterate over each folder in path_test
-    errors = []
-    for animal_path in path_test.iterdir():
-
-        save_test = save_test / animal_path.stem
-
-        if not animal_path.is_dir():
-            continue
-
-        # iterate over each file in folder
-        for file in animal_path.glob("*.smr"):
-            filename = file.stem
-            try:
-                data = Spike2Data(file)
-                data.process_channels()
-                data.save(save_test / str(data), overwrite_existing=True)
-            except Exception as e:
-                logger.info(f"Error processing {file}: {e}")
-                errors.append(e)
-                continue
+    data = Spike2Data(animal)
+    # TODO: fix this
+    data.extract("events")
+    data.save(save_test / str(data), overwrite_existing=True)

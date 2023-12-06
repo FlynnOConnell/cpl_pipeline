@@ -26,18 +26,20 @@ dependencies:
   - pyqtgraph
   - pyopenssl
   - pyqt-stubs
+  - easygui
   - mne
   - mne-connectivity
   - vispy
   - umap-learn
 
 # Image and IO
-  - h5py
+  - h5py # deprecated
   - pillow
   - Opencv
   - openpyxl
   - OpenSSL
   - pytables
+  - vitables # hdf5 viewer
 
 # Compilation
   - compilers

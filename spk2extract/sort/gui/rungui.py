@@ -5,14 +5,24 @@ from datetime import datetime
 import numpy as np
 
 from PyQt5 import QtGui, QtCore
-from PyQt5.QtWidgets import QDialog, QLineEdit, QLabel, QPushButton, QWidget, QGridLayout, QButtonGroup, QComboBox, QTextEdit, QFileDialog
+from PyQt5.QtWidgets import (
+    QDialog,
+    QLineEdit,
+    QLabel,
+    QPushButton,
+    QWidget,
+    QGridLayout,
+    QButtonGroup,
+    QComboBox,
+    QTextEdit,
+    QFileDialog,
+)
 
 from . import io
 from extract.defaults import defaults
 
 # type in h5py key
 class TextChooser(QDialog):
-
     def __init__(self, parent=None):
         super(TextChooser, self).__init__(parent)
         self.setGeometry(300, 300, 180, 100)
@@ -31,16 +41,17 @@ class TextChooser(QDialog):
         self.h5_key = self.qedit.text()
         self.accept()
 
+
 ### custom QDialog which allows user to fill in ops and run spk2extract!
 class RunWindow(QDialog):
-
     def __init__(self, parent=None):
         super(RunWindow, self).__init__(parent)
         self.error = None
         self.finish = None
         self.setGeometry(10, 10, 1500, 900)
         self.setWindowTitle(
-            "Choose run options (hold mouse over parameters to see descriptions)")
+            "Choose run options (hold mouse over parameters to see descriptions)"
+        )
         self.parent = parent
         self.win = QWidget(self)
         self.layout = QGridLayout()
@@ -50,7 +61,8 @@ class RunWindow(QDialog):
         # initial ops values
         self.opsfile = parent.opsuser
         self.ops_path = os.fspath(
-            pathlib.Path.home().joinpath("autosort").joinpath("h5").absolute())
+            pathlib.Path.home().joinpath("autosort").joinpath("h5").absolute()
+        )
         try:
             self.reset_ops()
             print("loaded default ops")
@@ -85,51 +97,115 @@ class RunWindow(QDialog):
 
     def create_buttons(self):
         self.intkeys = [
-            "nplanes", "nchannels", "functional_chan", "align_by_chan", "nimg_init",
-            "batch_size", "max_iterations", "nbinned", "inner_neuropil_radius",
-            "min_neuropil_pixels", "spatial_scale", "do_registration", "anatomical_only"
+            "nplanes",
+            "nchannels",
+            "functional_chan",
+            "align_by_chan",
+            "nimg_init",
+            "batch_size",
+            "max_iterations",
+            "nbinned",
+            "inner_neuropil_radius",
+            "min_neuropil_pixels",
+            "spatial_scale",
+            "do_registration",
+            "anatomical_only",
         ]
         self.boolkeys = [
-            "delete_bin", "move_bin", "do_bidiphase", "reg_tif", "reg_tif_chan2",
-            "save_mat", "save_NWB"
-            "combined", "1Preg", "nonrigid", "connected", "roidetect",
-            "neuropil_extract", "spikedetect", "keep_movie_raw", "allow_overlap",
-            "sparse_mode"
+            "delete_bin",
+            "move_bin",
+            "do_bidiphase",
+            "reg_tif",
+            "reg_tif_chan2",
+            "save_mat",
+            "save_NWB" "combined",
+            "1Preg",
+            "nonrigid",
+            "connected",
+            "roidetect",
+            "neuropil_extract",
+            "spikedetect",
+            "keep_movie_raw",
+            "allow_overlap",
+            "sparse_mode",
         ]
         self.stringkeys = ["pretrained_model"]
         tifkeys = [
-            "nplanes", "nchannels", "functional_chan", "tau", "fs", "do_bidiphase",
-            "bidiphase", "multiplane_parallel", "ignore_flyback"
+            "nplanes",
+            "nchannels",
+            "functional_chan",
+            "tau",
+            "fs",
+            "do_bidiphase",
+            "bidiphase",
+            "multiplane_parallel",
+            "ignore_flyback",
         ]
         outkeys = [
-            "preclassify", "save_mat", "save_NWB", "combined", "reg_tif",
-            "reg_tif_chan2", "aspect", "delete_bin", "move_bin"
+            "preclassify",
+            "save_mat",
+            "save_NWB",
+            "combined",
+            "reg_tif",
+            "reg_tif_chan2",
+            "aspect",
+            "delete_bin",
+            "move_bin",
         ]
         regkeys = [
-            "do_registration", "align_by_chan", "nimg_init", "batch_size",
-            "smooth_sigma", "smooth_sigma_time", "maxregshift", "th_badframes",
-            "keep_movie_raw", "two_step_registration"
+            "do_registration",
+            "align_by_chan",
+            "nimg_init",
+            "batch_size",
+            "smooth_sigma",
+            "smooth_sigma_time",
+            "maxregshift",
+            "th_badframes",
+            "keep_movie_raw",
+            "two_step_registration",
         ]
-        nrkeys = [["nonrigid", "block_size", "snr_thresh", "maxregshiftNR"],
-                  ["1Preg", "spatial_hp_reg", "pre_smooth", "spatial_taper"]]
+        nrkeys = [
+            ["nonrigid", "block_size", "snr_thresh", "maxregshiftNR"],
+            ["1Preg", "spatial_hp_reg", "pre_smooth", "spatial_taper"],
+        ]
         cellkeys = [
-            "roidetect", "sparse_mode", "denoise", "spatial_scale", "connected",
-            "threshold_scaling", "max_overlap", "max_iterations", "high_pass",
-            "spatial_hp_detect"
+            "roidetect",
+            "sparse_mode",
+            "denoise",
+            "spatial_scale",
+            "connected",
+            "threshold_scaling",
+            "max_overlap",
+            "max_iterations",
+            "high_pass",
+            "spatial_hp_detect",
         ]
         anatkeys = [
-            "anatomical_only", "diameter", "cellprob_threshold", "flow_threshold",
-            "pretrained_model", "spatial_hp_cp"
+            "anatomical_only",
+            "diameter",
+            "cellprob_threshold",
+            "flow_threshold",
+            "pretrained_model",
+            "spatial_hp_cp",
         ]
-        neudeconvkeys = [[
-            "neuropil_extract", "allow_overlap", "inner_neuropil_radius",
-            "min_neuropil_pixels"
-        ], ["soma_crop", "spikedetect", "win_baseline", "sig_baseline", "neucoeff"]]
+        neudeconvkeys = [
+            [
+                "neuropil_extract",
+                "allow_overlap",
+                "inner_neuropil_radius",
+                "min_neuropil_pixels",
+            ],
+            ["soma_crop", "spikedetect", "win_baseline", "sig_baseline", "neucoeff"],
+        ]
         keys = [tifkeys, outkeys, regkeys, nrkeys, cellkeys, anatkeys, neudeconvkeys]
         labels = [
-            "Main settings", "Output settings", "Registration", ["Nonrigid", "1P"],
-            "Functional detect", "Anat detect",
-            ["Extraction/Neuropil", "Classify/Deconv"]
+            "Main settings",
+            "Output settings",
+            "Registration",
+            ["Nonrigid", "1P"],
+            "Functional detect",
+            "Anat detect",
+            ["Extraction/Neuropil", "Classify/Deconv"],
         ]
         tooltips = [
             "each tiff has this many planes in sequence",
@@ -215,7 +291,7 @@ class RunWindow(QDialog):
         self.layout.addWidget(QLabel("Load example ops"), 5, 4, 1, 2)
         for k in range(3):
             qw = QPushButton("Save ops to file")
-        #saveOps.clicked.connect(self.save_ops)
+        # saveOps.clicked.connect(self.save_ops)
         self.opsbtns = QButtonGroup(self)
         opsstr = ["1P imaging", "dendrites/axons"]
         self.opsname = ["1P", "dendrite"]
@@ -337,7 +413,7 @@ class RunWindow(QDialog):
         self.cleanButton.clicked.connect(self.clean_script)
         self.cleanLabel = QLabel("")
         self.layout.addWidget(self.cleanLabel, n0, 4, 1, 12)
-        #n0+=1
+        # n0+=1
         self.listOps = QPushButton("save settings and\n add more (batch)")
         self.listOps.clicked.connect(self.add_batch)
         self.layout.addWidget(self.listOps, n0, 12, 1, 2)
@@ -404,8 +480,9 @@ class RunWindow(QDialog):
 
     def compile_ops_db(self):
         for k, key in enumerate(self.keylist):
-            self.ops[key] = self.editlist[k].get_text(self.intkeys, self.boolkeys,
-                                                      self.stringkeys)
+            self.ops[key] = self.editlist[k].get_text(
+                self.intkeys, self.boolkeys, self.stringkeys
+            )
         self.db = {}
         self.db["data_path"] = self.data_path
         self.db["subfolders"] = []
@@ -443,7 +520,7 @@ class RunWindow(QDialog):
         # print("python " + cmd)
         # self.process.start(sys.executable, cmd.split(" "))
 
-        #self.process.start('python -u -W ignore -m spk2extract --ops "%s" --db "%s"' %
+        # self.process.start('python -u -W ignore -m spk2extract --ops "%s" --db "%s"' %
         #                   (ops_file, db_file))
 
     def stop(self):
@@ -471,16 +548,19 @@ class RunWindow(QDialog):
         if self.finish and not self.error:
             self.cleanButton.setEnabled(True)
             if len(self.opslist) == 1:
-                self.parent.fname = os.path.join(self.db["save_path0"], "spk2extract",
-                                                 "plane0", "stat.npy")
+                self.parent.fname = os.path.join(
+                    self.db["save_path0"], "spk2extract", "plane0", "stat.npy"
+                )
                 if os.path.exists(self.parent.fname):
                     cursor.insertText("Opening in GUI (can close this window)\n")
                     io.load_proc(self.parent)
                 else:
                     cursor.insertText("not opening plane in GUI (no ROIs)\n")
             else:
-                cursor.insertText("BATCH MODE: %d more recordings remaining \n" %
-                                  (len(self.opslist) - self.f - 1))
+                cursor.insertText(
+                    "BATCH MODE: %d more recordings remaining \n"
+                    % (len(self.opslist) - self.f - 1)
+                )
                 self.f += 1
                 if self.f < len(self.opslist):
                     self.run_s2e()
@@ -521,8 +601,9 @@ class RunWindow(QDialog):
     def save_text(self):
         for k in range(len(self.editlist)):
             key = self.keylist[k]
-            self.ops[key] = self.editlist[k].get_text(self.intkeys, self.boolkeys,
-                                                      self.stringkeys)
+            self.ops[key] = self.editlist[k].get_text(
+                self.intkeys, self.boolkeys, self.stringkeys
+            )
 
     def load_ops(self, name=None):
         print("loading ops")
@@ -541,7 +622,14 @@ class RunWindow(QDialog):
                 ops0 = defaults()
                 ops = {**ops0, **ops}
                 for key in ops:
-                    if key != "data_path" and key != "save_path" and key != "fast_disk" and key != "cleanup" and key != "save_path0" and key != "h5py":
+                    if (
+                        key != "data_path"
+                        and key != "save_path"
+                        and key != "fast_disk"
+                        and key != "cleanup"
+                        and key != "save_path0"
+                        and key != "h5py"
+                    ):
                         if key in self.keylist:
                             self.editlist[self.keylist.index(key)].set_text(ops)
                         self.ops[key] = ops[key]
@@ -587,9 +675,9 @@ class RunWindow(QDialog):
         output = str(self.process.readAllStandardOutput(), "utf-8")
         cursor.insertText(output)
         self.textEdit.ensureCursorVisible()
-        #self.logfile = open(os.path.join(self.save_path, "spk2extract/run.log"), "a")
+        # self.logfile = open(os.path.join(self.save_path, "spk2extract/run.log"), "a")
         self.logfile.write(output)
-        #self.logfile.close()
+        # self.logfile.close()
 
     def stderr_write(self):
         cursor = self.textEdit.textCursor()
@@ -599,7 +687,7 @@ class RunWindow(QDialog):
         cursor.insertText(output)
         self.textEdit.ensureCursorVisible()
         self.error = True
-        #self.logfile = open(os.path.join(self.save_path, "spk2extract/run.log"), "a")
+        # self.logfile = open(os.path.join(self.save_path, "spk2extract/run.log"), "a")
         self.logfile.write(">>>ERROR<<<\n")
         self.logfile.write(output)
 
@@ -620,7 +708,7 @@ class RunWindow(QDialog):
             self.qdata[len(self.data_path) - 1].setToolTip(name)
             self.runButton.setEnabled(True)
             self.listOps.setEnabled(True)
-            #self.loadDb.setEnabled(False)
+            # self.loadDb.setEnabled(False)
 
     def get_h5py(self):
         # used to choose file, now just choose key
@@ -653,12 +741,12 @@ class RunWindow(QDialog):
         self.binlabel.setText(name)
         self.binlabel.setToolTip(name)
 
-class LineEdit(QLineEdit):
 
+class LineEdit(QLineEdit):
     def __init__(self, k, key, parent=None):
         super(LineEdit, self).__init__(parent)
         self.key = key
-        #self.textEdited.connect(lambda: self.edit_changed(parent.ops, k))
+        # self.textEdited.connect(lambda: self.edit_changed(parent.ops, k))
 
     def get_text(self, intkeys, boolkeys, stringkeys):
         key = self.key
@@ -710,8 +798,8 @@ class LineEdit(QLineEdit):
                 dstr = str(int(ops[key]))
         self.setText(dstr)
 
-class OpsButton(QPushButton):
 
+class OpsButton(QPushButton):
     def __init__(self, bid, Text, parent=None):
         super(OpsButton, self).__init__(parent)
         self.setText(Text)
@@ -720,8 +808,10 @@ class OpsButton(QPushButton):
 
     def press(self, parent, bid):
         try:
-            opsdef = os.path.join(os.path.abspath(os.path.dirname(__file__)),
-                                  f"../ops/ops_{parent.opsname[bid]}.npy")
+            opsdef = os.path.join(
+                os.path.abspath(os.path.dirname(__file__)),
+                f"../ops/ops_{parent.opsname[bid]}.npy",
+            )
             ops = np.load(opsdef, allow_pickle=True).item()
             for key in ops:
                 if key in parent.keylist:
@@ -731,8 +821,8 @@ class OpsButton(QPushButton):
             print("could not load ops file")
             print(e)
 
-class VerticalLabel(QWidget):
 
+class VerticalLabel(QWidget):
     def __init__(self, text=None):
         super(self.__class__, self).__init__()
         self.text = text

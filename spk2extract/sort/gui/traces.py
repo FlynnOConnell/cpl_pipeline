@@ -153,7 +153,6 @@ class PlotDialog(QDialog):
             widget.y_range = (min_val, max_val)
 
 
-
 class WaveformPlot(QWidget):
     def __init__(self, parent, data, plot_title=None):
         super().__init__()

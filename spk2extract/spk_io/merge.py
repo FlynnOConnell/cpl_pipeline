@@ -13,14 +13,18 @@ def get_common_name(path1: Path, path2: Path) -> str:
     else:
         raise ValueError("Names do not match")
 
+
 def check_substring_content(main_string, substring):
     """Checks if any combination of the substring is in the main string."""
     return substring.lower() in main_string.lower()
 
+
 def merge_data(data_pre: dict, data_post: dict):
     combined = {}
     for key in data_pre.keys():
-        if check_substring_content(key, "u") and not check_substring_content(key, "lfp"):
+        if check_substring_content(key, "u") and not check_substring_content(
+            key, "lfp"
+        ):
             if key in data_post.keys():
                 pre_times = data_pre[key]["times"]["times"]
                 post_times = data_post[key]["times"]["times"]
@@ -53,6 +57,7 @@ def merge_data(data_pre: dict, data_post: dict):
 
     return combined
 
+
 def merge_events(events_pre, events_post):
     # add the last timestamp of the 'pre' data to each timestamp in the 'post' data
     last_timestamp_pre = events_pre["events"][-1]
@@ -61,15 +66,19 @@ def merge_events(events_pre, events_post):
     events_pre = np.append(events_pre, events_post)
     return events_pre
 
+
 def merge_metadata_file(metadata_file_pre, metadata_file_post):
-    return  {"pre": metadata_file_pre, "post": metadata_file_post}
+    return {"pre": metadata_file_pre, "post": metadata_file_post}
+
 
 def merge_h5(path_pre, path_post):
     pre_h5 = spk_io.read_h5(path_pre)
     post_h5 = spk_io.read_h5(path_post)
     merged_data = merge_data(pre_h5["spikedata"], post_h5["spikedata"])
     merged_events = merge_events(pre_h5["events"], post_h5["events"])
-    merged_metadata = merge_metadata_file(pre_h5["metadata"]["channel"], post_h5["metadata"]["metadata"])
+    merged_metadata = merge_metadata_file(
+        pre_h5["metadata"]["channel"], post_h5["metadata"]["metadata"]
+    )
     metadata_channel = pre_h5["metadata"]
     return merged_data, merged_events, merged_metadata, metadata_channel
 
@@ -85,6 +94,12 @@ if __name__ == "__main__":
     savename = get_common_name(pre_files[0], post_files[0])
     savename = Path().home() / "spk2extract" / "combined" / f"{savename}.h5"
     savename.parent.mkdir(parents=True, exist_ok=True)
-    spk_io.write_h5(savename, data=data, events=events, metadata_file=m_file, metadata_channel=m_channel)
+    spk_io.write_h5(
+        savename,
+        data=data,
+        events=events,
+        metadata_file=m_file,
+        metadata_channel=m_channel,
+    )
 
     x = 5

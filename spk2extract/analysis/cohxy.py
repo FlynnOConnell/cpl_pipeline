@@ -24,9 +24,11 @@ from spk2extract.viz import helpers
 from spk2extract.viz import plots
 
 import matplotlib
+
 sns.set_style("darkgrid")
 
 logger.setLevel("INFO")
+
 
 def _validate_events(event_arr, event_id):
     """
@@ -56,12 +58,13 @@ def _validate_events(event_arr, event_id):
 
     return valid_times, valid_event_id
 
+
 def get_lowest_variance_window(arr, sfreq, window_length_sec=5):
 
     arr = arr.get_data()
     window_length = int(window_length_sec * sfreq)  # Convert seconds to samples
     step_size = window_length // 2  # 50% overlap
-    lowest_variance = float('inf')
+    lowest_variance = float("inf")
     best_window = (0, window_length)
     best_window_data = None
 
@@ -80,10 +83,13 @@ def get_lowest_variance_window(arr, sfreq, window_length_sec=5):
     if best_window_data is not None:
         return best_window_data
 
+
 def get_master_df():
 
     data_path = Path().home() / "data" / ".cache"
-    animals = sorted([x for x in data_path.iterdir() if x.is_dir() and not x.name.startswith(".")])
+    animals = sorted(
+        [x for x in data_path.iterdir() if x.is_dir() and not x.name.startswith(".")]
+    )
     animals = animals[:-1]
 
     master = pd.DataFrame()
@@ -93,7 +99,9 @@ def get_master_df():
         cache_animal_path.mkdir(parents=True, exist_ok=True)
 
         raw_files = sorted(list(animal_path.glob("*_raw*.fif")), key=extract_common_key)
-        event_files = sorted(list(animal_path.glob("*_eve*.fif")), key=extract_common_key)
+        event_files = sorted(
+            list(animal_path.glob("*_eve*.fif")), key=extract_common_key
+        )
         event_id = sorted(list(animal_path.glob("*_id_*.npz")), key=extract_common_key)
         assert len(raw_files) == len(event_files) == len(event_id)
 
@@ -104,8 +112,14 @@ def get_master_df():
 
         first_event_times = [event[0][0] for event in event_data]
         first_event_times = [np.array([time]) for time in first_event_times]
-        baseline_windows = [raw_data[i].copy().crop(tmin=0, tmax=time[0] / 2000) for i, time in enumerate(first_event_times)]
-        baseline_segment = [get_lowest_variance_window(window, raw_data[i].info['sfreq']) for i, window in enumerate(baseline_windows)]
+        baseline_windows = [
+            raw_data[i].copy().crop(tmin=0, tmax=time[0] / 2000)
+            for i, time in enumerate(first_event_times)
+        ]
+        baseline_segment = [
+            get_lowest_variance_window(window, raw_data[i].info["sfreq"])
+            for i, window in enumerate(baseline_windows)
+        ]
         first_event_times = [event[0][0] for event in event_data]
 
         ev_id_dict = [
@@ -116,9 +130,9 @@ def get_master_df():
         ev_start_holder = []
         ev_end_holder = []
         for (
-                arr
+            arr
         ) in (
-                event_data
+            event_data
         ):  # separate the start and end events to work with mne event structures [start, 0, id]
             start_events = np.column_stack(
                 [arr[:, 0], np.zeros(arr.shape[0]), arr[:, 2]]
@@ -144,6 +158,7 @@ def get_master_df():
         master = pd.concat([master, all_data_df], axis=0)
     return master
 
+
 def preprocess_raw(raw_signal, fmin=1, fmax=100):
     raw: mne.io.RawArray = raw_signal.copy()
     raw.load_data()
@@ -153,11 +168,28 @@ def preprocess_raw(raw_signal, fmin=1, fmax=100):
         raw.drop_channels(["Ref"])
     return raw
 
-def update_df_with_epochs(df, fmin, fmax, tmin, tmax, evt_row="end",):
+
+def update_df_with_epochs(
+    df,
+    fmin,
+    fmax,
+    tmin,
+    tmax,
+    evt_row="end",
+):
     epochs_holder, con_holder = [], []
     for idx, row in df.iterrows():
         try:
-            epoch, con_data = process_epoch(row['raw'], row[evt_row], row['event_id'], row['baseline'], fmin, fmax, tmin, tmax)
+            epoch, con_data = process_epoch(
+                row["raw"],
+                row[evt_row],
+                row["event_id"],
+                row["baseline"],
+                fmin,
+                fmax,
+                tmin,
+                tmax,
+            )
             epochs_holder.append(epoch)
 
             con_holder.append(con_data)
@@ -165,9 +197,10 @@ def update_df_with_epochs(df, fmin, fmax, tmin, tmax, evt_row="end",):
             print(e)
             epochs_holder.append(None)
 
-    df['epoch'] = epochs_holder
-    df['con_arr'] = con_holder
+    df["epoch"] = epochs_holder
+    df["con_arr"] = con_holder
     return df
+
 
 def process_epoch(raw_arr, events, event_id, baseline, fmin, fmax, tmin, tmax):
     try:
@@ -178,15 +211,25 @@ def process_epoch(raw_arr, events, event_id, baseline, fmin, fmax, tmin, tmax):
         stds = stds[:-1]
 
         valid_events, valid_event_id = _validate_events(events, event_id)
-        epochs = mne.Epochs(raw, valid_events, valid_event_id, tmin, tmax, baseline=None, event_repeated="drop",
-                            preload=True)
+        epochs = mne.Epochs(
+            raw,
+            valid_events,
+            valid_event_id,
+            tmin,
+            tmax,
+            baseline=None,
+            event_repeated="drop",
+            preload=True,
+        )
 
         if epochs is None:
             raise ValueError("Epoch is None")
 
         for ch in epochs.ch_names:
             ch_idx = epochs.ch_names.index(ch)
-            epochs._data[:, ch_idx, :] = (epochs._data[:, ch_idx, :] - means[ch_idx]) / stds[ch_idx]
+            epochs._data[:, ch_idx, :] = (
+                epochs._data[:, ch_idx, :] - means[ch_idx]
+            ) / stds[ch_idx]
 
         freqs_arange = np.arange(fmin, fmax)
         con = spectral_connectivity_epochs(
@@ -204,10 +247,12 @@ def process_epoch(raw_arr, events, event_id, baseline, fmin, fmax, tmin, tmax):
         print(e)
         return None, None
 
+
 def main(use_parallel=True):
     helpers.update_rcparams()
     data = get_master_df().reset_index(drop=True)
     return data
+
 
 def optimize_psd_params(sfreq, time_series_length, desired_resolution=None):
     """
@@ -236,9 +281,10 @@ def optimize_psd_params(sfreq, time_series_length, desired_resolution=None):
 
     return n_fft, n_per_seg, n_overlap
 
+
 def compute_coherence_base(epoch_obj, idxs, freqs, sfreq):
-    if hasattr(epoch_obj, 'info'):
-        assert sfreq == epoch_obj.info['sfreq']
+    if hasattr(epoch_obj, "info"):
+        assert sfreq == epoch_obj.info["sfreq"]
         epoch_obj = epoch_obj.get_data()
 
     epoch_connectivity = spectral_connectivity_epochs(
@@ -253,31 +299,38 @@ def compute_coherence_base(epoch_obj, idxs, freqs, sfreq):
     )
     return epoch_connectivity
 
+
 def compute_power(epoch_obj, sfreq=None, n_fft=None, n_per_seg=None, n_overlap=None):
     fs, arr = None, None
 
-    if not hasattr(epoch_obj, 'info') and sfreq is None:
-        raise ValueError("Must provide sampling frequency if epoch_obj is not an Epochs object")
+    if not hasattr(epoch_obj, "info") and sfreq is None:
+        raise ValueError(
+            "Must provide sampling frequency if epoch_obj is not an Epochs object"
+        )
 
-    if not hasattr(epoch_obj, 'info') and sfreq is not None:
+    if not hasattr(epoch_obj, "info") and sfreq is not None:
         fs = sfreq
         arr = epoch_obj
 
-    if hasattr(epoch_obj, 'info') and sfreq is not None:
-        fs = epoch_obj.info['sfreq']
+    if hasattr(epoch_obj, "info") and sfreq is not None:
+        fs = epoch_obj.info["sfreq"]
         arr = epoch_obj.get_data()
 
-    if hasattr(epoch_obj, 'info') and sfreq is None:
-        fs = epoch_obj.info['sfreq']
+    if hasattr(epoch_obj, "info") and sfreq is None:
+        fs = epoch_obj.info["sfreq"]
         arr = epoch_obj.get_data()
 
     # Compute PSD
-    power = psd_array_welch(arr, fs, n_fft=n_fft, n_per_seg=n_per_seg, n_overlap=n_overlap, n_jobs=1)
+    power = psd_array_welch(
+        arr, fs, n_fft=n_fft, n_per_seg=n_per_seg, n_overlap=n_overlap, n_jobs=1
+    )
     return power
+
 
 def set_event_id(epoch):
     epoch.event_id = all_event_keys
     return epoch
+
 
 def determine_group(chan_pair_names):
     """
@@ -295,11 +348,12 @@ def determine_group(chan_pair_names):
 
     """
     if any(all(x in chan_pair_names for x in w) for w in brain_regions_within):
-        return 'within'
+        return "within"
     elif any(all(x in chan_pair_names for x in b) for b in brain_regions_between):
-        return 'between'
+        return "between"
     else:
         raise ValueError(f"Invalid pair name: {chan_pair_names}")
+
 
 def _normalize_to_baseline(epoch, baseline):
     epoch_data = epoch.get_data()
@@ -308,11 +362,16 @@ def _normalize_to_baseline(epoch, baseline):
     for ch in range(epoch_data.shape[1]):
         for ep in range(epoch_data.shape[0]):
             baseline_mean = baseline[ch, :].mean()
-            normalized_data[ep, ch, :] = (epoch_data[ep, ch, :] - baseline_mean) / baseline_mean * 100
+            normalized_data[ep, ch, :] = (
+                (epoch_data[ep, ch, :] - baseline_mean) / baseline_mean * 100
+            )
 
-    normalized_epochs = mne.EpochsArray(normalized_data, epoch.info, events=epoch.events, tmin=epoch.tmin)
+    normalized_epochs = mne.EpochsArray(
+        normalized_data, epoch.info, events=epoch.events, tmin=epoch.tmin
+    )
 
     return normalized_epochs
+
 
 def average_coherence_change(baseline_coherence, epochs_coherence):
     percent_changes = []
@@ -323,27 +382,32 @@ def average_coherence_change(baseline_coherence, epochs_coherence):
         percent_changes.append(percent_change)
     return np.mean(percent_changes, axis=0), sem(percent_changes, axis=0)
 
+
 if __name__ == "__main__":
 
     data = main(use_parallel=False)
-    epoch_tmin, epoch_tmax = -.5, .5
+    epoch_tmin, epoch_tmax = -0.5, 0.5
     pre_fmin, pre_fmax = 1, 100
-    c1 = ['context', 'nocontext']
+    c1 = ["context", "nocontext"]
 
-    brain_regions_within = [('LFP1_vHp', 'LFP2_vHp'), ('LFP3_AON', 'LFP4_AON')]
-    brain_regions_between = [('LFP1_vHp', 'LFP3_AON'), ('LFP1_vHp', 'LFP4_AON'), ('LFP2_vHp', 'LFP3_AON'),
-                             ('LFP2_vHp', 'LFP4_AON')]
-    brain_regions_all = ['LFP1_vHp', 'LFP2_vHp', 'LFP3_AON', 'LFP4_AON']
+    brain_regions_within = [("LFP1_vHp", "LFP2_vHp"), ("LFP3_AON", "LFP4_AON")]
+    brain_regions_between = [
+        ("LFP1_vHp", "LFP3_AON"),
+        ("LFP1_vHp", "LFP4_AON"),
+        ("LFP2_vHp", "LFP3_AON"),
+        ("LFP2_vHp", "LFP4_AON"),
+    ]
+    brain_regions_all = ["LFP1_vHp", "LFP2_vHp", "LFP3_AON", "LFP4_AON"]
 
     all_animals = data["Animal"].unique()
     all_event_keys = {"b_1": 1, "b_0": 2, "w_1": 3, "w_0": 4, "x_1": 5, "x_0": 6}
 
-    lfp_bands = {'beta': (12, 30), 'gamma': (30, 80), 'theta': (4, 12)}
+    lfp_bands = {"beta": (12, 30), "gamma": (30, 80), "theta": (4, 12)}
     chan_indices = np.array(list(combinations(range(4), 2)))
     sfreq = 1000
 
     all_animals_data = {}
-    animal_list = ['dk1', 'dk5']
+    animal_list = ["dk1", "dk5"]
 
     for animal in all_animals:
 
@@ -354,55 +418,109 @@ if __name__ == "__main__":
 
             all_animals_data[animal][condition] = {}
 
-            df = update_df_with_epochs(animal_df[animal_df["Context"] == condition], pre_fmin, pre_fmax, epoch_tmin, epoch_tmax, "end")
-            df = df[df['epoch'].notnull()]
+            df = update_df_with_epochs(
+                animal_df[animal_df["Context"] == condition],
+                pre_fmin,
+                pre_fmax,
+                epoch_tmin,
+                epoch_tmax,
+                "end",
+            )
+            df = df[df["epoch"].notnull()]
 
             # one baseline/epoch item for each session/row
-            baseline = df['baseline'].tolist()
-            baseline = np.array([b[:-1] for b in baseline])  # remove the last channel (ref)
+            baseline = df["baseline"].tolist()
+            baseline = np.array(
+                [b[:-1] for b in baseline]
+            )  # remove the last channel (ref)
 
-            epochs = list(map(lambda e: set_event_id(e), df['epoch'].tolist()))
-            fs = epochs[0].info['sfreq']
+            epochs = list(map(lambda e: set_event_id(e), df["epoch"].tolist()))
+            fs = epochs[0].info["sfreq"]
             epochs = np.array(epochs)
 
             for ch_pair in combinations(range(len(brain_regions_all)), 2):
 
-                pair_name = (brain_regions_all[ch_pair[0]], brain_regions_all[ch_pair[1]])
+                pair_name = (
+                    brain_regions_all[ch_pair[0]],
+                    brain_regions_all[ch_pair[1]],
+                )
                 group = determine_group(pair_name)
 
-                if group == 'within':
+                if group == "within":
                     continue
 
                 all_animals_data[animal][condition][group] = {}
 
-                connectivity_epochs = [compute_coherence_base(epoch, ch_pair, np.arange(pre_fmin, pre_fmax), fs) for epoch in epochs]
-                coherence_epochs = [np.squeeze(x.get_data()) for x in connectivity_epochs]
-                connectivity_baseline = [compute_coherence_base(baseline, ch_pair, np.arange(pre_fmin, pre_fmax), sfreq) for bl in baseline]
-                coherence_baseline = [np.squeeze(x.get_data()) for x in connectivity_baseline]
+                connectivity_epochs = [
+                    compute_coherence_base(
+                        epoch, ch_pair, np.arange(pre_fmin, pre_fmax), fs
+                    )
+                    for epoch in epochs
+                ]
+                coherence_epochs = [
+                    np.squeeze(x.get_data()) for x in connectivity_epochs
+                ]
+                connectivity_baseline = [
+                    compute_coherence_base(
+                        baseline, ch_pair, np.arange(pre_fmin, pre_fmax), sfreq
+                    )
+                    for bl in baseline
+                ]
+                coherence_baseline = [
+                    np.squeeze(x.get_data()) for x in connectivity_baseline
+                ]
 
                 connectivity_freqs = [x.freqs for x in connectivity_epochs][0]
 
-                mean_coherence_change, sem_coherence_change = average_coherence_change(coherence_baseline, coherence_epochs)
+                mean_coherence_change, sem_coherence_change = average_coherence_change(
+                    coherence_baseline, coherence_epochs
+                )
 
-                all_animals_data[animal][condition][group]['mean'] = mean_coherence_change
-                all_animals_data[animal][condition][group]['sem'] = sem_coherence_change
+                all_animals_data[animal][condition][group][
+                    "mean"
+                ] = mean_coherence_change
+                all_animals_data[animal][condition][group]["sem"] = sem_coherence_change
 
                 mean_coherence_change_1d = np.mean(mean_coherence_change, axis=1)
                 sem_coherence_change_1d = np.mean(sem_coherence_change, axis=1)
 
-    this_raw = data['raw']
+    this_raw = data["raw"]
     this_processed = preprocess_raw(this_raw, pre_fmin, pre_fmax)
-    this_processed.filter(15, 30, fir_design='firwin')
+    this_processed.filter(15, 30, fir_design="firwin")
     this_processed.resample(1000)
     this_processed.notch_filter(np.arange(60, 161, 60), fir_design="firwin")
     this_processed.load_data()
 
     # average all animals in all_animals_data[animal][condition][group]['mean'] and ['sem']
-    context_mean = np.mean([all_animals_data[animal]['context']['between']['mean'] for animal in all_animals_data], axis=0)
-    context_sem = np.mean([all_animals_data[animal]['context']['between']['sem'] for animal in all_animals_data], axis=0)
+    context_mean = np.mean(
+        [
+            all_animals_data[animal]["context"]["between"]["mean"]
+            for animal in all_animals_data
+        ],
+        axis=0,
+    )
+    context_sem = np.mean(
+        [
+            all_animals_data[animal]["context"]["between"]["sem"]
+            for animal in all_animals_data
+        ],
+        axis=0,
+    )
 
-    nocontext_mean = np.mean([all_animals_data[animal]['nocontext']['between']['mean'] for animal in all_animals_data], axis=0)
-    nocontext_sem = np.mean([all_animals_data[animal]['nocontext']['between']['sem'] for animal in all_animals_data], axis=0)
+    nocontext_mean = np.mean(
+        [
+            all_animals_data[animal]["nocontext"]["between"]["mean"]
+            for animal in all_animals_data
+        ],
+        axis=0,
+    )
+    nocontext_sem = np.mean(
+        [
+            all_animals_data[animal]["nocontext"]["between"]["sem"]
+            for animal in all_animals_data
+        ],
+        axis=0,
+    )
 
     mean_per_freq_context = np.mean(context_mean, axis=1)
     sem_per_freq_context = np.mean(context_sem, axis=1)
@@ -411,44 +529,58 @@ if __name__ == "__main__":
     sem_per_freq_nocontext = np.mean(nocontext_sem, axis=1)
 
     fig, ax = plt.subplots()
-    ax.plot(connectivity_freqs, mean_per_freq_context, label='context', color='black')
-    ax.fill_between(connectivity_freqs, mean_per_freq_context - sem_per_freq_context, mean_per_freq_context + sem_per_freq_context, alpha=0.2, color='black')
-    ax.plot(connectivity_freqs, mean_per_freq_nocontext, label='nocontext', color='red')
-    ax.fill_between(connectivity_freqs, mean_per_freq_nocontext - sem_per_freq_nocontext, mean_per_freq_nocontext + sem_per_freq_nocontext, alpha=0.2, color='red')
+    ax.plot(connectivity_freqs, mean_per_freq_context, label="context", color="black")
+    ax.fill_between(
+        connectivity_freqs,
+        mean_per_freq_context - sem_per_freq_context,
+        mean_per_freq_context + sem_per_freq_context,
+        alpha=0.2,
+        color="black",
+    )
+    ax.plot(connectivity_freqs, mean_per_freq_nocontext, label="nocontext", color="red")
+    ax.fill_between(
+        connectivity_freqs,
+        mean_per_freq_nocontext - sem_per_freq_nocontext,
+        mean_per_freq_nocontext + sem_per_freq_nocontext,
+        alpha=0.2,
+        color="red",
+    )
 
-    ax.set_xlabel('Frequency (Hz)')
-    ax.set_ylabel('Coherence Change from Baseline (%)')
+    ax.set_xlabel("Frequency (Hz)")
+    ax.set_ylabel("Coherence Change from Baseline (%)")
 
-    ax.axhline(y=12, color='black', linestyle='--', alpha=0.5)
-    ax.legend(loc='best', fontsize=12, frameon=False)
+    ax.axhline(y=12, color="black", linestyle="--", alpha=0.5)
+    ax.legend(loc="best", fontsize=12, frameon=False)
     plt.show()
     from spk2extract.viz import plots
 
     mydata = data[data["Animal"].isin(animal_list)].iloc[1]
-    raw_o = mydata['raw'].copy()
-    raw_o.pick_channels(['LFP1_vHp', 'LFP3_AON'])
+    raw_o = mydata["raw"].copy()
+    raw_o.pick_channels(["LFP1_vHp", "LFP3_AON"])
     # raw_o = preprocess_raw(raw_o, pre_fmin, pre_fmax)
     raw = raw_o.copy()
     raw.load_data()
-    fs = raw.info['sfreq']
+    fs = raw.info["sfreq"]
     raw = raw.get_data()
     raw = raw[:-1, :]  # remove the last channel (ref)
 
     # get first epoch times and slice the array for the first trial
-    first_event_times = [event[0][0] for event in df['end'].tolist()]
+    first_event_times = [event[0][0] for event in df["end"].tolist()]
     first_event_times = [np.array([time]) for time in first_event_times]
     baseline_window = raw_o.crop(tmin=0, tmax=10)
     baseline_data = baseline_window.get_data()
 
     # get a trace 0.5s before and after the first event, just 1 row (channel)
-    trace = raw[:, int(first_event_times[0] - 0.5 * fs):int(first_event_times[0] + 0.5 * fs)]
+    trace = raw[
+        :, int(first_event_times[0] - 0.5 * fs) : int(first_event_times[0] + 0.5 * fs)
+    ]
     trace = trace[0, :]
 
     raw = raw_o.copy()
     # Pick your channels of interest
-    raw.pick_channels(['LFP1_vHp', 'LFP3_AON'])
+    raw.pick_channels(["LFP1_vHp", "LFP3_AON"])
     raw.load_data()
-    raw.filter(pre_fmin, pre_fmax, fir_design='firwin')
+    raw.filter(pre_fmin, pre_fmax, fir_design="firwin")
     raw.resample(1000)
     raw.notch_filter(np.arange(60, 161, 60), fir_design="firwin")
     raw.load_data()
@@ -457,9 +589,9 @@ if __name__ == "__main__":
     beta_freq = (15, 30)
 
     # Filter the data for the beta frequency range
-    raw_temp = mydata['raw'].copy()
+    raw_temp = mydata["raw"].copy()
     raw_temp.load_data()
-    raw_beta = raw_temp.copy().filter(beta_freq[0], beta_freq[1], fir_design='firwin')
+    raw_beta = raw_temp.copy().filter(beta_freq[0], beta_freq[1], fir_design="firwin")
 
     # Get the data array from the raw and filtered objects
     data = raw_temp.get_data()
@@ -479,42 +611,80 @@ if __name__ == "__main__":
     afull_range = np.where((times >= 0) & (times <= 60))[0]
     small_range = np.where((times >= small_start) & (times <= small_end))[0]
 
-    plt.close('all')
+    plt.close("all")
     # Plotting
     fig, ax = plt.subplots(2, 1, figsize=(12, 6))
 
     # Plot the full trace
-    ax[0].plot(times[full_range], data[0, full_range], label='Raw LFP', color='black', linewidth=2,)
-    ax[0].plot(times[full_range], data_beta[0, full_range], label='Beta Filtered', color='red', linewidth=2,)
-    ax[0].set_xlabel('Time (s)' )
-    ax[0].set_ylabel('Voltage (V)')
+    ax[0].plot(
+        times[full_range],
+        data[0, full_range],
+        label="Raw LFP",
+        color="black",
+        linewidth=2,
+    )
+    ax[0].plot(
+        times[full_range],
+        data_beta[0, full_range],
+        label="Beta Filtered",
+        color="red",
+        linewidth=2,
+    )
+    ax[0].set_xlabel("Time (s)")
+    ax[0].set_ylabel("Voltage (V)")
 
     # Plot the smaller segment with the beta filtered data superimposed
-    ax[1].plot(times[small_range], data[0, small_range], label='Raw LFP', color='black', linewidth=2)
-    ax[1].plot(times[small_range], data_beta[0, small_range], label='Beta Filtered', color='red', linewidth=2)
-    ax[1].set_xlabel('Time (s)')
-    ax[1].set_ylabel('Voltage (V)')
+    ax[1].plot(
+        times[small_range],
+        data[0, small_range],
+        label="Raw LFP",
+        color="black",
+        linewidth=2,
+    )
+    ax[1].plot(
+        times[small_range],
+        data_beta[0, small_range],
+        label="Beta Filtered",
+        color="red",
+        linewidth=2,
+    )
+    ax[1].set_xlabel("Time (s)")
+    ax[1].set_ylabel("Voltage (V)")
 
     # Adding legends
     ax[0].legend()
 
     plt.tight_layout()
     path = Path().home() / "data" / "plots"
-    plt.savefig(f'{path}_beta_filtering_3.png', dpi=600 ,transparent=True,)
+    plt.savefig(
+        f"{path}_beta_filtering_3.png",
+        dpi=600,
+        transparent=True,
+    )
     plt.show()
-    plt.close('all')
+    plt.close("all")
 
     # extract the relevant segment of data
-    start_sample = int(start_time * raw.info['sfreq'])
-    end_sample = int(end_time * raw.info['sfreq'])
+    start_sample = int(start_time * raw.info["sfreq"])
+    end_sample = int(end_time * raw.info["sfreq"])
     data_segment = raw.get_data(start=start_sample, stop=end_sample)
     data_beta_segment = raw_beta.get_data(start=start_sample, stop=end_sample)
 
     # compute the psd for the raw and beta-filtered data
-    psd_raw, freqs = mne.time_frequency.psd_array_welch(data_segment, sfreq=raw.info['sfreq'], fmin=1, fmax=100,
-                                                        n_fft=int(raw.info['sfreq']))
-    psd_beta, _ = mne.time_frequency.psd_array_welch(data_beta_segment, sfreq=raw_beta.info['sfreq'], fmin=1, fmax=100,
-                                                     n_fft=int(raw_beta.info['sfreq']))
+    psd_raw, freqs = mne.time_frequency.psd_array_welch(
+        data_segment,
+        sfreq=raw.info["sfreq"],
+        fmin=1,
+        fmax=100,
+        n_fft=int(raw.info["sfreq"]),
+    )
+    psd_beta, _ = mne.time_frequency.psd_array_welch(
+        data_beta_segment,
+        sfreq=raw_beta.info["sfreq"],
+        fmin=1,
+        fmax=100,
+        n_fft=int(raw_beta.info["sfreq"]),
+    )
 
     # Assuming psd_raw, psd_beta, and freqs are already computed and available
     mean_psd_raw = np.mean(psd_raw, axis=0)
@@ -523,26 +693,26 @@ if __name__ == "__main__":
     fig, ax = plt.subplots(figsize=(12, 6))
 
     # Plot lines
-    ax.plot(freqs, mean_psd_raw, label='Raw LFP', color='black', linewidth=3)
-    ax.plot(freqs, mean_psd_beta, label='Beta Filtered', color='red', linewidth=3)
+    ax.plot(freqs, mean_psd_raw, label="Raw LFP", color="black", linewidth=3)
+    ax.plot(freqs, mean_psd_beta, label="Beta Filtered", color="red", linewidth=3)
 
     # Fill between lines
-    ax.fill_between(freqs, mean_psd_raw, mean_psd_beta, color='gray', alpha=0.3)
+    ax.fill_between(freqs, mean_psd_raw, mean_psd_beta, color="gray", alpha=0.3)
 
-    ax.set_xlabel('Frequency (Hz)')
-    ax.set_ylabel('Power Spectral Density (dB/Hz)')
+    ax.set_xlabel("Frequency (Hz)")
+    ax.set_ylabel("Power Spectral Density (dB/Hz)")
     ax.legend()
 
     plt.show()
 
-    raw1 = mydata['raw'].copy()
-    fs = raw1.info['sfreq']
+    raw1 = mydata["raw"].copy()
+    fs = raw1.info["sfreq"]
 
-    raw2 = mydata['raw'].copy()
-    raw1.pick_channels(['LFP1_vHp', 'LFP3_AON'])
-    raw2.pick_channels(['LFP2_vHp', 'LFP4_AON'])
+    raw2 = mydata["raw"].copy()
+    raw1.pick_channels(["LFP1_vHp", "LFP3_AON"])
+    raw2.pick_channels(["LFP2_vHp", "LFP4_AON"])
     raw2 = preprocess_raw(raw1, pre_fmin, pre_fmax)
-    raw2.filter(15, 30, fir_design='firwin')
+    raw2.filter(15, 30, fir_design="firwin")
 
     # Trimming raw1 to match the length of raw3
     if len(raw1.times) > len(raw2.times):
@@ -559,77 +729,77 @@ if __name__ == "__main__":
     times = raw1.times  # Using the time vector from raw1
     fig, ax = plt.subplots(figsize=(12, 6))
     ax.plot(times, difference.T)
-    ax.set_xlabel('Time (s)')
-    ax.set_ylabel('Amplitude Difference')
-    ax.set_title('Difference between Original and Preprocessed Signals')
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Amplitude Difference")
+    ax.set_title("Difference between Original and Preprocessed Signals")
     plt.show()
 
     # avg_coherence_changes = {cond: np.mean(coherence_changes[], axis=0) for cond in coherence_changes}
 
-                # sfreq = epochs[0].info['sfreq']
-                # numt = epochs[0].times.size
-                # params = optimize_psd_params(sfreq, numt)
-                #
-                # power_epochs = [compute_power(x, sfreq, *params) for x in epochs]
-                # power_epochs_data = [x[0] for x in power_epochs]
-                #
-                # power_baseline = [compute_power(bl, sfreq, *params) for bl in baseline]
-                # power_baseline_data = [bl[0] for bl in power_baseline]
-                # power_freqs = power_baseline_data[0][0]
-                #
-                # pct_change_power = []
-                #
-                # for i, (baseline_power, epoch_power) in enumerate(zip(power_baseline_data, power_epochs_data)):
-                #
-                #     mean_bl_power = np.mean(baseline_power, axis=1)
-                #     sem_bl_power = sem(baseline_power, axis=1)
-                #
-                #     percent_change_power = (epoch_power - mean_bl_power[:, np.newaxis]) / mean_bl_power[:, np.newaxis] * 100
-                #     pct_change_power.append(percent_change_power)
-                #
-                #     # Calculate the mean and SEM for the percentage change
-                #     mean_percent_change_power = np.mean(percent_change_power, axis=0)
-                #     sem_percent_change_power = sem(percent_change_power, axis=0)
+    # sfreq = epochs[0].info['sfreq']
+    # numt = epochs[0].times.size
+    # params = optimize_psd_params(sfreq, numt)
+    #
+    # power_epochs = [compute_power(x, sfreq, *params) for x in epochs]
+    # power_epochs_data = [x[0] for x in power_epochs]
+    #
+    # power_baseline = [compute_power(bl, sfreq, *params) for bl in baseline]
+    # power_baseline_data = [bl[0] for bl in power_baseline]
+    # power_freqs = power_baseline_data[0][0]
+    #
+    # pct_change_power = []
+    #
+    # for i, (baseline_power, epoch_power) in enumerate(zip(power_baseline_data, power_epochs_data)):
+    #
+    #     mean_bl_power = np.mean(baseline_power, axis=1)
+    #     sem_bl_power = sem(baseline_power, axis=1)
+    #
+    #     percent_change_power = (epoch_power - mean_bl_power[:, np.newaxis]) / mean_bl_power[:, np.newaxis] * 100
+    #     pct_change_power.append(percent_change_power)
+    #
+    #     # Calculate the mean and SEM for the percentage change
+    #     mean_percent_change_power = np.mean(percent_change_power, axis=0)
+    #     sem_percent_change_power = sem(percent_change_power, axis=0)
 
-                    # For statistical comparison, we perform a paired t-test between the baseline and each epoch's gamma power
-                    # t_stat, p_values = ttest_rel(baseline_power, epoch_power, axis=0)
+    # For statistical comparison, we perform a paired t-test between the baseline and each epoch's gamma power
+    # t_stat, p_values = ttest_rel(baseline_power, epoch_power, axis=0)
 
-                                       # ax.plot(power_freqs, mean_percent_change_gamma, label='Mean Percent Change')
-                    # ax.fill_between(power_freqs, mean_percent_change_gamma - sem_percent_change_gamma,
-                    #                 mean_percent_change_gamma + sem_percent_change_gamma, alpha=0.2)
-                    # ax.set_xlabel('Frequency (Hz)')
-                    # ax.set_ylabel('Percentage Change in Gamma Power')
-                    # plt.legend()
-                    # plt.show()
+    # ax.plot(power_freqs, mean_percent_change_gamma, label='Mean Percent Change')
+    # ax.fill_between(power_freqs, mean_percent_change_gamma - sem_percent_change_gamma,
+    #                 mean_percent_change_gamma + sem_percent_change_gamma, alpha=0.2)
+    # ax.set_xlabel('Frequency (Hz)')
+    # ax.set_ylabel('Percentage Change in Gamma Power')
+    # plt.legend()
+    # plt.show()
 
-                    # fig, ax = plt.subplots(figsize=(10, 6))
-                    # ax.plot(power_freqs, percent_change_power, label='mean')
-                    # ax.fill_between(power_freqs, percent_change_power, percent_change_power + sem_bl_power, alpha=0.2)
-                    # ax.set_xlabel('Frequency (Hz)')
-                    # ax.set_ylabel('Power Spectral Density ($V^2/Hz$)')
-                    # plt.show()
-                # all_animals_data[animal][condition][group] = {}
-                # for band, (fmin, fmax) in lfp_bands.items():
-                #     idx = np.where((connectivity_freqs >= fmin) & (connectivity_freqs <= fmax))[0]  # x, 0 idx
-                #
-                #     mean_coh = np.mean(pct_change_power[idx, :], axis=0)  # mean across freqs
-                #     sem_coh = np.std(pct_change_power[idx, :], axis=0) / np.sqrt(pct_change_power[idx, :].shape[0])
-                #
-                #     freqs_coh = connectivity_freqs[idx]
-                #     all_animals_data[animal][condition][group][band] = {
-                #         'mean': mean_coh,
-                #         'sem': sem_coh,
-                #         'freqs': freqs_coh,
-                #         'baseline': df['baseline'].tolist()
-                #     }
-                #
-                #     all_animals_data[animal][condition][group]['all'] = {
-                #         'mean': coh,
-                #         'mean_start': coh_start,
-                #         'sem': sem_coh,
-                #         'sem_start': sem_coh_start,
-                #         'freqs': connectivity_freqs
-                #     }
+    # fig, ax = plt.subplots(figsize=(10, 6))
+    # ax.plot(power_freqs, percent_change_power, label='mean')
+    # ax.fill_between(power_freqs, percent_change_power, percent_change_power + sem_bl_power, alpha=0.2)
+    # ax.set_xlabel('Frequency (Hz)')
+    # ax.set_ylabel('Power Spectral Density ($V^2/Hz$)')
+    # plt.show()
+    # all_animals_data[animal][condition][group] = {}
+    # for band, (fmin, fmax) in lfp_bands.items():
+    #     idx = np.where((connectivity_freqs >= fmin) & (connectivity_freqs <= fmax))[0]  # x, 0 idx
+    #
+    #     mean_coh = np.mean(pct_change_power[idx, :], axis=0)  # mean across freqs
+    #     sem_coh = np.std(pct_change_power[idx, :], axis=0) / np.sqrt(pct_change_power[idx, :].shape[0])
+    #
+    #     freqs_coh = connectivity_freqs[idx]
+    #     all_animals_data[animal][condition][group][band] = {
+    #         'mean': mean_coh,
+    #         'sem': sem_coh,
+    #         'freqs': freqs_coh,
+    #         'baseline': df['baseline'].tolist()
+    #     }
+    #
+    #     all_animals_data[animal][condition][group]['all'] = {
+    #         'mean': coh,
+    #         'mean_start': coh_start,
+    #         'sem': sem_coh,
+    #         'sem_start': sem_coh_start,
+    #         'freqs': connectivity_freqs
+    #     }
 
     #         # Plotting
     #     def plot():

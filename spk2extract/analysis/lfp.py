@@ -166,15 +166,16 @@ def process_events(events: np.ndarray, times: np.ndarray):
     non_interval_events = np.array(non_interval_events, dtype=int)
     return ev_store, id_dict, non_interval_events
 
+
 def process_event_windows_og(events: np.ndarray, times: np.ndarray):
     windows = []
     id_dict = {}
     event_id_counter = 1
     start_time, start_event, end_time = None, None, None
     for i, event in enumerate(events):
-        if event == 'O':  # Check for uppercase 'O' to start interval
+        if event == "O":  # Check for uppercase 'O' to start interval
             start_time, start_event = times[i], event
-        elif event == 'o':  # Check for lowercase 'o' to end interval
+        elif event == "o":  # Check for lowercase 'o' to end interval
             if start_time is not None:
                 end_time = times[i]
                 interval = f"{start_event}_{event}"  # This will always be "O_o"
@@ -187,6 +188,7 @@ def process_event_windows_og(events: np.ndarray, times: np.ndarray):
                 start_time, start_event = None, None
 
     return windows, id_dict
+
 
 def process_event_windows(events: np.ndarray, times: np.ndarray):
     windows = []
@@ -213,6 +215,7 @@ def process_event_windows(events: np.ndarray, times: np.ndarray):
         windows.append(np.array(window))
     return windows, id_dict
 
+
 def get_first_event_time(events, times):
     for i, event in enumerate(events):
         if event.isalpha():
@@ -222,8 +225,8 @@ def get_first_event_time(events, times):
 if __name__ == "__main__":
 
     # data_path =  Path("/Volumes/CaTransfer/extracted")  # external hard drive, nfst
-    data_path = Path().home() / "data" / 'extracted' / "serotonin"
-    cache_path = Path().home() / "data" / ".cache" / 'serotonin'
+    data_path = Path().home() / "data" / "extracted" / "serotonin"
+    cache_path = Path().home() / "data" / ".cache" / "serotonin"
 
     errorfiles = []
     all_event_stats = pd.DataFrame()
@@ -272,22 +275,66 @@ if __name__ == "__main__":
                         if item["type"] == "event":
                             events_list.append((chan, item["data"], item["times"]))
                         elif item["type"] == "signal":
-                            if chan in ['respirat', 'Respirat']:
-                                respiratory = (chan, item["data"], item["times"], item["metadata"])
-                            elif chan in ['sniff', 'Sniff', 'snif', "sniff"]:
-                                sniff = (chan, item["data"], item["times"], item["metadata"])
-                            elif chan in ['ref', 'Ref', 'REF', 'refbrain', 'RefBrain', 'refbrain1', 'RefBrain1']:
-                                reference = (chan, item["data"], item["times"], item["metadata"])
-                            elif 'lfp' in chan.lower():
-                                lfp_signals_list.append((chan, item["data"], item["times"], item["metadata"]))
-                            elif 'u' in chan.lower():
+                            if chan in ["respirat", "Respirat"]:
+                                respiratory = (
+                                    chan,
+                                    item["data"],
+                                    item["times"],
+                                    item["metadata"],
+                                )
+                            elif chan in ["sniff", "Sniff", "snif", "sniff"]:
+                                sniff = (
+                                    chan,
+                                    item["data"],
+                                    item["times"],
+                                    item["metadata"],
+                                )
+                            elif chan in [
+                                "ref",
+                                "Ref",
+                                "REF",
+                                "refbrain",
+                                "RefBrain",
+                                "refbrain1",
+                                "RefBrain1",
+                            ]:
+                                reference = (
+                                    chan,
+                                    item["data"],
+                                    item["times"],
+                                    item["metadata"],
+                                )
+                            elif "lfp" in chan.lower():
+                                lfp_signals_list.append(
+                                    (
+                                        chan,
+                                        item["data"],
+                                        item["times"],
+                                        item["metadata"],
+                                    )
+                                )
+                            elif "u" in chan.lower():
                                 try:
-                                    unit_signals_list.append((chan, item["data"], item["times"], item["metadata"]))
+                                    unit_signals_list.append(
+                                        (
+                                            chan,
+                                            item["data"],
+                                            item["times"],
+                                            item["metadata"],
+                                        )
+                                    )
                                 except:
                                     logger.debug(f"Could not process {chan}")
                                     continue
                             else:
-                                other_signals_list.append((chan, item["data"], item["times"], item["metadata"]))
+                                other_signals_list.append(
+                                    (
+                                        chan,
+                                        item["data"],
+                                        item["times"],
+                                        item["metadata"],
+                                    )
+                                )
 
             # Process and save LFP signals
             lfp_padded = [item[1] for item in lfp_signals_list]
@@ -321,10 +368,16 @@ if __name__ == "__main__":
                 freq = np.unique(lfp_fs)
                 lfp_info = mne.create_info(
                     ch_names=lfp_ch_names,
-                    sfreq=lfp_fs[0],  # Replace with actual sampling frequency if necessary
-                    ch_types=["eeg"] * len(lfp_ch_names),)
+                    sfreq=lfp_fs[
+                        0
+                    ],  # Replace with actual sampling frequency if necessary
+                    ch_types=["eeg"] * len(lfp_ch_names),
+                )
                 lfp_raw = mne.io.RawArray(lfp_spikes_arr, lfp_info)
-                lfp_raw.save(fif_savename.with_name(f"{session_name}_lfp_raw.fif"), overwrite=True)
+                lfp_raw.save(
+                    fif_savename.with_name(f"{session_name}_lfp_raw.fif"),
+                    overwrite=True,
+                )
 
             if unit_spikes_arr is not None:
 
@@ -335,21 +388,36 @@ if __name__ == "__main__":
                     ch_types=["eeg"] * len(unit_ch_names),
                 )
                 unit_raw = mne.io.RawArray(unit_spikes_arr, unit_info)
-                unit_raw.save(fif_savename.with_name(f"{session_name}_unit_raw.fif"), overwrite=True)
+                unit_raw.save(
+                    fif_savename.with_name(f"{session_name}_unit_raw.fif"),
+                    overwrite=True,
+                )
 
             if sniff is not None:
-                np.save(str(cache_animal_path.joinpath(session_name + "_sniff_signal")), sniff[1])
-                np.save(str(cache_animal_path.joinpath(session_name + "_sniff_times")), sniff[2])
+                np.save(
+                    str(cache_animal_path.joinpath(session_name + "_sniff_signal")),
+                    sniff[1],
+                )
+                np.save(
+                    str(cache_animal_path.joinpath(session_name + "_sniff_times")),
+                    sniff[2],
+                )
 
             if other_signals_list:
                 other_info = mne.create_info(
                     ch_names=other_ch_names,
-                    sfreq=lfp_fs[0],  # Replace with actual sampling frequency if necessary
-                    ch_types=["eeg"] * len(other_ch_names),  # Update this to 'unit' or appropriate type
+                    sfreq=lfp_fs[
+                        0
+                    ],  # Replace with actual sampling frequency if necessary
+                    ch_types=["eeg"]
+                    * len(other_ch_names),  # Update this to 'unit' or appropriate type
                 )
                 other_raw = mne.io.RawArray(other_spikes_arr, other_info)
                 # Save Unit RawArray to file
-                other_raw.save(fif_savename.with_name(f"{session_name}_other_raw.fif"), overwrite=True)
+                other_raw.save(
+                    fif_savename.with_name(f"{session_name}_other_raw.fif"),
+                    overwrite=True,
+                )
 
             ev_savename = cache_animal_path.joinpath(session_name + "_eve")
             ev_dict_savename = cache_animal_path.joinpath(session_name + "_id_ev")
@@ -362,9 +430,7 @@ if __name__ == "__main__":
             keys_np = np.array(list(ev_id_dict.keys()), dtype=object)
             vals_np = np.array(list(ev_id_dict.values()), dtype=int)
 
-            np.savez(
-                ev_dict_savename.with_suffix(".npz"), keys=keys_np, values=vals_np
-            )
+            np.savez(ev_dict_savename.with_suffix(".npz"), keys=keys_np, values=vals_np)
             mne.write_events(
                 ev_savename.with_suffix(".fif"), np.array(events_mne), overwrite=True
             )

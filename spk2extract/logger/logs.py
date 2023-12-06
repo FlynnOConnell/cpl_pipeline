@@ -15,34 +15,37 @@ from functools import partial
 import numpy as np
 
 # Suppress output from some loud libraries
-logging.getLogger('matplotlib').setLevel(logging.WARNING)
-logging.getLogger('sklearn').setLevel(logging.WARNING)
-logging.getLogger('scipy').setLevel(logging.WARNING)
-logging.getLogger('numpy').setLevel(logging.WARNING)
-logging.getLogger('vispy').setLevel(logging.ERROR)
-logging.getLogger('OpenGL').setLevel(logging.ERROR)
-logging.getLogger('numexpr').setLevel(logging.WARNING)
-logging.getLogger('numba').setLevel(logging.WARNING)
-logging.getLogger('PIL').setLevel(logging.WARNING)
-logging.getLogger('h5py').setLevel(logging.WARNING)
+logging.getLogger("matplotlib").setLevel(logging.WARNING)
+logging.getLogger("sklearn").setLevel(logging.WARNING)
+logging.getLogger("scipy").setLevel(logging.WARNING)
+logging.getLogger("numpy").setLevel(logging.WARNING)
+logging.getLogger("vispy").setLevel(logging.ERROR)
+logging.getLogger("OpenGL").setLevel(logging.ERROR)
+logging.getLogger("numexpr").setLevel(logging.WARNING)
+logging.getLogger("numba").setLevel(logging.WARNING)
+logging.getLogger("PIL").setLevel(logging.WARNING)
+logging.getLogger("h5py").setLevel(logging.WARNING)
+
 
 def _get_spk_caller():
     """Helper to get spk calling function from the stack"""
     records = inspect.stack()
     # first few records are spk-based logging calls
     for record in records[5:]:
-        module = record[0].f_globals['__name__']
-        if module.startswith('spk'):
+        module = record[0].f_globals["__name__"]
+        if module.startswith("spk"):
             line = str(record[0].f_lineno)
             func = record[3]
-            cls = record[0].f_locals.get('self', None)
-            clsname = "" if cls is None else cls.__class__.__name__ + '.'
+            cls = record[0].f_locals.get("self", None)
+            clsname = "" if cls is None else cls.__class__.__name__ + "."
             caller = "{0}:{1}{2}({3}): ".format(module, clsname, func, line)
             return caller
-    return 'unknown'
+    return "unknown"
+
 
 class _WrapStdOut(object):
     """Class to work around how doctest captures stdout"""
+
     def __getattr__(self, name):
         # This is a bit ridiculous, but it's the only way I could find to
         # get this to work with doctest. Basically, doctest does something
@@ -62,11 +65,12 @@ class _WrapStdOut(object):
         # (windows? good luck)
         return getattr(sys.stdout, name)
 
+
 class _SpkFormatter(logging.Formatter):
     """Formatter that optionally prepends caller"""
 
     def __init__(self):
-        logging.Formatter.__init__(self, '%(levelname)s: %(message)s')
+        logging.Formatter.__init__(self, "%(levelname)s: %(message)s")
         self._spk_prepend_caller = False
 
     def _spk_set_prepend(self, prepend):
@@ -77,6 +81,7 @@ class _SpkFormatter(logging.Formatter):
         if self._spk_prepend_caller:
             out = _get_spk_caller() + out
         return out
+
 
 class _SpkStreamHandler(logging.StreamHandler):
     """Stream handler allowing matching and recording
@@ -103,8 +108,11 @@ class _SpkStreamHandler(logging.StreamHandler):
         """Log message emitter that optionally matches and/or records"""
         test = record.getMessage()
         match = self._spk_match
-        if (match is None or re.search(match, test) or
-                re.search(match, _get_spk_caller())):
+        if (
+            match is None
+            or re.search(match, test)
+            or re.search(match, _get_spk_caller())
+        ):
             if self._spk_emit_record:
                 fmt_rec = self._spk_formatter.format(record)
                 self._spk_emit_list.append(fmt_rec)
@@ -135,14 +143,20 @@ class _SpkStreamHandler(logging.StreamHandler):
     def _spk_reset_list(self):
         self._spk_emit_list = list()
 
-logger = logging.getLogger('spk')
+
+logger = logging.getLogger("spk")
 _lf = _SpkFormatter()
 _lh = _SpkStreamHandler()  # needs _lf to exist
 logger.addHandler(_lh)
 
-logging_types = dict(debug=logging.DEBUG, info=logging.INFO,
-                     warning=logging.WARNING, error=logging.ERROR,
-                     critical=logging.CRITICAL)
+logging_types = dict(
+    debug=logging.DEBUG,
+    info=logging.INFO,
+    warning=logging.WARNING,
+    error=logging.ERROR,
+    critical=logging.CRITICAL,
+)
+
 
 def set_log_level(verbose, match=None, return_old=False):
     """Convenience function for setting the logging level
@@ -176,15 +190,15 @@ def set_log_level(verbose, match=None, return_old=False):
     # via the context handler (use_log_level), so that configuration is
     # done by the context handler itself.
     if isinstance(verbose, bool):
-        verbose = 'info' if verbose else 'warning'
+        verbose = "info" if verbose else "warning"
     if isinstance(verbose, str):
         verbose = verbose.lower()
         if verbose not in logging_types:
             raise ValueError('Invalid argument "%s"' % verbose)
         verbose = logging_types[verbose]
     else:
-        raise TypeError('verbose must be a bool or string')
-    _logger = logging.getLogger('spk')
+        raise TypeError("verbose must be a bool or string")
+    _logger = logging.getLogger("spk")
     old_verbose = _logger.level
     old_match = _lh._spk_set_match(match)
     _logger.setLevel(verbose)
@@ -196,6 +210,7 @@ def set_log_level(verbose, match=None, return_old=False):
     if return_old:
         out = (old_verbose, old_match)
     return out
+
 
 class use_log_level(object):
     """Context manager that temporarily sets logging level
@@ -231,12 +246,13 @@ class use_log_level(object):
         self._print_msg = print_msg
         self._record = record
         if match is not None and not isinstance(match, str):
-            raise TypeError('match must be None or str')
+            raise TypeError("match must be None or str")
 
     def __enter__(self):
         # set the log level
-        old_level, old_match = set_log_level(self._new_level,
-                                             self._new_match, return_old=True)
+        old_level, old_match = set_log_level(
+            self._new_level, self._new_match, return_old=True
+        )
         for key, value in logging_types.items():
             if value == old_level:
                 old_level = key
@@ -261,7 +277,8 @@ class use_log_level(object):
         if not self._print_msg:
             _lh._spk_print_msg = True  # set it back
 
-def log_exception(level='warning', tb_skip=2):
+
+def log_exception(level="warning", tb_skip=2):
     """
     Send an exception and traceback to the logger.
 
@@ -285,23 +302,26 @@ def log_exception(level='warning', tb_skip=2):
     msg += "".join(tb[1:]).rstrip()
     logger.log(logging_types[level], msg)
 
+
 logger.log_exception = log_exception  # make this easier to reach
 
-def _handle_exception(ignore_callback_errors, print_callback_errors, obj,
-                      cb_event=None, node=None):
+
+def _handle_exception(
+    ignore_callback_errors, print_callback_errors, obj, cb_event=None, node=None
+):
     """Helper for prining errors in callbacks
 
     See EventEmitter._invoke_callback for a use example.
     """
-    if not hasattr(obj, '_spk_err_registry'):
+    if not hasattr(obj, "_spk_err_registry"):
         obj._spk_err_registry = {}
     registry = obj._spk_err_registry
 
     if cb_event is not None:
         cb, event = cb_event
-        exp_type = 'callback'
+        exp_type = "callback"
     else:
-        exp_type = 'node'
+        exp_type = "node"
     type_, value, tb = sys.exc_info()
     tb = tb.tb_next  # Skip *this* frame
     sys.last_type = type_
@@ -312,16 +332,16 @@ def _handle_exception(ignore_callback_errors, print_callback_errors, obj,
     if not ignore_callback_errors:
         raise
     if print_callback_errors != "never":
-        this_print = 'full'
-        if print_callback_errors in ('first', 'reminders'):
+        this_print = "full"
+        if print_callback_errors in ("first", "reminders"):
             # need to check to see if we've hit this yet
-            if exp_type == 'callback':
+            if exp_type == "callback":
                 key = repr(cb) + repr(event)
             else:
                 key = repr(node)
             if key in registry:
                 registry[key] += 1
-                if print_callback_errors == 'first':
+                if print_callback_errors == "first":
                     this_print = None
                 else:  # reminders
                     ii = registry[key]
@@ -333,35 +353,37 @@ def _handle_exception(ignore_callback_errors, print_callback_errors, obj,
                         this_print = None
             else:
                 registry[key] = 1
-        if this_print == 'full':
+        if this_print == "full":
             logger.log_exception()
-            if exp_type == 'callback':
+            if exp_type == "callback":
                 logger.error("Invoking %s for %s" % (cb, event))
             else:  # == 'node':
                 logger.error("Drawing node %s" % node)
         elif this_print is not None:
-            if exp_type == 'callback':
-                logger.error("Invoking %s repeat %s"
-                             % (cb, this_print))
+            if exp_type == "callback":
+                logger.error("Invoking %s repeat %s" % (cb, this_print))
             else:  # == 'node':
-                logger.error("Drawing node %s repeat %s"
-                             % (node, this_print))
+                logger.error("Drawing node %s repeat %s" % (node, this_print))
+
 
 def _serialize_buffer(buffer, array_serialization=None):
     """Serialize a NumPy array."""
-    if array_serialization == 'binary':
+    if array_serialization == "binary":
         return buffer.ravel().tobytes()
-    elif array_serialization == 'base64':
-        return {'storage_type': 'base64',
-                'buffer': base64.b64encode(buffer).decode('ascii')
-                }
-    raise ValueError("The array serialization method should be 'binary' or "
-                     "'base64'.")
+    elif array_serialization == "base64":
+        return {
+            "storage_type": "base64",
+            "buffer": base64.b64encode(buffer).decode("ascii"),
+        }
+    raise ValueError(
+        "The array serialization method should be 'binary' or " "'base64'."
+    )
+
 
 class NumPyJSONEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.ndarray):
-            return _serialize_buffer(obj, array_serialization='base64')
+            return _serialize_buffer(obj, array_serialization="base64")
         elif isinstance(obj, np.generic):
             return obj.item()
 

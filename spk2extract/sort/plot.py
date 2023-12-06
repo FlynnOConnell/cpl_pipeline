@@ -403,6 +403,7 @@ def plot_cluster_pca(clusters):
 
     return fig, axs
 
+
 def plot_cluster_raster(clusters):
     """
     Plot raster view of a cluster from blechpy.analysis.spike_sorting
@@ -429,13 +430,12 @@ def plot_cluster_raster(clusters):
     plt.legend(loc="best")
     return fig
 
+
 def plot_waveforms(waveforms, title=None, save_file=None, threshold=None):
     """
     Plots a cluster with isi and violation info for viewing
     """
-    fig, ax = waveforms_datashader(
-        waveforms, threshold
-    )
+    fig, ax = waveforms_datashader(waveforms, threshold)
     ax.set_xlabel("Samples", fontsize=12)
     ax.set_ylabel("Voltage (microvolts)", fontsize=12)
     ax.set_title(title, fontsize=12)
@@ -448,6 +448,7 @@ def plot_waveforms(waveforms, title=None, save_file=None, threshold=None):
         return None, None
     else:
         return fig, ax
+
 
 def plot_ISIs(ISIs, total_spikes=None, save_file=None):
     """Plots a cluster with isi and violation info for viewing
@@ -498,6 +499,7 @@ def plot_ISIs(ISIs, total_spikes=None, save_file=None):
     else:
         return fig, ax
 
+
 def plot_correlogram(hist_counts, bin_centers, bin_edges, title=None, save_file=None):
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.hist(bin_centers, bins=bin_edges, weights=hist_counts, color="black")
@@ -516,6 +518,7 @@ def plot_correlogram(hist_counts, bin_centers, bin_edges, title=None, save_file=
         return None, None
     else:
         return fig, ax
+
 
 def plot_spike_raster(spike_times, waveforms, cluster_ids=None, save_file=None):
     """Plot raster view of a cluster from blechpy.analysis.spike_sorting
@@ -560,6 +563,7 @@ def plot_spike_raster(spike_times, waveforms, cluster_ids=None, save_file=None):
         return None
     else:
         return fig, ax
+
 
 # def plot_ensemble_raster(dat, save_file=None):
 #     # analysis
@@ -669,6 +673,7 @@ def plot_waveforms_pca(waveforms, cluster_ids=None, save_file=None):
     else:
         return fig
 
+
 def plot_waveforms_umap(
     waveforms,
     cluster_ids=None,
@@ -722,6 +727,7 @@ def plot_waveforms_umap(
         return None
     else:
         return fig
+
 
 def plot_waveforms_wavelet_tranform(
     waveforms, cluster_ids=None, save_file=None, n_pc=4
@@ -795,6 +801,7 @@ def plot_waveforms_wavelet_tranform(
     else:
         return fig, ax.reshape((n_rows, n_cols))
 
+
 def plot_recording_cutoff(filt_el, fs, cutoff, out_file=None):
     fig, ax = plt.subplots(figsize=(15, 10))
     test_el = np.reshape(filt_el[: int(fs) * int(len(filt_el) / fs)], (-1, int(fs)))
@@ -813,6 +820,7 @@ def plot_recording_cutoff(filt_el, fs, cutoff, out_file=None):
 
     return fig, ax
 
+
 def plot_explained_pca_variance(explained_variance_ratio, out_file=None):
     fig, ax = plt.subplots(figsize=(15, 10))
     x = np.arange(len(explained_variance_ratio))
@@ -826,6 +834,7 @@ def plot_explained_pca_variance(explained_variance_ratio, out_file=None):
         return None, None
 
     return fig, ax
+
 
 def plot_cluster_features(data, clusters, x_label="X", y_label="Y", save_file=None):
     """
@@ -870,6 +879,7 @@ def plot_cluster_features(data, clusters, x_label="X", y_label="Y", save_file=No
     else:
         return fig, ax
 
+
 def plot_mahalanobis_to_cluster(distances, title=None, save_file=None):
     unique_clusters = sorted(list(distances.keys()))
     colors = matplotlib.cm.rainbow(np.linspace(0, 1, len(unique_clusters)))
@@ -894,6 +904,7 @@ def plot_mahalanobis_to_cluster(distances, title=None, save_file=None):
     else:
         return fig, ax
 
+
 def make_unit_plots(file_dir, unit_name, save_dir=None):
     """Makes waveform plots for sorted unit in unit_waveforms_plots
 
@@ -905,37 +916,40 @@ def make_unit_plots(file_dir, unit_name, save_dir=None):
 
     if isinstance(unit_name, int):
         unit_num = unit_name
-        unit_name = 'unit%03i' % unit_num
+        unit_name = "unit%03i" % unit_num
 
     waveforms, descriptor, fs = dio.h5io.get_unit_waveforms(file_dir, unit_name)
-    fs_str = '%g samples per ms' % (fs/10/1000.0)  # since both theses plots
+    fs_str = "%g samples per ms" % (fs / 10 / 1000.0)  # since both theses plots
     # downsample by 10 and then to convert to samples/ms
 
     fig, ax = blech_waveforms_datashader.waveforms_datashader(waveforms)
-    ax.set_xlabel('Samples (%s)' % fs_str)
-    ax.set_ylabel('Voltage (microvolts)')
-    unit_title = (('Unit %i, total waveforms = %i\nElectrode: %i, '
-                   'Single Unit: %i, RSU: %i, FSU: %i') %
-                  (unit_num, waveforms.shape[0],
-                   descriptor['electrode_number'],
-                   descriptor['single_unit'],
-                   descriptor['regular_spiking'],
-                   descriptor['fast_spiking']))
+    ax.set_xlabel("Samples (%s)" % fs_str)
+    ax.set_ylabel("Voltage (microvolts)")
+    unit_title = (
+        "Unit %i, total waveforms = %i\nElectrode: %i, "
+        "Single Unit: %i, RSU: %i, FSU: %i"
+    ) % (
+        unit_num,
+        waveforms.shape[0],
+        descriptor["electrode_number"],
+        descriptor["single_unit"],
+        descriptor["regular_spiking"],
+        descriptor["fast_spiking"],
+    )
     ax.set_title(unit_title)
-    fig.savefig(os.path.join(save_dir, 'Unit%i.png' % unit_num))
-    plt.close('all')
+    fig.savefig(os.path.join(save_dir, "Unit%i.png" % unit_num))
+    plt.close("all")
 
     # Plot mean and SEM of waveforms
     # Downsample by 10 to remove upsampling from de-jittering
-    fig, ax = plt.subplots(figsize=(12,8))
+    fig, ax = plt.subplots(figsize=(12, 8))
     mean_wave = np.mean(waveforms[:, ::10], axis=0)
     std_wave = np.std(waveforms[:, ::10], axis=0)
     mean_x = np.arange(mean_wave.shape[0]) + 1
     ax.plot(mean_x, mean_wave, linewidth=4.0)
-    ax.fill_between(mean_x, mean_wave - std_wave,
-                    mean_wave + std_wave, alpha=0.4)
-    ax.set_xlabel('Samples (%s)' % fs_str)
-    ax.set_ylabel('Voltage (microvolts)')
+    ax.fill_between(mean_x, mean_wave - std_wave, mean_wave + std_wave, alpha=0.4)
+    ax.set_xlabel("Samples (%s)" % fs_str)
+    ax.set_ylabel("Voltage (microvolts)")
     ax.set_title(unit_title)
-    fig.savefig(os.path.join(save_dir, 'Unit%i_mean_sd.png' % unit_num))
-    plt.close('all')
+    fig.savefig(os.path.join(save_dir, "Unit%i_mean_sd.png" % unit_num))
+    plt.close("all")

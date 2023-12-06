@@ -12,11 +12,13 @@ def download_default_config(path_to_save: Path | str = None):
     """
     Downloads the default configuration file from the github repository.
     """
-    default_config_url = "https://github.com/FlynnOConnell/clustersort/raw/master/default_config.ini"
+    default_config_url = (
+        "https://github.com/FlynnOConnell/clustersort/raw/master/default_config.ini"
+    )
     try:
         response = requests.get(default_config_url)
         response.raise_for_status()
-        with open(path_to_save, 'wb') as file:
+        with open(path_to_save, "wb") as file:
             file.write(response.content)
         print(f"Default configuration file downloaded to {path_to_save}")
     except requests.exceptions.RequestException as e:
@@ -96,8 +98,10 @@ class SortConfig:
                 download_default_config(self.cfg_path)
 
             elif len(list(config_file)) > 1:
-                raise Exception(f"Multiple configuration files found in {self.cfg_path}")
-            else :
+                raise Exception(
+                    f"Multiple configuration files found in {self.cfg_path}"
+                )
+            else:
                 self.cfg_path = list(config_file)[0]
         if self.cfg_path.is_file():
             # if the provided path is a file, use it
@@ -174,8 +178,6 @@ class SortConfig:
             for key, value in self.config.items(section):
                 params[key] = value
         return params
-
-
 
     @property
     def run(self):

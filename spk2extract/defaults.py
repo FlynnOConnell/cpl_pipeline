@@ -1,6 +1,7 @@
 from .version import version
 from pathlib import Path
 
+
 def defaults():
     """default options to run spike extract"""
     home = Path().home()

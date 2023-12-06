@@ -1,7 +1,9 @@
 from tqdm import tqdm
 
+
 class ProgressBarManager:
     """Singleton class for managing progress bars."""
+
     _instance = None
 
     def __new__(cls):

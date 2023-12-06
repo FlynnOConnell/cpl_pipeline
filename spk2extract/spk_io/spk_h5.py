@@ -4,15 +4,15 @@ Functions for saving/writing to h5 files using h5py.
 from __future__ import annotations
 
 import os
+import sys
+
+import numpy as np
 from pathlib import Path
 from typing import Iterable
 
 import tables
-
-import spk2extract.extract
 from spk2extract.logger import logger
-
-import numpy as np
+from spk2extract.spk_io.printer import println
 
 
 def _is_pyt_type(obj):
@@ -52,7 +52,7 @@ def _is_pyt_type(obj):
 def save_channel_h5(fname: str, name: str, obj_list: list, metadata: dict):
     with tables.open_file(fname, mode="w") as h5file:
         file_group = h5file.create_group("/", name)
-        file_group._v_attrs['metadata'] = metadata
+        file_group._v_attrs["metadata"] = metadata
         for channel in obj_list:
             _chan_arr_groups(h5file, file_group, channel)
 
@@ -61,12 +61,12 @@ def _chan_arr_groups(h5file: tables.file.File, parent_group: tables.Group, chann
 
     # Create a group for each channel
     channel_group = h5file.create_group(parent_group, channel.name)
-    channel_group._v_attrs['metadata'] = channel.metadata
-    channel_group._v_attrs['type'] = channel.type
-    channel_group._v_attrs['name'] = channel.name
+    channel_group._v_attrs["metadata"] = channel.metadata
+    channel_group._v_attrs["type"] = channel.type
+    channel_group._v_attrs["name"] = channel.name
 
-    h5file.create_array(channel_group, 'data', channel.data)
-    h5file.create_array(channel_group, 'times', channel.times)
+    h5file.create_array(channel_group, "data", channel.data)
+    h5file.create_array(channel_group, "times", channel.times)
 
 
 def load_from_h5(h5file, group_name, cls):
@@ -74,7 +74,7 @@ def load_from_h5(h5file, group_name, cls):
     kwargs = {}
     for key in group._v_attrs._f_list():  # Load attributes
         kwargs[key] = group._v_attrs[key]
-    for array in h5file.list_nodes(group, classname='Array'):  # Load arrays
+    for array in h5file.list_nodes(group, classname="Array"):  # Load arrays
         kwargs[array.name] = array.read()
     return cls(**kwargs)
 
@@ -98,24 +98,12 @@ def save_metadata_or_raise(group, metadata):
             )
 
 
-def save_event(h5file, event_group, event: spk2extract.extraction.Event):
-    event_group_this = h5file.create_group(event_group, event.title, "Single Event")
-    h5file.create_array(event_group_this, 'labels', event.labels)
-    h5file.create_array(event_group_this, 'times', event.times)
-
-
-def save_wave(h5file, wave_group, signal: spk2extract.extraction.Signal):
-    wave_group_this = h5file.create_group(wave_group, signal.title, "Single Wave")
-    h5file.create_array(wave_group_this, 'data', signal.data)
-    h5file.create_array(wave_group_this, 'times', signal.times)
-
-
 def write_h5(
-        filename: Path | str,
-        data: dict = None,
-        events: Iterable = None,
-        metadata_channel: dict = None,
-        metadata_file: dict = None,
+    filename: Path | str,
+    data: dict = None,
+    events: Iterable = None,
+    metadata_channel: dict = None,
+    metadata_file: dict = None,
 ):
     """
     Creates a h5 file specific to the spike2 dataset.
@@ -306,7 +294,7 @@ def __read_group(group: tables.Group) -> dict:
         elif isinstance(node, tables.Array):
             array_data = node.read()
             if (
-                    isinstance(array_data, np.ndarray) and array_data.dtype.kind == "S"
+                isinstance(array_data, np.ndarray) and array_data.dtype.kind == "S"
             ):  # Check if dtype is byte string
                 array_data = array_data.astype(str)  # Convert to string
             elif isinstance(array_data, list):  # Handle list of byte strings
@@ -346,3 +334,40 @@ def get_h5_filename(file_dir):
     h5_files = [f for f in file_list if f.endswith(".h5")]
     return os.path.join(file_dir, h5_files[0])
 
+
+def create_hdf_arrays(
+    file_name,
+    electrode_mapping,
+):
+
+    file_name = Path(file_name)
+
+    println("Creating empty arrays in hdf5 store for raw data...")
+    sys.stdout.flush()
+    atom = tables.IntAtom()
+    f_atom = tables.Float64Atom()
+    with tables.open_file(str(file_name), "r+") as hf5:
+
+        # Create array for raw time vector
+        hf5.create_earray("/raw", "amplifier_time", f_atom, (0,))
+
+        # Create arrays for each electrode
+        for idx, row in electrode_mapping.iterrows():
+            hf5.create_earray("/raw", "electrode%i" % row["Electrode"], atom, (0,))
+
+        # Create arrays for raw emg (if any exist)
+        if not emg_mapping.empty:
+            for idx, row in emg_mapping:
+                hf5.create_earray("/raw_emg", "emg%i" % row["EMG"], atom, (0,))
+
+        # Create arrays for digital inputs (if any exist)
+        if rec_info.get("dig_in") is not None:
+            for x in rec_info["dig_in"]:
+                hf5.create_earray("/digital_in", "dig_in_%i" % x, atom, (0,))
+
+        # Create arrays for digital outputs (if any exist)
+        if rec_info.get("dig_out") is not None:
+            for x in rec_info["dig_out"]:
+                hf5.create_earray("/digital_out", "dig_out_%i" % x, atom, (0,))
+
+    print("Done!")

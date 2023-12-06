@@ -33,4 +33,10 @@ from . import spk_config
 from . import utils
 from . import cluster
 
-__all__ = ["directory_manager", "sorter", "spk_config", "utils", "cluster",]
+__all__ = [
+    "directory_manager",
+    "sorter",
+    "spk_config",
+    "utils",
+    "cluster",
+]

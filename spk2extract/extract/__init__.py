@@ -10,6 +10,5 @@ spike2 files.
 
 """
 from .spike2 import Spike2Data
-from spk2extract.viz.plots import *
 
-__all__ = ["Spike2Data", "plot_coh",]
+__all__ = ["Spike2Data"]

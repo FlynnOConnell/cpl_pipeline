@@ -4,6 +4,7 @@ import os
 
 import numpy as np
 
+
 class CacheDict(dict):
     """
     A dictionary that prevents itself from growing too much.
@@ -22,8 +23,9 @@ class CacheDict(dict):
                 super().__delitem__(k)
         super().__setitem__(key, value)
 
+
 def detect_number_of_cores():
-    """Detects the number of cores on a system. """
+    """Detects the number of cores on a system."""
 
     # Linux, Unix and MacOS:
     if hasattr(os, "sysconf"):
@@ -41,15 +43,19 @@ def detect_number_of_cores():
             return ncpus
     return 1  # Default
 
+
 def _test():
     """Run ``doctest`` on this module."""
 
     import doctest
+
     doctest.testmod()
+
 
 def check_substring_content(main_string, substring):
     """Checks if any combination of the substring is in the main string."""
     return substring.lower() in main_string.lower()
+
 
 def pad_arrays_to_same_length(arr_list, max_diff=100):
     """
@@ -77,9 +83,11 @@ def pad_arrays_to_same_length(arr_list, max_diff=100):
 
     return padded_list
 
+
 def extract_common_key(filepath):
     parts = filepath.stem.split("_")
     return "_".join(parts[:-1])
+
 
 if __name__ == "__main__":
     _test()

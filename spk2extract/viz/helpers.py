@@ -24,6 +24,7 @@ def update_rcparams():
         }
     )
 
+
 def get_handles_from_dict(
     color_dict: dict,
     markersize: Optional[int] = 5,

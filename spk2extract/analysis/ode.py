@@ -57,12 +57,13 @@ def _validate_events(event_arr, event_id):
 
     return valid_times, valid_event_id
 
+
 def get_lowest_variance_window(arr, sfreq, window_length_sec=10):
 
     arr = arr.get_data()
     window_length = int(window_length_sec * sfreq)  # Convert seconds to samples
     step_size = window_length // 2  # 50% overlap
-    lowest_variance = float('inf')
+    lowest_variance = float("inf")
     best_window = (0, window_length)
     best_window_data = None
 
@@ -81,8 +82,9 @@ def get_lowest_variance_window(arr, sfreq, window_length_sec=10):
     if best_window_data is not None:
         return best_window_data
 
+
 def get_master_df():
-    data_path = Path().home() / "data" / ".cache" / 'serotonin'
+    data_path = Path().home() / "data" / ".cache" / "serotonin"
     # prevent .DS_Store from being read
     animals = [animal for animal in data_path.glob("*") if animal.is_dir()]
     master = pd.DataFrame()
@@ -91,12 +93,22 @@ def get_master_df():
         cache_animal_path = data_path / animal_dir.name
         cache_animal_path.mkdir(parents=True, exist_ok=True)
 
-        lfp_raw = sorted(list(animal_dir.glob("*_lfp_raw*.fif")), key=extract_common_key)
-        unit_raw = sorted(list(animal_dir.glob("*_unit_raw*.fif")), key=extract_common_key)
-        event_files = sorted(list(animal_dir.glob("*_eve*.fif")), key=extract_common_key)
+        lfp_raw = sorted(
+            list(animal_dir.glob("*_lfp_raw*.fif")), key=extract_common_key
+        )
+        unit_raw = sorted(
+            list(animal_dir.glob("*_unit_raw*.fif")), key=extract_common_key
+        )
+        event_files = sorted(
+            list(animal_dir.glob("*_eve*.fif")), key=extract_common_key
+        )
         event_id = sorted(list(animal_dir.glob("*_id_ev*.npz")), key=extract_common_key)
-        sniff_signal = sorted(list(animal_dir.glob("*_sniff_signal*.npy")), key=extract_common_key)
-        sniff_times = sorted(list(animal_dir.glob("*_sniff_times*.npy")), key=extract_common_key)
+        sniff_signal = sorted(
+            list(animal_dir.glob("*_sniff_signal*.npy")), key=extract_common_key
+        )
+        sniff_times = sorted(
+            list(animal_dir.glob("*_sniff_times*.npy")), key=extract_common_key
+        )
 
         metadata = [extract_file_info_on(raw_file.name) for raw_file in lfp_raw]
         lfp_data = [mne.io.read_raw_fif(raw_file) for raw_file in lfp_raw]
@@ -107,7 +119,7 @@ def get_master_df():
         sniff_times = [np.load(str(sniff_file)) for sniff_file in sniff_times]
 
         first_event_times = [event[0][0] for event in event_data]
-        sfreq = lfp_data[0].info['sfreq']
+        sfreq = lfp_data[0].info["sfreq"]
 
         baseline_segment = [get_lowest_variance_window(raw, sfreq) for raw in lfp_data]
         # map each baseline channel to its baseline segment
@@ -119,9 +131,17 @@ def get_master_df():
 
         ev_start_holder = []
         ev_end_holder = []
-        for (arr) in event_data:  # separate the start and end events to work with mne event structures [start, 0, id]
-            start_events = np.column_stack([arr[:, 0], np.zeros(arr.shape[0]), arr[:, 2]]).astype(int)
-            end_events = np.column_stack([arr[:, 1], np.zeros(arr.shape[0]), arr[:, 2]]).astype(int)
+        for (
+            arr
+        ) in (
+            event_data
+        ):  # separate the start and end events to work with mne event structures [start, 0, id]
+            start_events = np.column_stack(
+                [arr[:, 0], np.zeros(arr.shape[0]), arr[:, 2]]
+            ).astype(int)
+            end_events = np.column_stack(
+                [arr[:, 1], np.zeros(arr.shape[0]), arr[:, 2]]
+            ).astype(int)
 
             ev_start_holder.append(start_events)
             ev_end_holder.append(end_events)
@@ -145,6 +165,7 @@ def get_master_df():
 
     return master
 
+
 def preprocess_raw(raw_signal, fmin=1, fmax=100):
     raw: mne.io.RawArray = raw_signal
     raw.load_data()
@@ -153,17 +174,34 @@ def preprocess_raw(raw_signal, fmin=1, fmax=100):
     raw.notch_filter(np.arange(60, 161, 60), fir_design="firwin")
     return raw
 
-def update_df_with_epochs(df, fmin, fmax, tmin, tmax, evt_row="end", ):
+
+def update_df_with_epochs(
+    df,
+    fmin,
+    fmax,
+    tmin,
+    tmax,
+    evt_row="end",
+):
     epochs_holder, con_holder = [], []
     for idx, row in df.iterrows():
-        epoch, con_data = process_epoch(row['raw'], row[evt_row], row['event_id'], row['baseline'], fmin, fmax, tmin,
-                                        tmax)
+        epoch, con_data = process_epoch(
+            row["raw"],
+            row[evt_row],
+            row["event_id"],
+            row["baseline"],
+            fmin,
+            fmax,
+            tmin,
+            tmax,
+        )
         epochs_holder.append(epoch)
 
         con_holder.append(con_data)
-    df['epoch'] = epochs_holder
-    df['con_arr'] = con_holder
+    df["epoch"] = epochs_holder
+    df["con_arr"] = con_holder
     return df
+
 
 def process_epoch(raw_arr, events, event_id, baseline, fmin, fmax, tmin, tmax):
     assert fmin < fmax and tmin < tmax, "Ensure fmin < fmax and tmin < tmax"
@@ -175,15 +213,25 @@ def process_epoch(raw_arr, events, event_id, baseline, fmin, fmax, tmin, tmax):
     valid_events, valid_event_id = _validate_events(events, event_id)
 
     raw = raw.filter(fmin, fmax, l_trans_bandwidth=1, h_trans_bandwidth=1)
-    epochs = mne.Epochs(raw, valid_events, valid_event_id, tmin, tmax, baseline=None, event_repeated="drop",
-                        preload=True)
+    epochs = mne.Epochs(
+        raw,
+        valid_events,
+        valid_event_id,
+        tmin,
+        tmax,
+        baseline=None,
+        event_repeated="drop",
+        preload=True,
+    )
 
     if epochs is None:
         raise ValueError("Epoch is None")
 
     for ch in epochs.ch_names:
         ch_idx = epochs.ch_names.index(ch)
-        epochs._data[:, ch_idx, :] = (epochs._data[:, ch_idx, :] - means[ch_idx]) / stds[ch_idx]
+        epochs._data[:, ch_idx, :] = (
+            epochs._data[:, ch_idx, :] - means[ch_idx]
+        ) / stds[ch_idx]
 
     freqs_arange = np.arange(fmin, fmax)
 
@@ -199,10 +247,12 @@ def process_epoch(raw_arr, events, event_id, baseline, fmin, fmax, tmin, tmax):
     )
     return epochs, con
 
+
 def main(use_parallel=True):
     helpers.update_rcparams()
     data = get_master_df().reset_index(drop=True)
     return data
+
 
 def optimize_psd_params(sfreq, time_series_length, desired_resolution=None):
     """
@@ -231,6 +281,7 @@ def optimize_psd_params(sfreq, time_series_length, desired_resolution=None):
 
     return n_fft, n_per_seg, n_overlap
 
+
 def compute_coherence_base(epoch_obj, idxs, freqs):
     epoch_arr = epoch_obj.get_data()
     epoch_connectivity = spectral_connectivity_epochs(
@@ -245,9 +296,11 @@ def compute_coherence_base(epoch_obj, idxs, freqs):
     )
     return epoch_connectivity
 
+
 def set_event_id(epoch):
     epoch.event_id = all_event_keys
     return epoch
+
 
 def determine_group(chan_pair_names):
     """
@@ -265,16 +318,17 @@ def determine_group(chan_pair_names):
 
     """
     if any(all(x in chan_pair_names for x in w) for w in brain_regions_within):
-        return 'within'
+        return "within"
     elif any(all(x in chan_pair_names for x in b) for b in brain_regions_between):
-        return 'between'
+        return "between"
     else:
         raise ValueError(f"Invalid pair name: {chan_pair_names}")
+
 
 if __name__ == "__main__":
 
     data = main(use_parallel=False)
-    data = data.dropna(subset=['raw'])
+    data = data.dropna(subset=["raw"])
     day = data.iloc[0]
 
     epoch_tmin, epoch_tmax = -1, 0
@@ -283,27 +337,27 @@ if __name__ == "__main__":
     pre_fmin, pre_fmax = 1, 100
 
     # TODO: user provided information, or programmatically derived
-    brain_regions_all = ['LFP1_OB', 'LFP2_OB', 'LFP1_PC']
-    brain_regions_within = [('LFP1_OB', 'LFP2_OB')]
-    brain_regions_between = [('LFP1_OB', 'LFP1_PC'), ('LFP2_OB', 'LFP1_PC')]
+    brain_regions_all = ["LFP1_OB", "LFP2_OB", "LFP1_PC"]
+    brain_regions_within = [("LFP1_OB", "LFP2_OB")]
+    brain_regions_between = [("LFP1_OB", "LFP1_PC"), ("LFP2_OB", "LFP1_PC")]
 
     all_animals = data["Animal"].unique()
 
     # TODO: user provided information, or programmatically derived
     all_event_keys = {"O_o": 1}
-    lfp_bands = {'theta': (4, 12)}
+    lfp_bands = {"theta": (4, 12)}
 
     chan_indices = np.array(list(combinations(range(4), 2)))
 
-    sniff_signal = day['sniff_sig']
-    sniff_times = day['sniff_times']
+    sniff_signal = day["sniff_sig"]
+    sniff_times = day["sniff_times"]
     print(sniff_signal.shape)
     print(sniff_times.shape)
 
-    raw = day['raw']
-    unit = day['raw_unit']
-    event_id = day['event_id']
-    baseline = day['baseline']
+    raw = day["raw"]
+    unit = day["raw_unit"]
+    event_id = day["event_id"]
+    baseline = day["baseline"]
 
     # Detect peaks
     peaks, _ = scipy.signal.find_peaks(sniff_signal)
@@ -316,10 +370,10 @@ if __name__ == "__main__":
 
     plt.figure(figsize=(12, 6))
     plt.plot(sniff_signal[peaks[:100000]])
-    plt.plot(peaks[:1000], sniff_signal[peaks[:1000]], "x", color='black')
+    plt.plot(peaks[:1000], sniff_signal[peaks[:1000]], "x", color="black")
     plt.title("Sniff Detection")
     plt.xlabel("Samples")
     plt.ylabel("Pressure")
     plt.show()
 
-    x=5
+    x = 5

@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from itertools import combinations
@@ -58,12 +57,13 @@ def _validate_events(event_arr, event_id):
 
     return valid_times, valid_event_id
 
+
 def get_lowest_variance_window(arr, sfreq, window_length_sec=10):
 
     arr = arr.get_data()
     window_length = int(window_length_sec * sfreq)  # Convert seconds to samples
     step_size = window_length // 2  # 50% overlap
-    lowest_variance = float('inf')
+    lowest_variance = float("inf")
     best_window = (0, window_length)
     best_window_data = None
 
@@ -82,9 +82,12 @@ def get_lowest_variance_window(arr, sfreq, window_length_sec=10):
     if best_window_data is not None:
         return best_window_data
 
+
 def get_master_df():
     data_path = Path().home() / "data" / ".cache"
-    animals = sorted([x for x in data_path.iterdir() if x.is_dir() and not x.name.startswith(".")])
+    animals = sorted(
+        [x for x in data_path.iterdir() if x.is_dir() and not x.name.startswith(".")]
+    )
     animals = animals[:-1]
 
     master = pd.DataFrame()
@@ -94,7 +97,9 @@ def get_master_df():
         cache_animal_path.mkdir(parents=True, exist_ok=True)
 
         raw_files = sorted(list(animal_path.glob("*_raw*.fif")), key=extract_common_key)
-        event_files = sorted(list(animal_path.glob("*_eve*.fif")), key=extract_common_key)
+        event_files = sorted(
+            list(animal_path.glob("*_eve*.fif")), key=extract_common_key
+        )
         event_id = sorted(list(animal_path.glob("*_id_*.npz")), key=extract_common_key)
         assert len(raw_files) == len(event_files) == len(event_id)
         sfreq = raw_files
@@ -106,8 +111,14 @@ def get_master_df():
 
         first_event_times = [event[0][0] for event in event_data]
         first_event_times = [np.array([time]) for time in first_event_times]
-        baseline_windows = [raw_data[i].copy().crop(tmin=0, tmax=time[0] / 2000) for i, time in enumerate(first_event_times)]
-        baseline_segment = [get_lowest_variance_window(window, raw_data[i].info['sfreq']) for i, window in enumerate(baseline_windows)]
+        baseline_windows = [
+            raw_data[i].copy().crop(tmin=0, tmax=time[0] / 2000)
+            for i, time in enumerate(first_event_times)
+        ]
+        baseline_segment = [
+            get_lowest_variance_window(window, raw_data[i].info["sfreq"])
+            for i, window in enumerate(baseline_windows)
+        ]
         # map each baseline channel to its baseline segment
 
         ev_id_dict = [
@@ -118,9 +129,9 @@ def get_master_df():
         ev_start_holder = []
         ev_end_holder = []
         for (
-                arr
+            arr
         ) in (
-                event_data
+            event_data
         ):  # separate the start and end events to work with mne event structures [start, 0, id]
             start_events = np.column_stack(
                 [arr[:, 0], np.zeros(arr.shape[0]), arr[:, 2]]
@@ -146,6 +157,7 @@ def get_master_df():
         master = pd.concat([master, all_data_df], axis=0)
     return master
 
+
 def preprocess_raw(raw_signal, fmin=1, fmax=100):
     raw: mne.io.RawArray = raw_signal.copy()
     raw.load_data()
@@ -156,17 +168,34 @@ def preprocess_raw(raw_signal, fmin=1, fmax=100):
     raw.drop_channels(["Ref"])
     return raw
 
-def update_df_with_epochs(df, fmin, fmax, tmin, tmax, evt_row="end",):
+
+def update_df_with_epochs(
+    df,
+    fmin,
+    fmax,
+    tmin,
+    tmax,
+    evt_row="end",
+):
     epochs_holder, con_holder = [], []
     for idx, row in df.iterrows():
-        epoch, con_data = process_epoch(row['raw'], row[evt_row], row['event_id'], row['baseline'], fmin, fmax, tmin,
-                                        tmax)
+        epoch, con_data = process_epoch(
+            row["raw"],
+            row[evt_row],
+            row["event_id"],
+            row["baseline"],
+            fmin,
+            fmax,
+            tmin,
+            tmax,
+        )
         epochs_holder.append(epoch)
 
         con_holder.append(con_data)
-    df['epoch'] = epochs_holder
-    df['con_arr'] = con_holder
+    df["epoch"] = epochs_holder
+    df["con_arr"] = con_holder
     return df
+
 
 def process_epoch(raw_arr, events, event_id, baseline, fmin, fmax, tmin, tmax):
 
@@ -179,15 +208,25 @@ def process_epoch(raw_arr, events, event_id, baseline, fmin, fmax, tmin, tmax):
     valid_events, valid_event_id = _validate_events(events, event_id)
 
     raw = raw.filter(fmin, fmax, l_trans_bandwidth=1, h_trans_bandwidth=1)
-    epochs = mne.Epochs(raw, valid_events, valid_event_id, tmin, tmax, baseline=None, event_repeated="drop",
-                        preload=True)
+    epochs = mne.Epochs(
+        raw,
+        valid_events,
+        valid_event_id,
+        tmin,
+        tmax,
+        baseline=None,
+        event_repeated="drop",
+        preload=True,
+    )
 
     if epochs is None:
         raise ValueError("Epoch is None")
 
     for ch in epochs.ch_names:
         ch_idx = epochs.ch_names.index(ch)
-        epochs._data[:, ch_idx, :] = (epochs._data[:, ch_idx, :] - means[ch_idx]) / stds[ch_idx]
+        epochs._data[:, ch_idx, :] = (
+            epochs._data[:, ch_idx, :] - means[ch_idx]
+        ) / stds[ch_idx]
 
     freqs_arange = np.arange(fmin, fmax)
 
@@ -203,10 +242,12 @@ def process_epoch(raw_arr, events, event_id, baseline, fmin, fmax, tmin, tmax):
     )
     return epochs, con
 
+
 def main(use_parallel=True):
     helpers.update_rcparams()
     data = get_master_df().reset_index(drop=True)
     return data
+
 
 def optimize_psd_params(sfreq, time_series_length, desired_resolution=None):
     """
@@ -235,9 +276,10 @@ def optimize_psd_params(sfreq, time_series_length, desired_resolution=None):
 
     return n_fft, n_per_seg, n_overlap
 
+
 def compute_coherence_base(epoch_obj, idxs, freqs, sfreq):
-    if hasattr(epoch_obj, 'info'):
-        assert sfreq == epoch_obj.info['sfreq']
+    if hasattr(epoch_obj, "info"):
+        assert sfreq == epoch_obj.info["sfreq"]
         epoch_obj = epoch_obj.get_data()
 
     epoch_connectivity = spectral_connectivity_epochs(
@@ -252,32 +294,39 @@ def compute_coherence_base(epoch_obj, idxs, freqs, sfreq):
     )
     return epoch_connectivity
 
+
 def compute_power(epoch_obj, sfreq=None, n_fft=None, n_per_seg=None, n_overlap=None):
     fs, arr = None, None
 
-    if not hasattr(epoch_obj, 'info') and sfreq is None:
-        raise ValueError("Must provide sampling frequency if epoch_obj is not an Epochs object")
+    if not hasattr(epoch_obj, "info") and sfreq is None:
+        raise ValueError(
+            "Must provide sampling frequency if epoch_obj is not an Epochs object"
+        )
 
-    if not hasattr(epoch_obj, 'info') and sfreq is not None:
+    if not hasattr(epoch_obj, "info") and sfreq is not None:
         fs = sfreq
         arr = epoch_obj
 
-    if hasattr(epoch_obj, 'info') and sfreq is not None:
-        fs = epoch_obj.info['sfreq']
+    if hasattr(epoch_obj, "info") and sfreq is not None:
+        fs = epoch_obj.info["sfreq"]
         arr = epoch_obj.get_data()
 
-    if hasattr(epoch_obj, 'info') and sfreq is None:
-        fs = epoch_obj.info['sfreq']
+    if hasattr(epoch_obj, "info") and sfreq is None:
+        fs = epoch_obj.info["sfreq"]
         arr = epoch_obj.get_data()
 
     # Compute PSD
-    power = psd_array_welch(arr, fs, n_fft=n_fft, n_per_seg=n_per_seg, n_overlap=n_overlap, n_jobs=1)
+    power = psd_array_welch(
+        arr, fs, n_fft=n_fft, n_per_seg=n_per_seg, n_overlap=n_overlap, n_jobs=1
+    )
     return power
+
 
 def set_event_id(epoch):
 
     epoch.event_id = all_event_keys
     return epoch
+
 
 def determine_group(chan_pair_names):
     """
@@ -295,42 +344,54 @@ def determine_group(chan_pair_names):
 
     """
     if any(all(x in chan_pair_names for x in w) for w in brain_regions_within):
-        return 'within'
+        return "within"
     elif any(all(x in chan_pair_names for x in b) for b in brain_regions_between):
-        return 'between'
+        return "between"
     else:
         raise ValueError(f"Invalid pair name: {chan_pair_names}")
+
 
 if __name__ == "__main__":
 
     data = main(use_parallel=False)
-    epoch_tmin, epoch_tmax = -.5, .5
+    epoch_tmin, epoch_tmax = -0.5, 0.5
     pre_fmin, pre_fmax = 13, 30
-    c1 = ['context', 'nocontext']
-    c2 = ['between', 'within']
+    c1 = ["context", "nocontext"]
+    c2 = ["between", "within"]
 
-    brain_regions_within = [('LFP1_vHp', 'LFP2_vHp'), ('LFP3_AON', 'LFP4_AON')]
-    brain_regions_between = [('LFP1_vHp', 'LFP3_AON'), ('LFP1_vHp', 'LFP4_AON'), ('LFP2_vHp', 'LFP3_AON'),
-                             ('LFP2_vHp', 'LFP4_AON')]
-    brain_regions_all = ['LFP1_vHp', 'LFP2_vHp', 'LFP3_AON', 'LFP4_AON']
+    brain_regions_within = [("LFP1_vHp", "LFP2_vHp"), ("LFP3_AON", "LFP4_AON")]
+    brain_regions_between = [
+        ("LFP1_vHp", "LFP3_AON"),
+        ("LFP1_vHp", "LFP4_AON"),
+        ("LFP2_vHp", "LFP3_AON"),
+        ("LFP2_vHp", "LFP4_AON"),
+    ]
+    brain_regions_all = ["LFP1_vHp", "LFP2_vHp", "LFP3_AON", "LFP4_AON"]
 
     all_animals = data["Animal"].unique()
     all_event_keys = {"b_1": 1, "b_0": 2, "w_1": 3, "w_0": 4, "x_1": 5, "x_0": 6}
 
-    lfp_bands = {'beta': (12, 30), 'gamma': (30, 80), 'theta': (4, 12)}
+    lfp_bands = {"beta": (12, 30), "gamma": (30, 80), "theta": (4, 12)}
     chan_indices = np.array(list(combinations(range(4), 2)))
 
     animal_df = data[data["Animal"] == all_animals[0]]
     condition = c1[0]
 
-    df = update_df_with_epochs(animal_df[animal_df["Context"] == condition], pre_fmin, pre_fmax, epoch_tmin, epoch_tmax, "end")
+    df = update_df_with_epochs(
+        animal_df[animal_df["Context"] == condition],
+        pre_fmin,
+        pre_fmax,
+        epoch_tmin,
+        epoch_tmax,
+        "end",
+    )
     df = df.iloc[0]
-    baseline = df['baseline'].tolist()
+    baseline = df["baseline"].tolist()
     baseline = np.array([b[:-1] for b in baseline])  # remove the last channel (ref)
 
-    epochs = list(map(lambda e: set_event_id(e), df['epoch'].tolist()))
+    epochs = list(map(lambda e: set_event_id(e), df["epoch"].tolist()))
 
-    sfreq = epochs[0].info['sfreq']
+    sfreq = epochs[0].info["sfreq"]
     numt = epochs[0].times.size
     params = optimize_psd_params(sfreq, numt)
 
@@ -353,7 +414,9 @@ if __name__ == "__main__":
         # Mean power across channels for this epoch
         mean_epoch_power = epoch_power.mean(axis=0)
         # Calculate percent change
-        percent_change_power = ((mean_epoch_power - mean_bl_power) / mean_bl_power) * 100
+        percent_change_power = (
+            (mean_epoch_power - mean_bl_power) / mean_bl_power
+        ) * 100
         pct_change_power.append(percent_change_power)
 
     # Convert to array for easier manipulation
@@ -382,117 +445,121 @@ if __name__ == "__main__":
 
     for i, ax in enumerate(axes.flatten()[:5]):  # plot first 5 for example
         if i < len(mean_sorted_pct_change_across_channels):
-            ax.plot(sorted_freqs, mean_sorted_pct_change_across_channels[i], label=f'Session {i}')
-            ax.set_xlabel('Frequency (Hz)')
-            ax.set_ylabel('Power Change (%)')
+            ax.plot(
+                sorted_freqs,
+                mean_sorted_pct_change_across_channels[i],
+                label=f"Session {i}",
+            )
+            ax.set_xlabel("Frequency (Hz)")
+            ax.set_ylabel("Power Change (%)")
             ax.legend()
     plt.show()
 
-            # for ch_pair in combinations(range(len(brain_regions_all)), 2):
-            #
-            #     pair_name = (brain_regions_all[ch_pair[0]], brain_regions_all[ch_pair[1]])
-            #     group = determine_group(pair_name)
-            #     if group == 'within':
-            #         continue
-            #
-            #     all_animals_data[animal][condition][group] = {}
-            #
-            #     sfreq = epochs[0].info['sfreq']
-            #     numt = epochs[0].times.size
-            #     params = optimize_psd_params(sfreq, numt)
-            #
-            #     welch_epochs = [scipy.signal.welch(epoch, epoch.info['sfreq'], nperseg=1000, axis=-1) for epoch in epochs]
-            #     power_epochs = [compute_power(x, sfreq, *params)for x in epochs]
-            #     power_epochs_data = [x[0] for x in power_epochs]
-            #     logger.debug(f"Power epochs shape: {power_epochs_data[0].shape}")
-            #
-            #     power_baseline = [compute_power(bl, sfreq, *params) for bl in baseline]
-            #     power_baseline_data = [bl[0] for bl in power_baseline]
-            #     logger.debug(f"Power baseline shape: {power_baseline_data[0].shape}")
-            #     power_freqs = power_baseline_data[0][0]
-            #     logger.debug(f"Power freqs: {power_freqs}")
-            #
-            #     # Calculate the mean and SEM of baseline power across channels (if needed)
-            #     mean_bl_power = np.mean([bl.mean(axis=0) for bl in power_baseline_data], axis=0)
-            #     sem_bl_power = sem([bl.mean(axis=0) for bl in power_baseline_data], axis=0)
-            #
-            #     # Initialize list to store percent change for each epoch
-            #     pct_change_power = []
-            #
-            #     # Loop through each epoch's power data
-            #     for epoch_power in power_epochs_data:
-            #         # Mean power across channels for this epoch
-            #         mean_epoch_power = epoch_power.mean(axis=0)
-            #         # Calculate percent change
-            #         percent_change_power = ((mean_epoch_power - mean_bl_power) / mean_bl_power) * 100
-            #         pct_change_power.append(percent_change_power)
-            #
-            #     # Convert to array for easier manipulation
-            #     pct_change_power = np.array(pct_change_power)
-            #
-            #     # Calculate the mean and SEM across epochs
-            #     mean_pct_change = pct_change_power.mean(axis=0)
-            #     mean_c = mean_pct_change.mean(axis=0)
-            #     sem_pct_change = sem(pct_change_power, axis=0)
-            #     sem_c = sem_pct_change.mean(axis=0)
-            #
-            #     # After calculating percent_change_power for each epoch
-            #     percent_change_power = np.clip(mean_c, 0, 100)
-            #
-            #     # Plotting
-            #     # fig, ax = plt.subplots(figsize=(10, 6))
-            #     # ax.plot(power_freqs, mean_c, label='Mean Percent Change')
-            #     # ax.fill_between(power_freqs, mean_c - sem_c, mean_c + sem_c, color='k', alpha=0.2)
-            #     # ax.set_xlabel('Frequency (Hz)')
-            #     # ax.set_xticks(power_freqs)
-            #     # ax.set_ylabel('Percent Change in Power Spectral Density (%)')
-            #     # ax.legend()
-            #     # plt.show()
-            #
-            #     sorted_indices = np.argsort(power_freqs)
-            #     sorted_freqs = power_freqs[sorted_indices]
-            #
-            #     # Sort the percent change data according to the sorted frequency indices
-            #     sorted_pct_change = pct_change_power[:, :, sorted_indices]
-            #
-            #     # Calculate the mean percent change across channels for each session, now with sorted data
-            #     mean_sorted_pct_change_across_channels = sorted_pct_change.mean(axis=1)
-            #
-            #     # Plotting individual sessions to check the patterns
-            #     fig, axes = plt.subplots(nrows=5, ncols=1, figsize=(10, 30), sharex=True)
-            #     plt.title
-            #     for i, ax in enumerate(axes.flatten()[:5]):  # plot first 5 for example
-            #         if i < len(mean_sorted_pct_change_across_channels):
-            #             ax.plot(sorted_freqs, mean_sorted_pct_change_across_channels[i], label=f'Session {i}')
-            #             ax.set_xlabel('Frequency (Hz)')
-            #             ax.set_ylabel('Power Change (%)')
-            #             ax.legend()
-            #     plt.show()
+    # for ch_pair in combinations(range(len(brain_regions_all)), 2):
+    #
+    #     pair_name = (brain_regions_all[ch_pair[0]], brain_regions_all[ch_pair[1]])
+    #     group = determine_group(pair_name)
+    #     if group == 'within':
+    #         continue
+    #
+    #     all_animals_data[animal][condition][group] = {}
+    #
+    #     sfreq = epochs[0].info['sfreq']
+    #     numt = epochs[0].times.size
+    #     params = optimize_psd_params(sfreq, numt)
+    #
+    #     welch_epochs = [scipy.signal.welch(epoch, epoch.info['sfreq'], nperseg=1000, axis=-1) for epoch in epochs]
+    #     power_epochs = [compute_power(x, sfreq, *params)for x in epochs]
+    #     power_epochs_data = [x[0] for x in power_epochs]
+    #     logger.debug(f"Power epochs shape: {power_epochs_data[0].shape}")
+    #
+    #     power_baseline = [compute_power(bl, sfreq, *params) for bl in baseline]
+    #     power_baseline_data = [bl[0] for bl in power_baseline]
+    #     logger.debug(f"Power baseline shape: {power_baseline_data[0].shape}")
+    #     power_freqs = power_baseline_data[0][0]
+    #     logger.debug(f"Power freqs: {power_freqs}")
+    #
+    #     # Calculate the mean and SEM of baseline power across channels (if needed)
+    #     mean_bl_power = np.mean([bl.mean(axis=0) for bl in power_baseline_data], axis=0)
+    #     sem_bl_power = sem([bl.mean(axis=0) for bl in power_baseline_data], axis=0)
+    #
+    #     # Initialize list to store percent change for each epoch
+    #     pct_change_power = []
+    #
+    #     # Loop through each epoch's power data
+    #     for epoch_power in power_epochs_data:
+    #         # Mean power across channels for this epoch
+    #         mean_epoch_power = epoch_power.mean(axis=0)
+    #         # Calculate percent change
+    #         percent_change_power = ((mean_epoch_power - mean_bl_power) / mean_bl_power) * 100
+    #         pct_change_power.append(percent_change_power)
+    #
+    #     # Convert to array for easier manipulation
+    #     pct_change_power = np.array(pct_change_power)
+    #
+    #     # Calculate the mean and SEM across epochs
+    #     mean_pct_change = pct_change_power.mean(axis=0)
+    #     mean_c = mean_pct_change.mean(axis=0)
+    #     sem_pct_change = sem(pct_change_power, axis=0)
+    #     sem_c = sem_pct_change.mean(axis=0)
+    #
+    #     # After calculating percent_change_power for each epoch
+    #     percent_change_power = np.clip(mean_c, 0, 100)
+    #
+    #     # Plotting
+    #     # fig, ax = plt.subplots(figsize=(10, 6))
+    #     # ax.plot(power_freqs, mean_c, label='Mean Percent Change')
+    #     # ax.fill_between(power_freqs, mean_c - sem_c, mean_c + sem_c, color='k', alpha=0.2)
+    #     # ax.set_xlabel('Frequency (Hz)')
+    #     # ax.set_xticks(power_freqs)
+    #     # ax.set_ylabel('Percent Change in Power Spectral Density (%)')
+    #     # ax.legend()
+    #     # plt.show()
+    #
+    #     sorted_indices = np.argsort(power_freqs)
+    #     sorted_freqs = power_freqs[sorted_indices]
+    #
+    #     # Sort the percent change data according to the sorted frequency indices
+    #     sorted_pct_change = pct_change_power[:, :, sorted_indices]
+    #
+    #     # Calculate the mean percent change across channels for each session, now with sorted data
+    #     mean_sorted_pct_change_across_channels = sorted_pct_change.mean(axis=1)
+    #
+    #     # Plotting individual sessions to check the patterns
+    #     fig, axes = plt.subplots(nrows=5, ncols=1, figsize=(10, 30), sharex=True)
+    #     plt.title
+    #     for i, ax in enumerate(axes.flatten()[:5]):  # plot first 5 for example
+    #         if i < len(mean_sorted_pct_change_across_channels):
+    #             ax.plot(sorted_freqs, mean_sorted_pct_change_across_channels[i], label=f'Session {i}')
+    #             ax.set_xlabel('Frequency (Hz)')
+    #             ax.set_ylabel('Power Change (%)')
+    #             ax.legend()
+    #     plt.show()
 
-                #
-                # # Calculate the percentage change in power
-                # pct_change_power = []
-                # for i, (baseline_power, epoch_power) in enumerate(zip(power_baseline_data, power_epochs_data)):
-                #
-                #     # Reshape mean_bl_power to broadcast across epochs and frequency bins
-                #     mean_bl_power = np.mean(baseline_power, axis=0)
-                #
-                #     percent_change_power = (epoch_power - mean_bl_power) / mean_bl_power * 100
-                #     pct_change_power.append(percent_change_power)
-                #     sem_bl_power = sem(baseline_power, axis=1)
-                #
-                #     # Calculate the mean and SEM for the percentage change
-                #     mean_change_per_channel = np.mean(percent_change_power, axis=0)  # per cell avg
-                #     sem_change_per_channel = sem(percent_change_power, axis=0)
-                #
-                #     mean_change = np.mean(mean_change_per_channel, axis=0)  # avg across cells
-                #     sem_change = sem(mean_change_per_channel, axis=0)
-                #
-                #     # Plot the percentage change with the SEM as the shaded area
-                #     fig, ax = plt.subplots(figsize=(10, 6))
-                #     ax.plot(power_freqs, mean_change, color="k")
-                #
-                #     plt.xlabel("Frequency (Hz)")
-                #     plt.ylabel("Percent change in power")
-                #     plt.title(f"Percent change in power for {pair_name} in {condition} condition")
-                #     plt.show()
+    #
+    # # Calculate the percentage change in power
+    # pct_change_power = []
+    # for i, (baseline_power, epoch_power) in enumerate(zip(power_baseline_data, power_epochs_data)):
+    #
+    #     # Reshape mean_bl_power to broadcast across epochs and frequency bins
+    #     mean_bl_power = np.mean(baseline_power, axis=0)
+    #
+    #     percent_change_power = (epoch_power - mean_bl_power) / mean_bl_power * 100
+    #     pct_change_power.append(percent_change_power)
+    #     sem_bl_power = sem(baseline_power, axis=1)
+    #
+    #     # Calculate the mean and SEM for the percentage change
+    #     mean_change_per_channel = np.mean(percent_change_power, axis=0)  # per cell avg
+    #     sem_change_per_channel = sem(percent_change_power, axis=0)
+    #
+    #     mean_change = np.mean(mean_change_per_channel, axis=0)  # avg across cells
+    #     sem_change = sem(mean_change_per_channel, axis=0)
+    #
+    #     # Plot the percentage change with the SEM as the shaded area
+    #     fig, ax = plt.subplots(figsize=(10, 6))
+    #     ax.plot(power_freqs, mean_change, color="k")
+    #
+    #     plt.xlabel("Frequency (Hz)")
+    #     plt.ylabel("Percent change in power")
+    #     plt.title(f"Percent change in power for {pair_name} in {condition} condition")
+    #     plt.show()

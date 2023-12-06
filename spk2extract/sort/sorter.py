@@ -32,13 +32,13 @@ from spk2extract.sort.utils.progress import ProgressBarManager
 
 # Factory
 def sort(
-        filename: str | Path,
-        data: dict | NamedTuple,
-        sampling_rate: float,
-        params: SortConfig,
-        dir_manager: DirectoryManager,
-        chan_num: int,
-        overwrite: bool = False,
+    filename: str | Path,
+    data: dict | NamedTuple,
+    sampling_rate: float,
+    params: SortConfig,
+    dir_manager: DirectoryManager,
+    chan_num: int,
+    overwrite: bool = False,
 ):
     """
     Factory method for running the spike sorting process on a single channel.
@@ -67,7 +67,15 @@ def sort(
     overwrite : bool
         Whether to overwrite existing files. Default is False.
     """
-    proc = ProcessChannel(filename, data, sampling_rate, params, dir_manager, chan_num, overwrite=overwrite)
+    proc = ProcessChannel(
+        filename,
+        data,
+        sampling_rate,
+        params,
+        dir_manager,
+        chan_num,
+        overwrite=overwrite,
+    )
     proc.process_channel()
 
 
@@ -147,7 +155,16 @@ class ProcessChannel:
 
     """
 
-    def __init__(self, filename, data, sampling_rate, params, dir_manager, chan_num, overwrite=False):
+    def __init__(
+        self,
+        filename,
+        data,
+        sampling_rate,
+        params,
+        dir_manager,
+        chan_num,
+        overwrite=False,
+    ):
         """
         Process a single channel.
 
@@ -188,19 +205,24 @@ class ProcessChannel:
         self.chan_num = chan_num
         self.dir_manager = dir_manager
         self.overwrite = overwrite
-        self._data_dir = Path(os.path.join(self.dir_manager.base_path, 'data', self.get_chan_str()))
-        self._plots_dir = Path(os.path.join(self.dir_manager.base_path, 'plots', self.get_chan_str()))
+        self._data_dir = Path(
+            os.path.join(self.dir_manager.base_path, "data", self.get_chan_str())
+        )
+        self._plots_dir = Path(
+            os.path.join(self.dir_manager.base_path, "plots", self.get_chan_str())
+        )
         self._plots_dir.mkdir(parents=True, exist_ok=True)
         self._data_dir.mkdir(parents=True, exist_ok=True)
 
-        self._files = {'raw_waveforms': os.path.join(self._data_dir, 'raw_waveforms.npy'),
-                       'raw_times': os.path.join(self._data_dir, 'raw_times.npy'),
-                       'raw_metrics': os.path.join(self._data_dir, 'metrics.npy'),
-                       'raw_pca': os.path.join(self._data_dir, 'raw_waveforms_pca.npy'),
-                       # 'slopes' : os.path.join(self._data_dir, 'spike_slopes.npy'),
-                       # 'recording_cutoff' : os.path.join(self._data_dir, 'cutoff_time.txt'),
-                       # 'detection_threshold' : os.path.join(self._data_dir, 'detection_threshold.txt')
-                       }
+        self._files = {
+            "raw_waveforms": os.path.join(self._data_dir, "raw_waveforms.npy"),
+            "raw_times": os.path.join(self._data_dir, "raw_times.npy"),
+            "raw_metrics": os.path.join(self._data_dir, "metrics.npy"),
+            "raw_pca": os.path.join(self._data_dir, "raw_waveforms_pca.npy"),
+            # 'slopes' : os.path.join(self._data_dir, 'spike_slopes.npy'),
+            # 'recording_cutoff' : os.path.join(self._data_dir, 'cutoff_time.txt'),
+            # 'detection_threshold' : os.path.join(self._data_dir, 'detection_threshold.txt')
+        }
 
     def get_chan(self):
         """The channel number to use when saving."""
@@ -346,7 +368,7 @@ class ProcessChannel:
         return float(self.params.breach["voltage-cutoff"])
 
     def process_channel(
-            self,
+        self,
     ):
         """
         Executes spike sorting for a single recording channel.
@@ -385,14 +407,14 @@ class ProcessChannel:
             self.check_spikes(self.spikes)
             if not self.overwrite:
                 if all([os.path.exists(f) for f in self._files.values()]):
-                    logger.info(f"|- --- Channel {self.chan_num + 1} already processed, skipping --- -|")
+                    logger.info(
+                        f"|- --- Channel {self.chan_num + 1} already processed, skipping --- -|"
+                    )
                     break
 
             # PCA / UMAP
             filt = clust.filter_signal(
-                self.spikes,
-                self.sampling_rate,
-                freq=(300.0, 3000.0)
+                self.spikes, self.sampling_rate, freq=(300.0, 3000.0)
             )
 
             spikes, times, thresh = clust.detect_spikes(
@@ -405,7 +427,9 @@ class ProcessChannel:
             pca = PCA()
             pca_slices = pca.fit_transform(self.scaled_slices)
             pca_cumulative_var = np.cumsum(pca.explained_variance_ratio_)
-            pca_graph_vars = list(pca_cumulative_var[0: np.where(pca_cumulative_var > 0.999)[0][0] + 1])
+            pca_graph_vars = list(
+                pca_cumulative_var[0 : np.where(pca_cumulative_var > 0.999)[0][0] + 1]
+            )
             pca_n_pc = (
                 np.where(pca_cumulative_var > self.pvar)[0][0] + 1
                 if self.usepvar == 1
@@ -433,7 +457,10 @@ class ProcessChannel:
             plt.title("Variance ratios explained by PCs (cumulative)")
             plt.xlabel("PC #")
             plt.ylabel("Explained variance ratio")
-            fig.savefig(self._plots_dir / "pca_variance_explained.png", bbox_inches="tight", )
+            fig.savefig(
+                self._plots_dir / "pca_variance_explained.png",
+                bbox_inches="tight",
+            )
             plt.close("all")
 
             self.iter_clusters(self.times)
@@ -461,8 +488,12 @@ class ProcessChannel:
                 "No spikes were found on this channel."
                 " The most likely cause is an early recording cutoff."
             )
-            warnings.warn("No spikes were found on this channel. The most likely cause is an early recording cutoff.")
-            (self._data_dir / "no_spikes.txt").write_text("Sorting finished. No spikes found")
+            warnings.warn(
+                "No spikes were found on this channel. The most likely cause is an early recording cutoff."
+            )
+            (self._data_dir / "no_spikes.txt").write_text(
+                "Sorting finished. No spikes found"
+            )
             return
 
     def iter_clusters(self, n_pc):
@@ -492,8 +523,12 @@ class ProcessChannel:
         # we test clusters of 2+, loop through each cluster of 2, 3, 4, 5, etc...
         for num_clust in tested_clusters:
             logger.info(f"For {num_clust} in tested_clusters -> {tested_clusters}")
-            cluster_data_path = (self._data_dir / f"{num_clust}_clusters")  # /path/to/data/channel_1/2_clusters
-            cluster_plot_path = (self._plots_dir / f"{num_clust}_clusters")  # /path/to/plots/channel_1/2_clusters
+            cluster_data_path = (
+                self._data_dir / f"{num_clust}_clusters"
+            )  # /path/to/data/channel_1/2_clusters
+            cluster_plot_path = (
+                self._plots_dir / f"{num_clust}_clusters"
+            )  # /path/to/plots/channel_1/2_clusters
             cluster_data_path.mkdir(parents=True, exist_ok=True)
             cluster_plot_path.mkdir(parents=True, exist_ok=True)
 
@@ -512,15 +547,27 @@ class ProcessChannel:
 
             # If there are too few waveforms
             # nofmt
-            if np.any([
-                len(np.where(predictions[:] == cluster)[0]) <= n_pc + 2
-                for cluster in range(num_clust)
-            ]):
-                logger.warning(f"There are too few waveforms to properly sort cluster {num_clust + 3}")
-                with open(cluster_data_path / "invalid_sort.txt", "w+", ) as f:
+            if np.any(
+                [
+                    len(np.where(predictions[:] == cluster)[0]) <= n_pc + 2
+                    for cluster in range(num_clust)
+                ]
+            ):
+                logger.warning(
+                    f"There are too few waveforms to properly sort cluster {num_clust + 3}"
+                )
+                with open(
+                    cluster_data_path / "invalid_sort.txt",
+                    "w+",
+                ) as f:
                     f.write("There are too few waveforms to properly sort this cluster")
-                with open(cluster_data_path / "invalid_sort.txt", "w+", ) as f:
-                    f.write("There are too few waveforms to properly sort this clustering")
+                with open(
+                    cluster_data_path / "invalid_sort.txt",
+                    "w+",
+                ) as f:
+                    f.write(
+                        "There are too few waveforms to properly sort this clustering"
+                    )
                 continue
 
             # Sometimes large amplitude noise interrupts the gmm because the amplitude has
@@ -528,7 +575,9 @@ class ProcessChannel:
             # wf_amplitude_sd_cutoff larger than the cluster mean.
             for cluster in range(num_clust):
                 logger.info(f"{cluster}")
-                this_clust_data = cluster_data_path / f"cluster_{cluster}"  # /path/to/data/channel_1/2_clusters/cluster_1
+                this_clust_data = (
+                    cluster_data_path / f"cluster_{cluster}"
+                )  # /path/to/data/channel_1/2_clusters/cluster_1
                 this_clust_data.mkdir(parents=True, exist_ok=True)
 
                 idx = np.where(predictions[:] == cluster)[0]
@@ -561,7 +610,9 @@ class ProcessChannel:
                 np.save(this_clust_data / "cluster_2ms_v.npy", v2ms)
 
             clust_results.loc[num_clust] = [num_clust, True, bic, spikes_per_clust]
-            feature_pairs = itertools.combinations(list(range(self.metrics.shape[1])), 2)
+            feature_pairs = itertools.combinations(
+                list(range(self.metrics.shape[1])), 2
+            )
 
             for f1, f2 in feature_pairs:
                 logger.info(f"Plotting {(f1, f2)}")
@@ -578,7 +629,9 @@ class ProcessChannel:
 
             # Plot Mahalanobis distances between cluster pairs
             for this_cluster in range(num_clust):
-                savename = self._plots_dir / f"cluster_{this_cluster}" / "mahalonobis_cluster"
+                savename = (
+                    self._plots_dir / f"cluster_{this_cluster}" / "mahalonobis_cluster"
+                )
                 mahalanobis_dist = clust.get_mahalanobis_distances_to_cluster(
                     self.metrics, model, predictions, this_cluster
                 )
@@ -619,7 +672,7 @@ class ProcessChannel:
                     outpath + "/" + channel
                 )  # create an output path for each channel
                 for soln in range(
-                        3, maxclust + 1
+                    3, maxclust + 1
                 ):  # for each number hpc_cluster solution
                     finalpath = outpath + "/" + channel + "/" + str(soln) + "_clusters"
                     os.mkdir(finalpath)  # create output folders
@@ -655,15 +708,15 @@ class ProcessChannel:
                         if not np.shape(isi)[0:2] == (480, 640):
                             isi = cv2.resize(isi, (640, 480))
                         blank = (
-                                np.ones((240, 640, 3), np.uint8) * 255
+                            np.ones((240, 640, 3), np.uint8) * 255
                         )  # make whitespace for info
                         text = (
-                                "Electrode: "
-                                + channel
-                                + "\nSolution: "
-                                + str(soln)
-                                + "\nCluster: "
-                                + str(cluster)
+                            "Electrode: "
+                            + channel
+                            + "\nSolution: "
+                            + str(soln)
+                            + "\nCluster: "
+                            + str(cluster)
                         )  # text to output to whitespace (hpc_cluster, channel, and solution numbers)
                         cv2_im_rgb = cv2.cvtColor(
                             blank, cv2.COLOR_BGR2RGB
@@ -760,12 +813,12 @@ class ProcessChannel:
                 logger.warning(f"{e}")
                 pass
         with pd.ExcelWriter(
-                os.path.split(path)[0] + f"/{os.path.split(path)[-1]}_compiled_isoi.xlsx",
-                engine="xlsxwriter",
+            os.path.split(path)[0] + f"/{os.path.split(path)[-1]}_compiled_isoi.xlsx",
+            engine="xlsxwriter",
         ) as outwrite:
             file_isoi.to_excel(outwrite, sheet_name="iso_data", index=False)
             if (
-                    errorfiles.size == 0
+                errorfiles.size == 0
             ):  # if there are no error csv's add some nans and output to the Excel
                 errorfiles = errorfiles.append(
                     [{"channel": "nan", "solution": "nan", "file": "nan"}]

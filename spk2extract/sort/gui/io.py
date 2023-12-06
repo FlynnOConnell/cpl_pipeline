@@ -4,6 +4,7 @@ import numpy as np
 from PyQt5.QtWidgets import QFileDialog, QMessageBox
 from spk2extract.extract import Spike2Data
 
+
 def select_base_folder(parent):
     dlg_kwargs = {
         "parent": parent,
@@ -12,6 +13,7 @@ def select_base_folder(parent):
     }
     name = QFileDialog.getExistingDirectory(**dlg_kwargs)
     parent.base_path = name
+
 
 def load_smr(parent):
     dlg_kwargs = {
@@ -26,6 +28,7 @@ def load_smr(parent):
     spike_data.process_channels()
     load_smr_to_GUI(parent, basename, spike_data)
 
+
 def load_npy(parent):
     dlg_kwargs = {
         "parent": parent,
@@ -38,11 +41,13 @@ def load_npy(parent):
     data = np.load(parent.fname)
     load_npy_to_GUI(parent, basename, data)
 
+
 def load_smr_to_GUI(parent, basename, output):
     parent.basename = basename
     parent.data = output
     parent.loaded = True
     parent.make_graphics()
+
 
 def load_npy_to_GUI(parent, basename, output):
     parent.basename = basename
@@ -50,9 +55,11 @@ def load_npy_to_GUI(parent, basename, output):
     parent.loaded = True
     parent.make_graphics_npy()
 
+
 def load_again(parent, Text):
-    tryagain = QMessageBox.question(parent, "ERROR", Text,
-                                    QMessageBox.Yes | QMessageBox.No)
+    tryagain = QMessageBox.question(
+        parent, "ERROR", Text, QMessageBox.Yes | QMessageBox.No
+    )
 
     if tryagain == QMessageBox.Yes:
         load_smr(parent)
