@@ -3,15 +3,11 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "spk2extract"
-version = "0.0.1"
+name = "cpl_extract"
 # TODO: add `license-files` once PEP 639 is accepted (see meson-python#88)
 license = {file = "LICENSE.txt"}
 description = "Spike extraction utilities for python"
 authors = [{name = "Flynn O'Connell"}]
-maintainers = [
-    {name = "Flynn O'Connell", email="Flynnoconnell@gmail.com"},
-]
 keywords = ["spike sorting", "spike extraction", "spike detection", "spike sorting validation"]
 readme = "README.md"
 classifiers = [
@@ -32,7 +28,6 @@ classifiers = [
     'Operating System :: MacOS',
 ]
 dynamic = ["version", "dependencies"]
-
 
 [project.urls]
 homepage = "https://www.github.com/Flynnoconnell/spk2extract"

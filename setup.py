@@ -7,8 +7,8 @@ if platform.machine() != "arm64":
     pyreq = "3.9.0"
 
 setup(
-    name="spk2extract",
-    version="0.0.1",
+    name="cpl_extract",
+    version="0.0.2",
     description="Signal extract utilities.",
     author="Flynn OConnell",
     author_email="Flynnoconnell@gmail.com",

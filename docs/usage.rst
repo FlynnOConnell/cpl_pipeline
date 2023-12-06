@@ -3,7 +3,7 @@
 Usage
 =====
 
-The workhorse of this package is the :class:`SpikeData <spk2extract.SpikeData>` class. It contains properties for loading
+The workhorse of this package is the :class:`Spike2Data <cpl_extract.Spike2Data>` class. It contains properties for loading
 and extracting all of the data from .smr files.
 
 The :class:`SpikeData <spk2extract.SpikeData>` class is initialized with a path to a .smr file.
