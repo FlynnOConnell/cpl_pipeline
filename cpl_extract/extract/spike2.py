@@ -288,10 +288,10 @@ class Spike2Data:
         spk_io.create_hdf_arrays(new5, self.units, self.lfps, self.events)
         for k in args:
             if k == "events":
-                for row in self.events.itertuples():
+                for _, row in self.events.iterrows():
                     self._process_event(row)
             elif k == "waves":
-                for row in self.waves.itertuples():
+                for _, row in self.waves.iterrows():
                     self._process_signal(self.waves)
             else:
                 raise ValueError(f"Invalid argument {k}.")
