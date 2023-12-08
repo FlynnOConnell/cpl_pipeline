@@ -44,8 +44,11 @@ def detect_number_of_cores():
 
 
 def calculate_optimal_chunk_size(item_size_bytes, memory_usage_fraction=0.5):
-    """ Calculates the optimal chunk size for a given item size. """
-    return int((psutil.virtual_memory().available * memory_usage_fraction) / item_size_bytes)
+    """Calculates the optimal chunk size for a given item size."""
+    return int(
+        (psutil.virtual_memory().available * memory_usage_fraction) / item_size_bytes
+    )
+
 
 def _test():
     """Run ``doctest`` on this module."""

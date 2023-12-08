@@ -687,7 +687,7 @@ class dataset(objects.data_object):
 
         if multi_process:
             spike_detectors = [
-                clust.SpikeDetection(data_dir, x, self.clustering_params)
+                clust.SpikeDetector(data_dir, x, self.clustering_params)
                 for x in electrodes
             ]
 
@@ -703,7 +703,7 @@ class dataset(objects.data_object):
         else:
             results = [(None, None, None)] * (max(electrodes) + 1)
             spike_detectors = [
-                clust.SpikeDetection(data_dir, x, self.clustering_params)
+                clust.SpikeDetector(data_dir, x, self.clustering_params)
                 for x in electrodes
             ]
             for sd in tqdm(spike_detectors):
@@ -780,12 +780,12 @@ class dataset(objects.data_object):
 
         if not umap:
             clust_objs = [
-                clust.BlechClust(self.root_dir, x, params=self.clustering_params)
+                clust.CplClust(self.root_dir, x, params=self.clustering_params)
                 for x in electrodes
             ]
         else:
             clust_objs = [
-                clust.BlechClust(
+                clust.CplClust(
                     self.root_dir,
                     x,
                     params=self.clustering_params,
@@ -1425,9 +1425,9 @@ def port_in_dataset(rec_dir=None, shell=False):
 
             # To make: clust_dir/clustering_results/ clustering_results.json, rec_key.json, spike_id.npy
             # To make: detect_dir/data/cutoff_time.txt and detection_threshold.txt
-            sd = clust.SpikeDetection(dat.root_dir, el, overwrite=False)
+            sd = clust.SpikeDetector(dat.root_dir, el, overwrite=False)
             sd.run()  # should only filter referenced electrode trace and get cutoff and threshold
-            bc = clust.BlechClust(dat.root_dir, el)
+            bc = clust.CplClust(dat.root_dir, el)
 
     # Add array_time to spike_arrays/dig_in_#
     if "spike_trains" in node_list:

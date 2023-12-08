@@ -57,8 +57,8 @@ class DirectoryManager:
             self.data,
         ]
         self.num_channels = num_chan
-        self.overwrite = params.get_section("run")["overwrite"]
-        self.min_clusters = int(params.get_section("cluster")["min-clusters"])
+        self.overwrite = True
+        self.min_clusters = 2
         self.max_clusters = int(params.get_section("cluster")["max-clusters"])
 
     @property

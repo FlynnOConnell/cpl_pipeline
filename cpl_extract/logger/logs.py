@@ -5,26 +5,31 @@ Adapted from loggers from mne-python and vispy.
 """
 import base64
 import logging
+import os
 import sys
 import inspect
 import re
 import traceback
 import json
 from functools import partial
+from pathlib import Path
 
 import numpy as np
 
 # Suppress output from some loud libraries
-logging.getLogger("matplotlib").setLevel(logging.WARNING)
-logging.getLogger("sklearn").setLevel(logging.WARNING)
-logging.getLogger("scipy").setLevel(logging.WARNING)
-logging.getLogger("numpy").setLevel(logging.WARNING)
-logging.getLogger("vispy").setLevel(logging.ERROR)
-logging.getLogger("OpenGL").setLevel(logging.ERROR)
-logging.getLogger("numexpr").setLevel(logging.WARNING)
-logging.getLogger("numba").setLevel(logging.WARNING)
-logging.getLogger("PIL").setLevel(logging.WARNING)
-logging.getLogger("h5py").setLevel(logging.WARNING)
+# logging.getLogger("matplotlib").setLevel(logging.WARNING)
+# logging.getLogger("sklearn").setLevel(logging.WARNING)
+# logging.getLogger("scipy").setLevel(logging.WARNING)
+# logging.getLogger("numpy").setLevel(logging.WARNING)
+# logging.getLogger("vispy").setLevel(logging.ERROR)
+# logging.getLogger("OpenGL").setLevel(logging.ERROR)
+# logging.getLogger("numexpr").setLevel(logging.WARNING)
+# logging.getLogger("numba").setLevel(logging.WARNING)
+# logging.getLogger("PIL").setLevel(logging.WARNING)
+# logging.getLogger("h5py").setLevel(logging.WARNING)
+# logging.getLogger("tables").setLevel(logging.WARNING)
+
+OUTLOG = False
 
 
 def _get_spk_caller():
@@ -144,7 +149,7 @@ class _SpkStreamHandler(logging.StreamHandler):
         self._spk_emit_list = list()
 
 
-logger = logging.getLogger("spk")
+logger = logging.getLogger("cpl")
 _lf = _SpkFormatter()
 _lh = _SpkStreamHandler()  # needs _lf to exist
 logger.addHandler(_lh)
@@ -388,3 +393,20 @@ class NumPyJSONEncoder(json.JSONEncoder):
             return obj.item()
 
         return json.JSONEncoder.default(self, obj)
+
+
+def state_exchange(exchange, data):
+    if OUTLOG:
+        with open(OUTLOG, "a") as f:
+            f.write(exchange)
+            f.write(json.dumps(data, indent=2, cls=NumPyJSONEncoder))
+            f.write("\n")
+            f.write("-" * 60)
+            f.write("\n")
+
+
+def initialize_logger(config):
+    global OUTLOG
+    OUTLOG = config.get("log_file", False)
+    if OUTLOG and Path(OUTLOG).exists():
+        os.remove(OUTLOG)

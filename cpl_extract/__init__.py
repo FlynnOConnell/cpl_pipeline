@@ -14,20 +14,24 @@ except ImportError:
     user_log_dir = None
     pass
 from pathlib import Path
-from . import spk_io, gui, utils, defaults, sort, base
+from . import spk_io, utils, sort
 
 __name__ = "cpl_extract"
 __author__ = "Flynn OConnell"
-__all__ = ["spk_io", "gui", "utils", "defaults", "sort", "base"]
+__all__ = [
+    "spk_io",
+    "utils",
+    "sort",
+]
 
 # Version
-version = "0.0.1"
+version = "0.0.2"
+
 
 # Platform-dependent directories
 def _init_directories():
     cpe_dir = Path().home() / "cpl_extract"
-    if not cpe_dir.exists():
-        cpe_dir.mkdir(exist_ok=True)
+    cpe_dir.mkdir(exist_ok=True)
 
     # use pre-existing dirs if possible
     if user_cache_dir and user_config_dir and user_log_dir:

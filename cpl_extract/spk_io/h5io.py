@@ -10,7 +10,76 @@ import pandas as pd
 import numpy as np
 from cpl_extract.decorators import Timer
 from cpl_extract.sort import cluster as clust
-from cpl_extract.spk_io import prompt, println
+from cpl_extract.spk_io import prompt, println, particles, cpl_params
+
+
+def check_time_data_exists(hf5):
+    """Helper to see if time has been written to the hdf5 file."""
+    # Check if the '/raw_time' node exists
+    if "/raw_time" in hf5.root:
+        time_array = hf5.root.raw_time
+        # Check if the array is not empty
+        if time_array.nrows > 0:
+            return True
+        else:
+            return False
+    else:
+        # The node does not exist
+        return False
+
+
+def get_earray(hf5, channel_name, channel_type):
+    """
+    Retrieve an existing EArray from the HDF5 file.
+
+    Parameters:
+    hf5 (tables.file.File): The open HDF5 file object.
+    channel_name (str): The name of the channel.
+    channel_type (str): The type of the channel (e.g., 'raw_unit', 'raw_lfp', etc.).
+
+    Returns:
+    tables.earray.EArray: The EArray object corresponding to the specified channel.
+    """
+    # Construct the node path
+    node_path = f"/{channel_type}/{channel_name}"
+
+    # Access the EArray
+    earray = hf5.get_node(node_path)
+
+    return earray
+
+
+def get_node_path(channel_name, channel_type):
+    """
+    Construct the node path for a given channel in the HDF5 file.
+
+    Parameters:
+    channel_name (str): The name of the channel.
+    channel_type (str): The type of the channel (e.g., 'raw_unit', 'raw_lfp', etc.).
+
+    Returns:
+    str: The path to the node in the HDF5 file.
+    """
+    node_name = channel_name.replace(" ", "_")
+    return f"/{channel_type}/{node_name}"
+
+
+def write_channel_data_to_hdf5(h5_file, channel_name, channel_type, data):
+    """
+    Write data for a given channel to the HDF5 file.
+
+    Parameters:
+    h5_file (str): The path to the HDF5 file.
+    channel_name (str): The name of the channel.
+    channel_type (str): The type of the channel (e.g., 'raw_unit', 'raw_lfp', etc.).
+    data (np.ndarray): The data to write.
+    """
+    with tables.open_file(h5_file, "r+") as hf5:
+        node_path = get_node_path(channel_name, channel_type)
+        if node_path in hf5:
+            hf5.remove_node(node_path)
+        hf5.create_earray(node_path, "data", obj=data)
+        hf5.flush()
 
 
 def create_empty_data_h5(filename, overwrite=False, shell=False) -> str:
@@ -54,7 +123,6 @@ def create_empty_data_h5(filename, overwrite=False, shell=False) -> str:
     with tables.open_file(filename, "w", title=basename) as hf5:
         for grp in data_groups:
             hf5.create_group("/", grp)
-
         hf5.flush()
 
     print("Done!\n")
@@ -111,83 +179,28 @@ def create_hdf_arrays(
     f_atom = tables.Float64Atom()
 
     with tables.open_file(str(file_name), "r+") as hf5:
-
         # Create array for raw time vector
-        hf5.create_earray("/raw_time", "amplifier_time", f_atom, (0,))
+        hf5.create_earray("/raw_time", "time_vector", f_atom, (0,))
 
         # Create arrays for each electrode
         for idx, row in unit_mapping.iterrows():
-            hf5.create_earray("/raw_unit", f"{row['name']}", atom, (0,))
+            hf5.create_earray("/raw_unit", f"{row['name']}", f_atom, (0,))
 
         # Create arrays for raw lfp (if any exist)
         if not lfp_mapping.empty:
             for idx, row in lfp_mapping.iterrows():
-                hf5.create_earray("/raw_lfp", f'{row["name"]}', atom, (0,))
+                hf5.create_earray("/raw_lfp", f'{row["name"]}', f_atom, (0,))
 
         if not event_mapping.empty:
             for idx, row in event_mapping.iterrows():
-                hf5.create_earray("/events", f'{row["name"]}', atom, (0,))
+                hf5.create_earray("/events", f'{row["name"]}', f_atom, (0,))
     print("Done!")
-
-
-def read_files_into_arrays(
-    file_name, rec_info, electrode_mapping, emg_mapping, file_dir=None
-):
-    """
-    Read Intan data files into hdf5 store. Assumes 'one file per channel'
-    recordings
-    writes digital input and electrode data to h5 file
-    can specify emg_port and emg_channels
-    """
-    if file_dir is None:
-        file_dir = os.path.dirname(file_name)
-
-    if file_dir == "":
-        raise ValueError(
-            (
-                "Must provide absolute path to file in a recording"
-                "directory or a file_dir argument"
-            )
-        )
-
-    if not os.path.isabs(file_name):
-        file_name = os.path.join(file_dir, file_name)
-
-    file_type = rec_info["file_type"]
-    print(("Extracting Intan data to HDF5 Store:\n" " h5 file: %s" % file_name))
-    print("")
-
-    # Open h5 file and write in raw digital input, electrode and emg data
-    with tables.open_file(file_name, "r+") as hf5:
-        # Read in time data
-        print("Reading time data...")
-        time = rawIO.read_time_dat(file_dir, rec_info["amplifier_sampling_rate"])
-        println("Writing time data...")
-        hf5.root.raw.amplifier_time.append(time[:])
-        print("Done!")
-
-        # Read in digital input data if it exists
-        if rec_info.get("dig_in") is not None:
-            read_in_digital_signal(hf5, file_dir, file_type, rec_info["dig_in"], "in")
-
-        if rec_info.get("dig_out") is not None:
-            read_in_digital_signal(hf5, file_dir, file_type, rec_info["dig_out"], "out")
-
-        read_in_amplifier_signal(
-            hf5,
-            file_dir,
-            file_type,
-            rec_info["num_channels"],
-            electrode_mapping,
-            emg_mapping,
-        )
 
 
 def write_array_to_hdf5(h5_file, loc, name, arr):
     with tables.open_file(h5_file, "r+") as hf5:
         tmp = hf5.create_array(loc, name, arr)
         hf5.flush()
-
     print(f"{name} added to {h5_file}")
 
 
@@ -216,11 +229,6 @@ def read_in_amplifier_signal(hf5, file_dir, file_type, num_channels, el_map, em_
     """
     exec_str = "hf5.root.%s.%s%i.append(data[:])"
 
-    if file_type == "one file per signal type":
-        println("Reading all amplifier_dat...")
-        all_data = rawIO.read_amplifier_dat(file_dir, num_channels)
-        print("Done!")
-
     # Read in electrode data
     for idx, row in el_map.iterrows():
         port = row["Port"]
@@ -228,11 +236,11 @@ def read_in_amplifier_signal(hf5, file_dir, file_type, num_channels, el_map, em_
         electrode = row["Electrode"]
 
         if file_type == "one file per signal type":
-            data = all_data[channel]
+            data = None
         elif file_type == "one file per channel":
             file_name = os.path.join(file_dir, "amp-%s-%03d.dat" % (port, channel))
             println("Reading data from %s..." % os.path.basename(file_name))
-            data = rawIO.read_one_channel_file(file_name)
+            data = 1
             print("Done!")
 
         tmp_str = exec_str % ("raw", "electrode", electrode)
@@ -252,11 +260,11 @@ def read_in_amplifier_signal(hf5, file_dir, file_type, num_channels, el_map, em_
             emg = row["EMG"]
 
             if file_type == "one file per signal type":
-                data = all_data[channel]
+                data = None
             elif file_type == "one file per channel":
                 file_name = os.path.join(file_dir, "amp-%s-%03d.dat" % (port, channel))
                 println("Reading data from %s..." % os.path.basename(file_name))
-                data = rawIO.read_one_channel_file(file_name)
+                data = None
                 print("Done!")
 
             tmp_str = exec_str % ("raw_emg", "emg", emg)
@@ -281,64 +289,6 @@ def get_unit_descriptor(rec_dir, unit_num, h5_file=None):
         descrip = hf5.root.unit_descriptor[unit_num]
 
     return descrip
-
-
-@Timer("Extracting Digital Signal Data")
-def read_in_digital_signal(hf5, file_dir, file_type, channels, dig_type="in"):
-    """Reads 'one file per signal type' or 'one file per signal' digital input
-    or digital output into hf5 array
-
-    Parameters
-    ----------
-    hf5 : tables.file.File, hdf5 object to write data into
-    file_dir : str, path to recording directory
-    file_type : str, type of recording files to read in. Currently supported:
-                        'one file per signal type' and 'one file per channel'
-    channels : list, list of integer channel number of used digital
-                     inputs/outputs
-    dig_type : {'in', 'out'}
-                Type of data being read (so it puts it in the right array in
-                hdf5 store
-    """
-    exec_str = "hf5.root.digital_%s.dig_%s_%i.append(data[:])"
-
-    if file_type == "one file per signal type":
-        println("Reading all digital%s data..." % dig_type)
-        all_data = rawIO.read_digital_dat(file_dir, channels, dig_type)
-        print("Done!")
-
-    for i, ch in enumerate(channels):
-        if file_type == "one file per signal type":
-            data = all_data[i]
-        elif file_type == "one file per channel":
-            file_name = os.path.join(
-                file_dir, "board-D%s-%02d.dat" % (dig_type.upper(), ch)
-            )
-
-            println(
-                "Reading digital%s data from %s..."
-                % (dig_type, os.path.basename(file_name))
-            )
-            try:
-                data = rawIO.read_one_channel_file(file_name)
-            except:
-                print("new data format detected, trying alternative DIN names...")
-                file_name = os.path.join(
-                    file_dir, "board-D%s-%02d.dat" % ("IGITAL-IN", ch)
-                )
-                data = rawIO.read_one_channel_file(file_name)
-
-            print("Done!")
-
-        tmp_str = exec_str % (dig_type, dig_type, ch)
-        println(
-            "Writing data from ditigal %s channel %i to dig_%s_%i..."
-            % (dig_type, ch, dig_type, ch)
-        )
-        exec(tmp_str)
-        print("Done!")
-
-    hf5.flush()
 
 
 @Timer("Common Average Referencing")
@@ -892,21 +842,22 @@ def get_raw_digital_signal(rec_dir, dig_type, channel, h5_file=None):
             ]
             return out
 
-    file_type = rawIO.get_recording_filetype(rec_dir)
+    file_type = ".smr"
     if file_type == "one file per signal type":
         println("Reading all digital%s data..." % dig_type)
-        all_data = rawIO.read_digital_dat(rec_dir, channel, dig_type)
+        # all_data = rawIO.read_digital_dat(rec_dir, channel, dig_type)
+        all_data = None
         return all_data[channel]
     elif file_type == "one file per channel":
         file_name = os.path.join(rec_dir, "board-DIN-%02d.dat" % channel)
         println("Reading digital_in data from %s..." % os.path.basename(file_name))
-        data = rawIO.read_one_channel_file(file_name)
+        data = None
         return data[:]
 
     return None
 
 
-def get_raw_trace(rec_dir, electrode, el_map=None, h5_file=None):
+def get_raw_trace(rec_dir, chan_name, el_map=None, h5_file=None):
     """Returns raw voltage trace for electrode from hdf5 store
     If /raw is not in hdf5, this grabs the raw trace from the dat file if it is
     present and electrode_mapping was provided
@@ -914,7 +865,8 @@ def get_raw_trace(rec_dir, electrode, el_map=None, h5_file=None):
     Parameters
     ----------
     rec_dir : str, recording directory
-    electrode : int
+    chan_name : str
+        name of channel in hdf5 store
     el_map: pd.DataFrame (optional)
         This is required in order to pull data from .dat file.
         If this is not given and data is not in hdf5 store then this will
@@ -929,9 +881,12 @@ def get_raw_trace(rec_dir, electrode, el_map=None, h5_file=None):
         h5_file = get_h5_filename(rec_dir)
 
     with tables.open_file(h5_file, "r") as hf5:
-        if "/raw" in hf5 and "/raw/electrode%i" % electrode in hf5:
-            out = hf5.root.raw["electrode%i" % electrode][:] * rawIO.voltage_scaling
-            return out
+        if "/raw_unit" in hf5.root:
+            if f"{chan_name}" in hf5.root.raw_unit:
+                out = hf5.root.raw_unit[f"{chan_name}"][:] * 1.0
+                return out
+            else:
+                out = None
         else:
             out = None
 
@@ -943,16 +898,16 @@ def get_raw_trace(rec_dir, electrode, el_map=None, h5_file=None):
     tmp = el_map.query("Electrode == @electrode")
     port = tmp["Port"].values[0]
     channel = tmp["Channel"].values[0]
-    filetype = rawIO.get_recording_filetype(rec_dir)
+    filetype = ".smr"
     try:
         if filetype == "one file per channel":
             amp_file = os.path.join(rec_dir, "amp-%s-%03i.dat" % (port, channel))
-            out = rawIO.read_one_channel_file(amp_file)
+            # out = rawIO.read_one_channel_file(amp_file)
         elif filetype == "one file per signal type":
-            dat = rawIO.read_amplifier_dat(rec_dir)
+            dat = None
             out = dat[electrode, :]
 
-        return out * rawIO.voltage_scaling
+        # return out * rawIO.voltage_scaling
     except FileNotFoundError:
         return None
 
@@ -976,10 +931,7 @@ def get_referenced_trace(rec_dir, electrode, h5_file=None):
 
     with tables.open_file(h5_file, "r") as hf5:
         if "/referenced" in hf5 and "/referenced/electrode%i" % electrode in hf5:
-            out = (
-                hf5.root.referenced["electrode%i" % electrode][:]
-                * rawIO.voltage_scaling
-            )
+            out = hf5.root.referenced["electrode%i" % electrode][:] * 1.0
         else:
             out = None
 
@@ -1032,7 +984,7 @@ def get_raw_unit_waveforms(
         electrode_mapping = get_electrode_mapping(rec_dir)
 
     if clustering_params is None:
-        clustering_params = params.load_params("clustering_params", rec_dir)
+        clustering_params = cpl_params.load_params("clustering_params", rec_dir)
 
     snapshot = clustering_params["spike_snapshot"]
     snapshot = [snapshot["Time before spike (ms)"], snapshot["Time after spike (ms)"]]
@@ -1081,7 +1033,7 @@ def get_unit_waveforms(file_dir, unit, required_descrip=None, h5_file=None):
     if h5_file is None:
         h5_file = get_h5_filename(file_dir)
 
-    clustering_params = params.load_params("clustering_params", file_dir)
+    clustering_params = cpl_params.load_params("clustering_params", file_dir)
     fs = clustering_params["sampling_rate"]
     with tables.open_file(h5_file, "r") as hf5:
         waveforms = hf5.root.sorted_units[un].waveforms[:]
@@ -1104,7 +1056,7 @@ def get_unit_spike_times(file_dir, unit, required_descrip=None, h5_file=None):
     if h5_file is None:
         h5_file = get_h5_filename(file_dir)
 
-    clustering_params = params.load_params("clustering_params", file_dir)
+    clustering_params = cpl_params.load_params("clustering_params", file_dir)
     fs = clustering_params["sampling_rate"]
     with tables.open_file(h5_file, "r") as hf5:
         times = hf5.root.sorted_units[un].times[:]
@@ -1223,14 +1175,11 @@ def write_digital_map_to_h5(h5_file, digital_map, dig_type):
 def get_electrode_mapping(rec_dir, h5_file=None):
     if h5_file is None:
         h5_file = get_h5_filename(rec_dir)
-
     with tables.open_file(h5_file, "r") as hf5:
         if "/electrode_map" not in hf5:
             return None
-
         table = hf5.root.electrode_map[:]
         el_map = read_table_into_DataFrame(table)
-
     return el_map
 
 
@@ -1375,7 +1324,6 @@ def edit_unit_descriptor(
         return False
 
     with tables.open_file(h5_file, "r+") as hf5:
-
         unit_descriptor = hf5.root.unit_descriptor[unit_num]
         unit_descriptor[descriptor_key] = descriptor_val
         hf5.root.unit_descriptor[[unit_num]] = unit_descriptor

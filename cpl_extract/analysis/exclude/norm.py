@@ -98,7 +98,6 @@ def get_master_df():
 
     master = pd.DataFrame()
     for animal_path in animals:
-
         cache_animal_path = data_path / animal_path.name
         cache_animal_path.mkdir(parents=True, exist_ok=True)
 
@@ -276,7 +275,6 @@ def optimize_psd_params(sfreq, time_series_length, desired_resolution=None):
 
 
 def compute_coherence_base(epoch_data, idxs, freqs):
-
     if hasattr(epoch_data, "info"):
         sfreq = epoch_data.info["sfreq"]
     else:
@@ -324,7 +322,6 @@ def determine_group(chan_pair_names):
 
 
 if __name__ == "__main__":
-
     data = main(use_parallel=False)
 
     epoch_tmin, epoch_tmax = -1, 0
@@ -346,11 +343,9 @@ if __name__ == "__main__":
 
     all_animals_data = {}
     for animal in all_animals:
-
         all_animals_data[animal] = {}
         animal_df = data[data["Animal"] == animal]
         for context in ["context", "nocontext"]:
-
             all_animals_data[animal][context] = {}
 
             df = update_df_with_epochs(
@@ -387,7 +382,6 @@ if __name__ == "__main__":
             # bundle baseline into epochs
             final_bl = mne.EpochsArray(reshaped_bl, concatenated_epochs.info)
             for ch_pair in combinations(range(len(brain_regions_all)), 2):
-
                 pair_name = (
                     brain_regions_all[ch_pair[0]],
                     brain_regions_all[ch_pair[1]],
@@ -414,10 +408,8 @@ if __name__ == "__main__":
                 freqs_coh = None
 
                 for domain in ["time_domain", "freq_domain"]:
-
                     all_animals_data[animal][context][group][domain] = {}
                     for band, (fmin, fmax) in lfp_bands.items():
-
                         idx = np.where(
                             (connectivity_freqs >= fmin) & (connectivity_freqs <= fmax)
                         )[0]

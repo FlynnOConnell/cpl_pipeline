@@ -59,7 +59,6 @@ def _validate_events(event_arr, event_id):
 
 
 def get_lowest_variance_window(arr, sfreq, window_length_sec=10):
-
     arr = arr.get_data()
     window_length = int(window_length_sec * sfreq)  # Convert seconds to samples
     step_size = window_length // 2  # 50% overlap
@@ -69,7 +68,6 @@ def get_lowest_variance_window(arr, sfreq, window_length_sec=10):
 
     # Iterate over possible windows
     for start in range(0, arr.shape[-1] - window_length + 1, step_size):
-
         end = start + window_length
         window = arr[:, start:end]
         window_variance = np.var(window)
@@ -92,7 +90,6 @@ def get_master_df():
 
     master = pd.DataFrame()
     for animal_path in animals:
-
         cache_animal_path = data_path / animal_path.name
         cache_animal_path.mkdir(parents=True, exist_ok=True)
 
@@ -198,7 +195,6 @@ def update_df_with_epochs(
 
 
 def process_epoch(raw_arr, events, event_id, baseline, fmin, fmax, tmin, tmax):
-
     raw = preprocess_raw(raw_arr, fmin, fmax)
     means = np.mean(baseline, axis=1)
     stds = np.std(baseline, axis=1)
@@ -323,7 +319,6 @@ def compute_power(epoch_obj, sfreq=None, n_fft=None, n_per_seg=None, n_overlap=N
 
 
 def set_event_id(epoch):
-
     epoch.event_id = all_event_keys
     return epoch
 
@@ -352,7 +347,6 @@ def determine_group(chan_pair_names):
 
 
 if __name__ == "__main__":
-
     data = main(use_parallel=False)
     epoch_tmin, epoch_tmax = -0.5, 0.5
     pre_fmin, pre_fmax = 13, 30

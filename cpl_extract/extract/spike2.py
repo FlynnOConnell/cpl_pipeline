@@ -7,6 +7,7 @@ import string
 from itertools import compress
 from pathlib import Path
 
+import h5io
 import numpy as np
 import pandas as pd
 
@@ -19,8 +20,8 @@ except ImportError:
         pass
         # raise Warning("sonpy not found. Are you on a M1 Mac?")
 
-from cpl_extract.logger import logger
-from cpl_extract.defaults import defaults
+import tables
+from cpl_extract import logger as cpl_logger
 from cpl_extract import spk_io
 from cpl_extract.utils import check_substring_content
 
@@ -28,7 +29,7 @@ from cpl_extract.utils import check_substring_content
 # - Marker
 # - RealMark
 # - TextMark
-# - AdcMark
+# - AdcMark ** not sure what this is, ReadMarkers() doesn't work on it
 
 EVENTS = [
     sp.DataType.Marker,
@@ -151,10 +152,16 @@ class Spike2Data:
 
     """
 
+    @property
+    def logger(self):
+        return self._logger
+
     def __init__(
         self,
         filepath: Path | str,
         savepath: Path | str,
+        extraction_logger: cpl_logger.logger = None,
+        log_level="INFO",
     ):
         """
         Class for reading and storing data from a Spike2 file.
@@ -165,6 +172,8 @@ class Spike2Data:
             The full path to the Spike2 file, including filename + extension.
         savepath : Path | str, optional
             The full path to the directory to save the data to. Default is None.
+        extraction_logger : logger, optional
+            The logger to use for extraction. Default is None.
         exclude : tuple, optional
             A tuple of channel names to exclude from the data. Default is empty tuple.
 
@@ -196,7 +205,11 @@ class Spike2Data:
             The total recording length, in seconds.
         """
 
-        self.logger = logger
+        if extraction_logger is None:
+            self._logger = cpl_logger.logger
+        else:
+            self._logger = extraction_logger
+        self._log_level = log_level
         self.errors = {}
         self.filename = Path(filepath)
         self._savedir = Path(savepath) / self.filename.stem
@@ -233,6 +246,7 @@ class Spike2Data:
 
         # filter out any types = DataType.Off
         self.data = self.data[self.data["type"] != sp.DataType.Off]
+        self.TIME_EXTRACTED = False
 
         if self.sonfile.GetOpenError() != 0:
             if self.filename.suffix not in [".smr", ".smrx"]:
@@ -251,6 +265,20 @@ class Spike2Data:
 
     def __str__(self):
         return self._formatted_info()
+
+    @property
+    def log_level(self):
+        return self._log_level
+
+    @log_level.setter
+    def log_level(self, log_level):
+        self._log_level = log_level
+        self._logger.setLevel(log_level)
+
+    @logger.setter
+    def logger(self, new_logger):
+        self._logger = new_logger
+        self._logger.setLevel(self._log_level)
 
     @property
     def savedir(self):
@@ -289,10 +317,20 @@ class Spike2Data:
         for k in args:
             if k == "events":
                 for _, row in self.events.iterrows():
-                    self._process_event(row)
+                    self._process_event(
+                        row,
+                    )
             elif k == "waves":
-                for _, row in self.waves.iterrows():
-                    self._process_signal(self.waves)
+                with tables.open_file(new5, "a") as hf5:
+                    x = 1
+                    do_time = True
+                    if hf5.root.raw_time.time_vector.size_on_disk != 0:
+                        do_time = False
+                    for _, row in self.waves.iterrows():
+                        worked = self._process_signal(row, hf5, do_time)
+                        if worked:
+                            do_time = False
+                    hf5.flush()
             else:
                 raise ValueError(f"Invalid argument {k}.")
 
@@ -303,10 +341,11 @@ class Spike2Data:
         Event times are converted to seconds.
         """
         idx, name, chantype, fs, units = row
-        logger.info(
+        self.logger.info(
             f"Processing event:"
             f"idx={idx}, name={name}, chantype={chantype}, fs={fs}, units={units}"
         )
+
         try:
             marks = self.sonfile.ReadMarkers(idx, int(2e9), 0)
 
@@ -342,45 +381,46 @@ class Spike2Data:
         item_size = self.sonfile.ItemSize(channel_index)
         total_bytes = self.sonfile.ChannelBytes(channel_index)
         total_items = total_bytes // item_size
-        chunk_size = spk_io.calculate_optimal_chunk_size(item_size)
+        chunk_size = 1000000
 
         start_idx = 0
-        all_data = []
 
         while start_idx < total_items:
-            # end index for the chunk
             end_idx = min(start_idx + chunk_size, total_items)
-
-            # num items to read in this chunk
             num_items = end_idx - start_idx
-
             chunk_data = self.sonfile.ReadFloats(channel_index, num_items, start_idx)
-            all_data.extend(chunk_data)
+            yield chunk_data
             start_idx = end_idx
 
-        return all_data
-
-    def _process_signal(self, row):
-        """
-        Process signal channels, i.e. channels that contain waveforms.
-
-        Waveforms are in Volts x number of samples, one per clock tick.
-
-        """
+    def _process_signal(self, row, hf5, do_time):
+        chans = [node._v_name for node in hf5.root.raw_unit._f_list_nodes()]
+        if row["name"] not in chans:
+            return False
         try:
-            idx, name, chantype, fs, units = row
-            logger.info(
-                f"Processing waveform:"
-                f"idx={idx}, name={name}, chantype={chantype}, fs={fs}, units={units}"
+            idx, channel_name, chantype, fs, units = row
+            self.logger.info(
+                f"Processing waveform: idx={idx}, name={channel_name}, chantype={chantype}, fs={fs}, units={units}"
             )
-            # signal = self.sonfile.ReadFloats(idx, int(2e9), 0)
-            signal = self.read_data_in_chunks(idx)
-            times = indices_to_time(range(len(signal)), fs)
-            return signal, times
+
+            start_time = 0
+            for chunk in self.read_data_in_chunks(idx):
+                # turn chunk into hf5 array
+                hf5.root.raw_unit[channel_name].append(np.array(chunk))
+                # attach fs to attr
+                hf5.root.raw_unit[channel_name]._v_attrs.fs = fs
+                if do_time:
+                    time_vector = np.arange(
+                        start_time, start_time + len(chunk) / fs, 1 / fs
+                    )
+                    hf5.root.raw_time.time_vector.append(time_vector)
+                    start_time += len(chunk) / fs
+            hf5.flush()
+            return True
+
         except SonfileException as e:
             self.errors["ReadFloats"] = e
             self.logger.error(f"Error reading floats: {e}")
-            return [], []
+            return False
 
     def save(self, filepath: str | Path, overwrite_existing=True) -> Path:
         """
@@ -414,11 +454,11 @@ class Spike2Data:
         if filepath.suffix != ".h5":
             filepath = filepath.with_suffix(".h5")
         if not filepath.parent.exists():
-            logger.info(f"Creating {filepath.parent} directory.")
+            self.logger.info(f"Creating {filepath.parent} directory.")
             filepath.parent.mkdir(exist_ok=True, parents=True)
         if filepath.exists():
             if overwrite_existing:
-                logger.info(f"Overwriting existing file: {filepath}")
+                self.logger.info(f"Overwriting existing file: {filepath}")
                 spk_io.save_channel_h5(
                     str(filepath), "channels", self.channels, self.metadata
                 )
@@ -430,7 +470,7 @@ class Spike2Data:
                 )
                 pass
         else:
-            logger.info(f"Saving data to {filepath}")
+            self.logger.info(f"Saving data to {filepath}")
             spk_io.save_channel_h5(
                 str(filepath), "channels", self.channels, self.metadata
             )
@@ -543,16 +583,12 @@ class Spike2Data:
 
 
 if __name__ == "__main__":
-    defaults = defaults()
-    log_level = defaults["log_level"]
-    logger.setLevel(log_level)
-    print(f"Log level set to {log_level}")
-
     path_test = Path("/media/thom/hub/data/serotonin/raw/")
     animal = list(path_test.glob("*.smr"))[0]
-
     save_spike2_path = Path().home() / "cpl_extract"
-
     data = Spike2Data(animal, savepath=save_spike2_path)
     data.extract("waves")
+    print("DONE")
+
+    # data.extract("events")
     # data.save(save_test / str(data), overwrite_existing=True)

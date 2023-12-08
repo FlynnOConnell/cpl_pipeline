@@ -223,7 +223,6 @@ def get_first_event_time(events, times):
 
 
 if __name__ == "__main__":
-
     # data_path =  Path("/Volumes/CaTransfer/extracted")  # external hard drive, nfst
     data_path = Path().home() / "data" / "extracted" / "serotonin"
     cache_path = Path().home() / "data" / ".cache" / "serotonin"
@@ -233,14 +232,12 @@ if __name__ == "__main__":
     animals = [p for p in data_path.iterdir() if p.is_dir()]
 
     for animal_path in animals:
-
         cache_animal_path = cache_path / animal_path.name
         cache_animal_path.mkdir(parents=True, exist_ok=True)
 
         animal = animal_path.name
 
         for file in animal_path.glob("*111921*.h5"):
-
             session_name = file.stem
             print(f"Processing {session_name}")
 
@@ -364,7 +361,6 @@ if __name__ == "__main__":
             # Process and save events
             fif_savename = cache_animal_path.joinpath(session_name)
             if lfp_spikes_arr is not None:
-
                 freq = np.unique(lfp_fs)
                 lfp_info = mne.create_info(
                     ch_names=lfp_ch_names,
@@ -380,7 +376,6 @@ if __name__ == "__main__":
                 )
 
             if unit_spikes_arr is not None:
-
                 freq = np.unique(unit_fs)
                 unit_info = mne.create_info(
                     ch_names=unit_ch_names,

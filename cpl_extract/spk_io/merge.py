@@ -39,7 +39,6 @@ def merge_data(data_pre: dict, data_post: dict):
             combined[key] = data_pre[key]
         elif check_substring_content(key, "lfp"):
             if key in data_post.keys():
-
                 pre_times = data_pre[key]["times"]["times"]
                 post_times = data_post[key]["times"]["times"]
                 pre_spikes = data_pre[key]["spikes"]["spikes"]

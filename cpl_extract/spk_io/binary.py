@@ -117,7 +117,7 @@ class BinaryFile:
     def __setitem__(self, *items):
         indices, data = items
         if data.dtype != "int16":
-            self.file[indices] = np.minimum(data, 2 ** 15 - 2).astype("int16")
+            self.file[indices] = np.minimum(data, 2**15 - 2).astype("int16")
         else:
             self.file[indices] = data
 

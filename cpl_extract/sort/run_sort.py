@@ -4,18 +4,18 @@
 """
 from __future__ import annotations
 
-import datetime
 import math
-import multiprocessing
 from pathlib import Path
+
+import tables
 
 from cpl_extract import utils
 from cpl_extract.sort.directory_manager import DirectoryManager
 from cpl_extract.logger import logger
-from cpl_extract.sort.sorter import sort
+from cpl_extract.sort.sorter import ProcessChannel
 from cpl_extract.sort.spk_config import SortConfig
-from cpl_extract.sort.utils.progress import ProgressBarManager
-from cpl_extract.spk_io import read_h5
+from cpl_extract.sort.cluster import CplClust, SpikeDetector
+from cpl_extract.spk_io.writer import read_dict_from_json
 
 
 def run(params: SortConfig, parallel: bool = True, overwrite: bool = False):
@@ -49,18 +49,7 @@ def run(params: SortConfig, parallel: bool = True, overwrite: bool = False):
     >>> sort(SortConfig(), parallel=True)
     """
 
-    pbm = ProgressBarManager()
     logger.info(f"{params.get_section('path')}")
-    # If the script is being run automatically, on Fridays it will run a greater number of files
-    if params.run["run-type"] == "Auto":
-        if datetime.datetime.weekday(datetime.date.today()) == 4:
-            n_files = int(params.run["weekend-run"])
-        else:
-            n_files = int(params.run["weekday-run"])
-    elif params.run["run-type"] == "Manual":
-        n_files = params.run["manual-run"]
-    else:
-        raise Exception('Run type choice is not valid. Options are "Manual" or "Auto"')
 
     # TODO: Add a check for the number of files in the directory
     runpath = Path(params.get_section("path")["run"])
@@ -68,16 +57,15 @@ def run(params: SortConfig, parallel: bool = True, overwrite: bool = False):
     if len(data_files) == 0:
         logger.info(f"No files found in {runpath}")
         return
-    runfiles = data_files[:n_files]
-
     num_cpu = int(params.run["cores-used"]) if parallel else 1
-
-    pbm.init_file_bar(len(runfiles))
+    # pbm.init_file_bar(len(runfiles))
+    runfiles = data_files
     for curr_file in runfiles:
         if curr_file.suffix != ".h5":
             continue
         logger.info(f"Processing file: {curr_file}")
-        h5file = read_h5(curr_file)
+        # h5file = read_h5(curr_file)
+        h5file = {"data": {}, "metadata_channel": {}, "channels": {}}
         all_data = h5file["channels"]
 
         # Extract only the unit data
@@ -102,7 +90,6 @@ def run(params: SortConfig, parallel: bool = True, overwrite: bool = False):
         dir_manager.create_channel_directories()
 
         runs = math.ceil(num_chan / num_cpu)
-        pbm.init_channel_bar(runs)
         for n in range(runs):
             channels_per_run = num_chan // runs
             chan_start = n * channels_per_run
@@ -111,29 +98,7 @@ def run(params: SortConfig, parallel: bool = True, overwrite: bool = False):
                 chan_end = num_chan
 
             if parallel:
-                processes = []
-                for i in range(chan_start, chan_end):
-                    chan_name = [list(h5file["data"].keys())[i]][0]
-                    chan_data = h5file["data"][chan_name]
-                    sampling_rate = h5file["metadata_channel"][chan_name][
-                        "sampling_rate"
-                    ]
-                    dir_manager.idx = i
-                    p = multiprocessing.Process(
-                        target=sort,
-                        args=(
-                            curr_file,
-                            chan_data,
-                            sampling_rate,
-                            params,
-                            dir_manager,
-                            i,
-                        ),
-                    )
-                    p.start()
-                    processes.append(p)
-                for p in processes:
-                    p.join()
+                raise NotImplementedError
             else:
                 for i in range(chan_start, chan_end):
                     chan_name = [list(unit_data.keys())[i]][0]
@@ -141,28 +106,54 @@ def run(params: SortConfig, parallel: bool = True, overwrite: bool = False):
 
                     sampling_rate = chan_data["metadata"]["fs"]
                     dir_manager.idx = i
-                    sort(
-                        curr_file,
-                        chan_data,
-                        sampling_rate,
-                        params,
-                        dir_manager,
-                        i,
-                        overwrite=overwrite,
-                    )
-            pbm.update_channel_bar()
-        pbm.update_file_bar()
-    pbm.close_file_bar()
+                    # sort(
+                    #     curr_file,
+                    #     chan_data,
+                    #     sampling_rate,
+                    #     params,
+                    #     dir_manager,
+                    #     i,
+                    #     overwrite=overwrite,
+                    # )
 
 
 def main():
-    logger.setLevel("CRITICAL")
-    my_data = Path("/media/thom/hub/data/serotonin/extracted/r11")
+    # my_data = Path("/media/thom/hub/data/serotonin/extracted/r11")
+    logger.setLevel("INFO")
+    my_data = Path().home() / "cpl_extract"
 
-    main_params = SortConfig(my_data)
+    main_params = SortConfig(my_data / "config.ini")
     main_params.save_to_ini()
-    run(main_params, parallel=False, overwrite=True)
 
+    # dir_manager = DirectoryManager(
+    #     my_data,
+    #     4,
+    #     main_params,
+    # )
+    #
+    # dir_manager.flush_directories()
+
+    h5 = my_data.glob("*.h5")
+    curr_file = next(h5)
+    save_path = curr_file.parent / curr_file.stem
+    save_path.mkdir(parents=True, exist_ok=True)
+
+    my_h5 = tables.open_file(str(curr_file), mode="r+")
+    time_vector = my_h5.get_node("/raw_time/time_vector")
+    chans = [node._v_name for node in my_h5.walk_nodes()]
+
+    # only chans with "U" in the name are unit data
+    chans_units = [chan for chan in chans if "U" in chan]
+
+    for idx, chan in enumerate(chans_units):
+        chan_data = my_h5.get_node(f"/raw_unit/{chan}")
+        sampling_rate = chan_data._v_attrs["fs"]
+
+        my_h5.close()
+        param_path = Path('/home/thom/repos/cpl_extract/cpl_extract/sort/defaults/clustering_params.json')
+        params = read_dict_from_json(str(param_path))
+        sd = SpikeDetector(curr_file, chan, overwrite=True, params=params, fs=sampling_rate)
+        sd.run()
 
 if __name__ == "__main__":
     main()

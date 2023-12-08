@@ -60,7 +60,6 @@ def _validate_events(event_arr, event_id):
 
 
 def get_lowest_variance_window(arr, sfreq, window_length_sec=5):
-
     arr = arr.get_data()
     window_length = int(window_length_sec * sfreq)  # Convert seconds to samples
     step_size = window_length // 2  # 50% overlap
@@ -70,7 +69,6 @@ def get_lowest_variance_window(arr, sfreq, window_length_sec=5):
 
     # Iterate over possible windows
     for start in range(0, arr.shape[-1] - window_length + 1, step_size):
-
         end = start + window_length
         window = arr[:, start:end]
         window_variance = np.var(window)
@@ -85,7 +83,6 @@ def get_lowest_variance_window(arr, sfreq, window_length_sec=5):
 
 
 def get_master_df():
-
     data_path = Path().home() / "data" / ".cache"
     animals = sorted(
         [x for x in data_path.iterdir() if x.is_dir() and not x.name.startswith(".")]
@@ -94,7 +91,6 @@ def get_master_df():
 
     master = pd.DataFrame()
     for animal_path in animals:
-
         cache_animal_path = data_path / animal_path.name
         cache_animal_path.mkdir(parents=True, exist_ok=True)
 
@@ -384,7 +380,6 @@ def average_coherence_change(baseline_coherence, epochs_coherence):
 
 
 if __name__ == "__main__":
-
     data = main(use_parallel=False)
     epoch_tmin, epoch_tmax = -0.5, 0.5
     pre_fmin, pre_fmax = 1, 100
@@ -410,12 +405,10 @@ if __name__ == "__main__":
     animal_list = ["dk1", "dk5"]
 
     for animal in all_animals:
-
         all_animals_data[animal] = {}
         animal_df = data[data["Animal"].isin(animal_list)]
 
         for condition in c1:
-
             all_animals_data[animal][condition] = {}
 
             df = update_df_with_epochs(
@@ -439,7 +432,6 @@ if __name__ == "__main__":
             epochs = np.array(epochs)
 
             for ch_pair in combinations(range(len(brain_regions_all)), 2):
-
                 pair_name = (
                     brain_regions_all[ch_pair[0]],
                     brain_regions_all[ch_pair[1]],

@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import itertools
+import os
+import shutil
+from pathlib import Path
+
 import numpy as np
+import pandas as pd
 import pywt
 import umap
 from scipy import linalg
@@ -11,7 +17,21 @@ from sklearn.mixture import GaussianMixture
 from statsmodels.stats.diagnostic import lilliefors
 from scipy.interpolate import interp1d
 from scipy.signal import butter, filtfilt
+
+from cpl_extract.sort.plot_blechpy import (
+    plot_waveforms,
+    plot_ISIs,
+    plot_cluster_features,
+    plot_mahalanobis_to_cluster, plot_recording_cutoff, plot_explained_pca_variance,
+)
 from cpl_extract.sort.spk_config import SortConfig
+from cpl_extract.spk_io import print_dict, h5io
+from cpl_extract.spk_io.writer import (
+    write_dict_to_json,
+    write_pandas_to_table,
+    read_dict_from_json,
+    read_pandas_from_table,
+)
 
 
 def get_filtered_electrode(data, freq=[300.0, 3000.0], sampling_rate=30000.0):
@@ -32,7 +52,6 @@ def get_waveforms(
     sampling_rate=30000.0,
     bandpass=[300, 3000],
 ):
-
     # Filter and extract waveforms
     filt_el = get_filtered_electrode(
         el_trace, freq=bandpass, sampling_rate=sampling_rate
@@ -272,7 +291,7 @@ def get_waveform_energy(waves):
     -------
     np.array
     """
-    return np.sqrt(np.sum(waves ** 2, axis=1)) / waves.shape[1]
+    return np.sqrt(np.sum(waves**2, axis=1)) / waves.shape[1]
 
 
 def get_spike_slopes(waves):
@@ -384,7 +403,7 @@ def compute_waveform_metrics(waves, n_pc=3, use_umap=False):
     data = np.zeros((waves.shape[0], 3))
     for i, wave in enumerate(waves):
         data[i, 0] = np.min(wave)
-        data[i, 1] = np.sqrt(np.sum(wave ** 2)) / len(wave)
+        data[i, 1] = np.sqrt(np.sum(wave**2)) / len(wave)
         peaks = find_peaks(wave)[0]
         minima = np.argmin(wave)
         if not any(peaks < minima):
@@ -449,6 +468,7 @@ def get_recording_cutoff(
     max_breach_rate,
     max_secs_above_cutoff,
     max_mean_breach_rate_persec,
+    **kwargs,
 ):
     """
     Determine the cutoff point for a recording based on the number of voltage violations.
@@ -512,6 +532,310 @@ def UMAP_METRICS(waves, n_pc):
     return compute_waveform_metrics(waves, n_pc, use_umap=True)
 
 
+class SpikeDetector:
+    """Interface to manage spike detection and data extraction in preparation
+    for GMM clustering. Intended to help create and access the neccessary
+    files. If object will detect is file already exist to avoid re-creation
+    unless overwrite is specified as True.
+    """
+
+    def __init__(self, file_dir, channel_name, params=None, overwrite=False, fs=None, ):
+        if params is not None:
+            params = params['noisy']
+        # Setup paths to files and directories needed
+        self.fs = fs
+        self._file_dir = Path(file_dir)
+        if self._file_dir.suffix == ".h5":
+            self._file_dir = self._file_dir.parent
+        self._channel_name = channel_name
+        self._out_dir = self._file_dir / "spike_detection" / f"{channel_name}"
+        self._out_dir.mkdir(parents=True, exist_ok=True)
+        self._data_dir = self._out_dir / "data"
+        self._plot_dir = self._out_dir / "plots"
+        self._files = {
+            "params": self._out_dir / "analysis_params" / "spike_detection_params.json",
+            "spike_waveforms": self._data_dir / "spike_waveforms.npy",
+            "spike_times": self._data_dir / "spike_times.npy",
+            "energy": self._data_dir / "energy.npy",
+            "spike_amplitudes": self._data_dir / "spike_amplitudes.npy",
+            "pca_waveforms": self._data_dir / "pca_waveforms.npy",
+            "slopes": self._data_dir / "spike_slopes.npy",
+            "recording_cutoff": self._data_dir / "cutoff_time.txt",
+            "detection_threshold": self._data_dir / "detection_threshold.txt",
+        }
+        for file in self._files.values():
+            file.parent.mkdir(parents=True, exist_ok=True)
+        self._data_dir.mkdir(parents=True, exist_ok=True)
+        self._plot_dir.mkdir(parents=True, exist_ok=True)
+
+        self._status = dict.fromkeys(self._files.keys(), False)
+        self._referenced = True
+
+        # Delete existing data if overwrite is True
+        if overwrite and self._out_dir.exists():
+            shutil.rmtree(self._out_dir)
+
+        # See what data already exists
+        self._check_existing_files()
+
+        # grab recording cutoff time if it already exists
+        # cutoff should be in seconds
+        self.recording_cutoff = None
+        if os.path.isfile(self._files["recording_cutoff"]):
+            self._status["recording_cutoff"] = True
+            with open(self._files["recording_cutoff"], "r") as f:
+                self.recording_cutoff = float(f.read())
+
+        self.detection_threshold = None
+        if os.path.isfile(self._files["detection_threshold"]):
+            self._status["detection_threshold"] = True
+            with open(self._files["detection_threshold"], "r") as f:
+                self.detection_threshold = float(f.read())
+
+        # Read in parameters
+        # Parameters passed as an argument will overshadow parameters saved in file
+        # Input parameters should be formatted as dataset.clustering_parameters
+        if params is None and os.path.isfile(self._files["params"]):
+            self.params = read_dict_from_json(self._files["params"])
+        elif params is None:
+            raise FileNotFoundError("params must be provided if spike_detection_params.json does not exist.")
+        else:
+            self.params = {}
+            self.params["voltage_cutoff"] = params["data_params"][
+                "V_cutoff for disconnected headstage"
+            ]
+            self.params["max_breach_rate"] = params["data_params"][
+                "Max rate of cutoff breach per second"
+            ]
+            self.params["max_secs_above_cutoff"] = params["data_params"][
+                "Max allowed seconds with a breach"
+            ]
+            self.params["max_mean_breach_rate_persec"] = params["data_params"][
+                "Max allowed breaches per second"
+            ]
+            band_lower = params["bandpass_params"]["Lower freq cutoff"]
+            band_upper = params["bandpass_params"]["Upper freq cutoff"]
+            self.params["bandpass"] = [band_lower, band_upper]
+            snapshot_pre = params["spike_snapshot"]["Time before spike (ms)"]
+            snapshot_post = params["spike_snapshot"]["Time after spike (ms)"]
+            self.params["spike_snapshot"] = [snapshot_pre, snapshot_post]
+            self.params["sampling_rate"] = self.fs
+            self._files["params"].parent.mkdir(parents=True, exist_ok=True)
+            # Write params to json file
+            write_dict_to_json(self.params, self._files["params"])
+            self._status["params"] = True
+
+    def _check_existing_files(self):
+        """Checks which files already exist and updates _status so as to avoid
+        re-creation later
+        """
+        for k, v in self._files.items():
+            if os.path.isfile(v):
+                self._status[k] = True
+            else:
+                self._status[k] = False
+
+    def run(self):
+        status = self._status
+        file_dir = self._file_dir
+        electrode = self._channel_name
+        params = self.params
+
+        # Check if this even needs to be run
+        if all(status.values()):
+            return electrode, 1, self.recording_cutoff
+
+        print(f"Could not find referenced data for {self._channel_name}...running spike detection")
+        self._referenced = False
+        ref_el = h5io.get_raw_trace(file_dir, electrode)
+
+        # Filter electrode trace
+        filt_el = get_filtered_electrode(
+            ref_el, freq=params["bandpass"], sampling_rate=self.fs
+        )
+        del ref_el
+        # Get recording cutoff
+        if not status["recording_cutoff"]:
+            self.recording_cutoff = get_recording_cutoff(filt_el, **params)
+            with open(self._files["recording_cutoff"], "w") as f:
+                f.write(str(self.recording_cutoff))
+
+            status["recording_cutoff"] = True
+            fn = os.path.join(self._plot_dir, "cutoff_time.png")
+            plot_recording_cutoff(filt_el, fs, self.recording_cutoff, out_file=fn)
+
+        # Truncate electrode trace, deal with early cutoff (<60s)
+        if self.recording_cutoff < 60:
+            print("Immediate Cutoff for electrode %i...exiting" % electrode)
+            return electrode, 0, self.recording_cutoff
+
+        filt_el = filt_el[: int(self.recording_cutoff * fs)]
+
+        if not status["detection_threshold"]:
+            threshold = get_detection_threshold(filt_el)
+            self.detection_threshold = threshold
+            with open(self._files["detection_threshold"], "w") as f:
+                f.write(str(threshold))
+
+            status["detection_threshold"] = True
+
+        if status["spike_waveforms"] and status["spike_times"]:
+            waves = np.load(self._files["spike_waveforms"])
+            times = np.load(self._files["spike_times"])
+        else:
+            # Detect spikes and get dejittered times and waveforms
+            # detect_spikes returns waveforms upsampled by 10x and times in units
+            # of samples
+            waves, times, threshold = detect_spikes(
+                filt_el, params["spike_snapshot"], fs, thresh=self.detection_threshold
+            )
+            if waves is None:
+                print("No waveforms detected on electrode %i" % electrode)
+                return electrode, 0, self.recording_cutoff
+
+            # Save waveforms and times
+            np.save(self._files["spike_waveforms"], waves)
+            np.save(self._files["spike_times"], times)
+            status["spike_waveforms"] = True
+            status["spike_times"] = True
+
+        # Get various metrics and scale waveforms
+        if not status["spike_amplitudes"]:
+            amplitudes = np.min(waves)
+            np.save(self._files["spike_amplitudes"], amplitudes)
+            status["spike_amplitudes"] = True
+
+        if not status["slopes"]:
+            slopes = get_spike_slopes(waves)
+            np.save(self._files["slopes"], slopes)
+            status["slopes"] = True
+
+        if not status["energy"]:
+            energy = get_waveform_energy(waves)
+            np.save(self._files["energy"], energy)
+            status["energy"] = True
+        else:
+            energy = None
+
+        # get pca of scaled waveforms
+        if not status["pca_waveforms"]:
+            scaled_waves = scale_waveforms(waves, energy=energy)
+            pca_waves, explained_variance_ratio = implement_pca(scaled_waves)
+
+            # Plot explained variance
+            fn = os.path.join(self._plot_dir, "pca_variance.png")
+            plot_explained_pca_variance(explained_variance_ratio, out_file=fn)
+
+        return electrode, 1, self.recording_cutoff
+
+    def get_spike_waveforms(self):
+        """Returns spike waveforms if they have been extracted, None otherwise
+        Dejittered waveforms upsampled to 10 x sampling_rate
+
+        Returns
+        -------
+        numpy.array
+        """
+        if os.path.isfile(self._files["spike_waveforms"]):
+            return np.load(self._files["spike_waveforms"])
+        else:
+            return None
+
+    def get_spike_times(self):
+        """Returns spike times if they have been extracted, None otherwise
+        In units of samples.
+
+        Returns
+        -------
+        numpy.array
+        """
+        if os.path.isfile(self._files["spike_times"]):
+            return np.load(self._files["spike_times"])
+        else:
+            return None
+
+    def get_energy(self):
+        """Returns spike energies if they have been extracted, None otherwise
+
+        Returns
+        -------
+        numpy.array
+        """
+        if os.path.isfile(self._files["energy"]):
+            return np.load(self._files["energy"])
+        else:
+            return None
+
+    def get_spike_amplitudes(self):
+        """Returns spike amplitudes if they have been extracted, None otherwise
+
+        Returns
+        -------
+        numpy.array
+        """
+        if os.path.isfile(self._files["spike_amplitudes"]):
+            return np.load(self._files["spike_amplitudes"])
+        else:
+            return None
+
+    def get_spike_slopes(self):
+        """Returns spike slopes if they have been extracted, None otherwise
+
+        Returns
+        -------
+        numpy.array
+        """
+        if os.path.isfile(self._files["slopes"]):
+            return np.load(self._files["slopes"])
+        else:
+            return None
+
+    def get_pca_waveforms(self):
+        """Returns pca of sclaed spike waveforms if they have been extracted,
+        None otherwise
+        Dejittered waveforms upsampled to 10 x sampling_rate, scaled to energy
+        and transformed via PCA
+
+        Returns
+        -------
+        numpy.array
+        """
+        if os.path.isfile(self._files["spike_waveforms"]):
+            return np.load(self._files["spike_waveforms"])
+        else:
+            return None
+
+    def get_clustering_metrics(self, n_pc=3):
+        """Returns array of metrics to use for feature based clustering
+        Row for each waveform with columns:
+            - amplitude, energy, spike slope, PC1, PC2, etc
+        """
+        amplitude = self.get_spike_amplitudes()
+        energy = self.get_energy()
+        slopes = self.get_spike_slopes()
+        pca_waves = self.get_pca_waveforms()
+        out = np.vstack((amplitude, energy, slopes)).T
+        out = np.hstack((out, pca_waves[:, :n_pc]))
+        return out
+
+    def __str__(self):
+        out = []
+        out.append("SpikeDetection\n--------------")
+        out.append("Recording Directory: %s" % self._file_dir)
+        out.append("Electrode: %i" % self._channel_name)
+        out.append("Output Directory: %s" % self._out_dir)
+        out.append("###################################\n")
+        out.append("Status:")
+        out.append(print_dict(self._status))
+        out.append("-------------------\n")
+        out.append("Parameters:")
+        out.append(print_dict(self.params))
+        out.append("-------------------\n")
+        out.append("Data files:")
+        out.append(print_dict(self._files))
+        return "\n".join(out)
+
+
 class ClusterGMM:
     def __init__(
         self,
@@ -525,7 +849,7 @@ class ClusterGMM:
             n_iters if n_iters else int(self.cluster_params["max-iterations"])
         )
         self.n_restarts = (
-            n_restarts if n_restarts else int(self.cluster_params["restarts"])
+            n_restarts if n_restarts else int(self.cluster_params["random-restarts"])
         )
         self.thresh = (
             thresh if thresh else float(self.cluster_params["convergence-criterion"])
@@ -584,3 +908,343 @@ class ClusterGMM:
         self._predictions = predictions
         self._bic = min_bic
         return best_model, predictions, min_bic
+
+
+class CplClust(object):
+    def __init__(
+        self,
+        rec_dirs,
+        channel_number,
+        out_dir=None,
+        params=None,
+        overwrite=False,
+        no_write=False,
+        n_pc=3,
+        data_transform=compute_waveform_metrics,
+    ):
+        """Recording directories should be ordered to make spike sorting easier later on"""
+        if isinstance(rec_dirs, str):
+            rec_dirs = [rec_dirs]
+
+        rec_dirs = [x[:-1] if x.endswith(os.sep) else x for x in rec_dirs]
+        self.rec_dirs = rec_dirs
+        self.electrode = channel_number
+        self._data_transform = data_transform
+        self._n_pc = n_pc
+        if out_dir is None:
+            if len(rec_dirs) > 1:
+                top = os.path.dirname(rec_dirs[0])
+                out_dir = os.path.join(top, "cpl_extract", f"{channel_number}")
+            else:
+                out_dir = os.path.join(rec_dirs[0], "cpl_extract", f"{channel_number}")
+
+        if overwrite:
+            shutil.rmtree(out_dir)
+
+        # Make directories
+        self.out_dir = out_dir
+        self._plot_dir = os.path.join(out_dir, "plots")
+        self._data_dir = os.path.join(out_dir, "clustering_results")
+        if not os.path.isdir(out_dir):
+            os.makedirs(out_dir)
+
+        if not os.path.isdir(self._data_dir):
+            os.mkdir(self._data_dir)
+
+        if not os.path.isdir(self._plot_dir):
+            os.mkdir(self._plot_dir)
+
+        # Check files
+        params_file = os.path.join(out_dir, "cpl_params.json")
+        map_file = os.path.join(self._data_dir, "spike_id.npy")
+        key_file = os.path.join(self._data_dir, "rec_key.json")
+        results_file = os.path.join(self._data_dir, "clustering_results.json")
+        self._files = {
+            "params": params_file,
+            "spike_map": map_file,
+            "rec_key": key_file,
+            "clustering_results": results_file,
+        }
+        self.params = params
+
+        if self._rec_key is None and not no_write:
+            # Create new rec key
+            rec_key = {x: y for x, y in enumerate(self.rec_dirs)}
+            self._rec_key = rec_key
+            write_dict_to_json(rec_key, self._files["rec_key"])
+        elif self._rec_key is None:
+            ValueError("Existing rec_key not found and no_write is enabled")
+
+        # Check to see if spike detection is already completed on all recording directories
+        spike_check = self._check_spike_detection()
+        if not all(spike_check):
+            invalid = [rec_dirs[i] for i, x in enumerate(spike_check) if x == False]
+            error_str = "\n\t".join(invalid)
+            raise ValueError("Spike detection has not been run on:\n\t%s" % error_str)
+
+    def run(self, n_pc=None, overwrite=False):
+        if self.clustered and not overwrite:
+            return True
+
+        if n_pc is None:
+            n_pc = self._n_pc
+
+        GMM = ClusterGMM(
+            self.params["max_iterations"],
+            self.params["num_restarts"],
+            self.params["threshold"],
+        )
+
+        # Collect data from all recordings
+        waveforms, spike_times, spike_map, fs, offsets = self.get_spike_data()
+
+        # Save array to map spikes and predictions back to original recordings
+        np.save(self._files["spike_map"], spike_map)
+
+        data, data_columns = self._data_transform(waveforms, n_pc)
+        amplitudes = np.min(waveforms)
+
+        # Run GMM for each number of clusters from 2 to max_clusters
+        tested_clusters = np.arange(2, self.params["max_clusters"] + 1)
+        clust_results = pd.DataFrame(
+            columns=["clusters", "converged", "BIC", "spikes_per_cluster"],
+            index=tested_clusters,
+        )
+        for n_clust in tested_clusters:
+            data_dir = os.path.join(self._data_dir, "%i_clusters" % n_clust)
+            plot_dir = os.path.join(self._plot_dir, "%i_clusters" % n_clust)
+            wave_plot_dir = os.path.join(
+                self._plot_dir, "%i_clusters_waveforms_ISIs" % n_clust
+            )
+            bic_file = os.path.join(data_dir, "bic.npy")
+            pred_file = os.path.join(data_dir, "predictions.npy")
+
+            if os.path.isfile(bic_file) and os.path.isfile(pred_file) and not overwrite:
+                bic = np.load(bic_file)
+                predictions = np.load(pred_file)
+                spikes_per_clust = [
+                    len(np.where(predictions == c)[0]) for c in np.unique(predictions)
+                ]
+                clust_results.loc[n_clust] = [n_clust, True, bic, spikes_per_clust]
+                continue
+
+            if not os.path.isdir(wave_plot_dir):
+                os.makedirs(wave_plot_dir)
+
+            if not os.path.isdir(data_dir):
+                os.makedirs(data_dir)
+
+            if not os.path.isdir(plot_dir):
+                os.makedirs(plot_dir)
+
+            model, predictions, bic = GMM.fit(data, n_clust)
+            if model is None:
+                clust_results.loc[n_clust] = [n_clust, bic, False, [0]]
+                # Nothing converged
+                continue
+
+            # Go through each cluster and throw out any spikes too far from the
+            # mean
+            spikes_per_clust = []
+            for c in range(n_clust):
+                idx = np.where(predictions == c)[0]
+                mean_amp = np.mean(amplitudes[idx])
+                sd_amp = np.std(amplitudes[idx])
+                cutoff_amp = mean_amp - (sd_amp * self.params["wf_amplitude_sd_cutoff"])
+                rejected_idx = np.array([i for i in idx if amplitudes[i] <= cutoff_amp])
+                if len(rejected_idx) > 0:
+                    predictions[rejected_idx] = -1
+
+                idx = np.where(predictions == c)[0]
+                spikes_per_clust.append(len(idx))
+
+                if len(idx) == 0:
+                    continue
+
+                # Plot waveforms and ISIs of cluster
+                ISIs, violations_1ms, violations_2ms = get_ISI_and_violations(
+                    spike_times[idx], fs, spike_map[idx]
+                )
+                cluster_waves = waveforms[idx]
+                cluster_times = spike_times[idx]
+                isi_fn = os.path.join(wave_plot_dir, "Cluster%i_ISI.png" % c)
+                wave_fn = os.path.join(wave_plot_dir, "Cluster%i_waveforms.png" % c)
+                title_str = (
+                    "Cluster%i\nviolations_1ms = %i, "
+                    "violations_2ms = %i\n"
+                    "Number of waveforms = %i"
+                    % (c, violations_1ms, violations_2ms, len(idx))
+                )
+                plot_waveforms(cluster_waves, title=title_str, save_file=wave_fn)
+                if len(ISIs) > 0:
+                    plot_ISIs(ISIs, total_spikes=len(idx), save_file=isi_fn)
+
+            clust_results.loc[n_clust] = [n_clust, True, bic, spikes_per_clust]
+
+            # Plot feature pairs
+            feature_pairs = itertools.combinations(list(range(data.shape[1])), 2)
+            for f1, f2 in feature_pairs:
+                fn = "%sVS%s.png" % (data_columns[f1], data_columns[f2])
+                fn = os.path.join(plot_dir, fn)
+                plot_cluster_features(
+                    data[:, [f1, f2]],
+                    predictions,
+                    x_label=data_columns[f1],
+                    y_label=data_columns[f2],
+                    save_file=fn,
+                )
+
+            # For each cluster plot mahanalobis distances to all other clusters
+            for c in range(n_clust):
+                distances = get_mahalanobis_distances_to_cluster(
+                    data, model, predictions, c
+                )
+                fn = os.path.join(plot_dir, "Mahalanobis_cluster%i.png" % c)
+                title = "Mahalanobis distance of Cluster %i from all other clusters" % c
+                plot_mahalanobis_to_cluster(distances, title=title, save_file=fn)
+
+            # Save data
+            np.save(bic_file, bic)
+            np.save(pred_file, predictions)
+
+        # Save results table
+        self.results = clust_results
+        write_pandas_to_table(
+            clust_results, self._files["clustering_results"], overwrite=True
+        )
+        self.clustered = True
+        return True
+
+    def get_spike_data(self):
+        # Collect data from all recordings
+        tmp_waves = []
+        tmp_times = []
+        tmp_id = []
+        fs = dict.fromkeys(self._rec_key.keys())
+        offsets = dict.fromkeys(self._rec_key.keys())
+        offset = 0
+        for i in sorted(self._rec_key.keys()):
+            rec = self._rec_key[i]
+            spike_detect = SpikeDetector(rec, self.electrode)
+            t = spike_detect.get_spike_times()
+            fs[i] = spike_detect.params["sampling_rate"]
+            if t is None:
+                offsets[i] = int(offset)
+                offset = offset + 3 * fs[i]
+                continue
+
+            tmp_waves.append(spike_detect.get_spike_waveforms())
+            tmp_times.append(t)
+            tmp_id.append(np.ones((t.shape[0],)) * i)
+            offsets[i] = int(offset)
+            offset = offset + max(t) + 3 * fs[i]
+
+        waveforms = np.vstack(tmp_waves)
+        spike_times = np.hstack(tmp_times)
+        spike_map = np.hstack(tmp_id)
+
+        # Double check that spike_map matches up with existing spike_map
+        if os.path.isfile(self._files["spike_map"]):
+            orig_map = np.load(self._files["spike_map"])
+            if len(orig_map) != len(spike_map):
+                raise ValueError(
+                    "Spike detection has changed, please re-cluster with overwrite=True"
+                )
+
+        return waveforms, spike_times, spike_map, fs, offsets
+    def _load_existsing_data(self):
+        params = self.params
+        file_check = self._check_existing_files()
+
+        # Check params files and create if new params are passed
+        if file_check["params"]:
+            self.params = read_dict_from_json(self._files["params"])
+
+        # Make new params or overwrite existing with passed params
+        if params is None and not file_check["params"]:
+            raise ValueError(
+                (
+                    "Params file does not exists at %s. Must provide"
+                    " clustering parameters."
+                )
+                % self._files["params"]
+            )
+        elif params is not None:
+            self.params["max_clusters"] = params["clustering_params"][
+                "Max Number of Clusters"
+            ]
+            self.params["max_iterations"] = params["clustering_params"][
+                "Max Number of Iterations"
+            ]
+            self.params["threshold"] = params["clustering_params"][
+                "Convergence Criterion"
+            ]
+            self.params["num_restarts"] = params["clustering_params"][
+                "GMM random restarts"
+            ]
+            self.params["wf_amplitude_sd_cutoff"] = params["data_params"][
+                "Intra-cluster waveform amp SD cutoff"
+            ]
+            write_dict_to_json(self.params, self._files["params"])
+
+        # Deal with existing rec key
+        if file_check["rec_key"]:
+            rec_dirs = self.rec_dirs
+            rec_key = read_dict_from_json(self._files["rec_key"])
+            rec_key = {int(x): y for x, y in rec_key.items()}
+            if len(rec_key) != len(rec_dirs):
+                raise ValueError("Rec key does not match rec dirs")
+
+            # Correct rec key in case rec_dir roots have changed
+            for rd in rec_dirs:
+                rn = os.path.basename(rd)
+                dn = os.path.dirname(rd)
+                kd = [(x, y) for x, y in rec_key.items() if rn in y]
+                if len(kd) == 0:
+                    raise ValueError("%s not found in rec_key" % rn)
+
+                kd = kd[0]
+                if kd[1] != rd:
+                    rec_key[kd[0]] = rd
+
+            inverted = {v: k for k, v in rec_key.items()}
+            self.rec_dirs = sorted(self.rec_dirs, key=lambda i: inverted[i])
+            self._rec_key = rec_key
+        else:
+            self._rec_key = None
+
+        # Check is clustering has already been done, load results
+        if file_check["clustering_results"]:
+            self.results = read_pandas_from_table(self._files["clustering_results"])
+            expected_results = np.arange(2, self.params["max_clusters"] + 1)
+            if not all([x in self.results["clusters"] for x in expected_results]):
+                self.clustered = False
+            else:
+                self.clustered = True
+
+        else:
+            self.results = None
+            self.clustered = False
+
+    def _check_existing_files(self):
+        out = dict.fromkeys(self._files.keys(), False)
+        for k, v in self._files.items():
+            if os.path.isfile(v):
+                out[k] = True
+
+        return out
+
+    def _check_spike_detection(self):
+        out = []
+        for rec in self.rec_dirs:
+            try:
+                spike_detect = SpikeDetector(rec, self.electrode)
+                if all(spike_detect._status):
+                    out.append(True)
+                else:
+                    out.append(False)
+
+            except FileNotFoundError:
+                out.append(False)
+
+        return out

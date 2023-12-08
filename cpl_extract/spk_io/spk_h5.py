@@ -68,6 +68,7 @@ def _is_pyt_type(obj):
 #     h5file.create_array(channel_group, "times", channel.times)
 #
 
+
 def load_from_h5(h5file, group_name, cls):
     group = h5file.get_node("/", group_name)
     kwargs = {}

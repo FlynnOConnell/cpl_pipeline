@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import (
 from . import io
 from ..defaults import defaults
 
+
 # type in h5py key
 class TextChooser(QDialog):
     def __init__(self, parent=None):

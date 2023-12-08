@@ -7,6 +7,7 @@ from __future__ import annotations
 # Standard Library Imports
 import configparser
 import itertools
+import logging
 import os
 import shutil
 import warnings
@@ -33,7 +34,8 @@ from cpl_extract.sort.utils.progress import ProgressBarManager
 # Factory
 def sort(
     filename: str | Path,
-    data: dict | NamedTuple,
+    spikes: np.ndarray,
+    times: np.ndarray,
     sampling_rate: float,
     params: SortConfig,
     dir_manager: DirectoryManager,
@@ -69,7 +71,8 @@ def sort(
     """
     proc = ProcessChannel(
         filename,
-        data,
+        spikes,
+        times,
         sampling_rate,
         params,
         dir_manager,
@@ -158,22 +161,27 @@ class ProcessChannel:
     def __init__(
         self,
         filename,
-        data,
+        spikes,
+        times,
         sampling_rate,
         params,
         dir_manager,
         chan_num,
         overwrite=False,
+        h5file=None,
+        chan_name=None,
     ):
         """
-        Process a single channel.
-
-        Parameters
-        ----------
+        # Process a single channel.
+        #
+        # Parameters
+        # ----------
         filename : str
             Name of the file to be processed.
-        data : dict | NamedTuple
-            Raw data.
+        spikes: ndarray
+            Array of spike waveforms.
+        times : ndarray
+            Array of spike times.
         sampling_rate : float
             Sampling rate for this channel.
         params : SortConfig
@@ -186,20 +194,16 @@ class ProcessChannel:
             Whether to overwrite existing files.
 
         """
-        self.scaled_slices = None
-        self.data_columns = None
+        self.hf5 = h5file
+        self.chan_name = chan_name
+        self.metrics_columns = None
         self.metrics = None
         self.filename = filename
-        if isinstance(data, dict):
-            self.spikes = data["data"]
-            self.times = data["times"]
-        elif isinstance(data, NamedTuple):
-            self.spikes = data[0]
-            self.times = data[1]
-        else:
-            raise TypeError(
-                "Data must be a dictionary/namedtuple with keys/fields 'spikes' and 'times'"
-            )
+        self.spikes = spikes
+        self.times = times
+        self.spikes_detected = None
+        self.spike_times = None
+
         self.params = params
         self.sampling_rate = sampling_rate
         self.chan_num = chan_num
@@ -219,9 +223,11 @@ class ProcessChannel:
             "raw_times": os.path.join(self._data_dir, "raw_times.npy"),
             "raw_metrics": os.path.join(self._data_dir, "metrics.npy"),
             "raw_pca": os.path.join(self._data_dir, "raw_waveforms_pca.npy"),
-            # 'slopes' : os.path.join(self._data_dir, 'spike_slopes.npy'),
-            # 'recording_cutoff' : os.path.join(self._data_dir, 'cutoff_time.txt'),
-            # 'detection_threshold' : os.path.join(self._data_dir, 'detection_threshold.txt')
+            "slopes": os.path.join(self._data_dir, "spike_slopes.npy"),
+            "recording_cutoff": os.path.join(self._data_dir, "cutoff_time.txt"),
+            "detection_threshold": os.path.join(
+                self._data_dir, "detection_threshold.txt"
+            ),
         }
 
     def get_chan(self):
@@ -231,27 +237,6 @@ class ProcessChannel:
     def get_chan_str(self):
         """The channel number to use when saving."""
         return f"channel_{self.get_chan()}"
-
-    @property
-    def pvar(self):
-        """
-        Returns the percent of variance-explained at which to cut off the principal components.
-        """
-        return float(self.params.pca["variance-explained"])
-
-    @property
-    def usepvar(self):
-        """
-        Returns whether to use the percent variance explained by the principal components.
-        """
-        return int(self.params.pca["use-percent-variance"])
-
-    @property
-    def userpc(self):
-        """
-        Returns the number of principal components to use.
-        """
-        return int(self.params.pca["principal-component-n"])
 
     @property
     def min_clusters(self):
@@ -266,13 +251,6 @@ class ProcessChannel:
         The maximum number of clusters to be sorted.
         """
         return int(self.params.cluster["max-clusters"])
-
-    @property
-    def max_iterations(self):
-        """
-        The maximum number of iterations to run the GMM.
-        """
-        return int(self.params.cluster["max-iterations"])
 
     @property
     def thresh(self):
@@ -400,11 +378,10 @@ class ProcessChannel:
 
         """
         while True:
-            if not isinstance(self.spikes, np.ndarray):
-                self.spikes = np.array(self.spikes)
+            logger.setLevel(logging.INFO)
 
             logger.info(f"|- --- Analyzing channel {self.chan_num + 1} --- -|")
-            self.check_spikes(self.spikes)
+            self.assert_has_spikes(self.spikes)
             if not self.overwrite:
                 if all([os.path.exists(f) for f in self._files.values()]):
                     logger.info(
@@ -417,86 +394,53 @@ class ProcessChannel:
                 self.spikes, self.sampling_rate, freq=(300.0, 3000.0)
             )
 
-            spikes, times, thresh = clust.detect_spikes(
+            self.spikes_detected, self.spike_times, thresh = clust.detect_spikes(
                 filt,
                 (0.5, 1.0),
                 self.sampling_rate,
             )
-            self.scaled_slices = clust.scale_waveforms(spikes)
+            del filt
+            # see if hft.root contains "/detected"
+            if "/detected" not in self.hf5.root:
+                self.hf5.create_group(self.hf5.root, "detected")
+            if self.chan_name in self.hf5.root.detected:
+                logger.info(f"Found existing detected spikes for {self.chan_name}")
+                if self.overwrite:
+                    logger.info(f"Overwriting...")
+                    self.hf5.remove_node(self.hf5.root.detected, self.chan_name)
+                    self.hf5.create_array(
+                        self.hf5.root.detected, self.chan_name, self.spikes_detected
+                    )
+                else:
+                    logger.info(f"Detected spikes already exist, skipping")
+                    break
+            else:
+                self.hf5.create_array(
+                    self.hf5.root.detected, self.chan_name, self.spikes_detected
+                )
 
-            pca = PCA()
-            pca_slices = pca.fit_transform(self.scaled_slices)
-            pca_cumulative_var = np.cumsum(pca.explained_variance_ratio_)
-            pca_graph_vars = list(
-                pca_cumulative_var[0 : np.where(pca_cumulative_var > 0.999)[0][0] + 1]
-            )
-            pca_n_pc = (
-                np.where(pca_cumulative_var > self.pvar)[0][0] + 1
-                if self.usepvar == 1
-                else self.userpc
-            )
+            # see if metrics.npy saved
+            if os.path.exists(self._files["raw_metrics"]):
+                # self.metrics = np.load(self._files["raw_metrics"])
+                # self.metrics_columns = np.load(self._files["raw_metrics"] + "_columns.npy")
+                if self.overwrite:
+                    logger.info(f"Overwriting metrics.npy")
+                    os.remove(self._files["raw_metrics"])
+                    os.remove(self._files["raw_metrics"] + "_columns.npy")
+                else:
+                    logger.info(f"raw_metrics.npy exists, skipping the computation")
+            else:
+                self.metrics, self.metrics_columns = clust.compute_waveform_metrics(
+                    self.spikes_detected, 10, True
+                )
+                np.save(self._files["raw_metrics"], self.metrics)
+                np.save(self._files["raw_metrics"] + "_columns", self.metrics_columns)
+                logger.info(f"Saved metrics to {self._files['raw_metrics']}")
 
-            pca_var_explained = float(pca_cumulative_var[pca_n_pc - 1])
-
-            self.metrics, self.data_columns = clust.compute_waveform_metrics(
-                pca_slices, pca_n_pc, True
-            )
-
-            fig = plt.figure()
-            x = np.arange(0, len(pca_graph_vars) + 1)
-            pca_graph_vars.insert(0, 0)
-            plt.plot(x, pca_graph_vars)
-            plt.vlines(pca_n_pc, 0, 1, colors="r")
-            plt.annotate(
-                str(pca_n_pc)
-                + " PC's used for GMM.\nVariance explained= "
-                + str(round(pca_var_explained, 3))
-                + "%.",
-                (pca_n_pc + 0.25, pca_cumulative_var[pca_n_pc - 1] - 0.1),
-            )
-            plt.title("Variance ratios explained by PCs (cumulative)")
-            plt.xlabel("PC #")
-            plt.ylabel("Explained variance ratio")
-            fig.savefig(
-                self._plots_dir / "pca_variance_explained.png",
-                bbox_inches="tight",
-            )
-            plt.close("all")
-
-            self.iter_clusters(self.times)
+            self.iter_clusters()
             break
 
-    def check_spikes(self, spikes):
-        """
-        Checks for spikes in the data. If none are found, writes a warning and returns.
-
-        Parameters
-        ----------
-        spikes : ndarray
-            Array of spike waveforms.
-        times : ndarray
-            Array of spike times.
-
-        Returns
-        -------
-        None
-            Writes a warning and returns if no spikes are found.
-
-        """
-        if spikes.size == 0:
-            (self._data_dir / "no_spikes.txt").write_text(
-                "No spikes were found on this channel."
-                " The most likely cause is an early recording cutoff."
-            )
-            warnings.warn(
-                "No spikes were found on this channel. The most likely cause is an early recording cutoff."
-            )
-            (self._data_dir / "no_spikes.txt").write_text(
-                "Sorting finished. No spikes found"
-            )
-            return
-
-    def iter_clusters(self, n_pc):
+    def iter_clusters(self):
         """
         Iterates through each cluster, performs GMM-based clustering, and saves the results.
 
@@ -517,8 +461,6 @@ class ProcessChannel:
         logger.info(f"Testing {len(tested_clusters)} clusters")
 
         spikes_per_clust = []
-        pbm = ProgressBarManager()
-        pbm.init_cluster_bar(len(tested_clusters))
 
         # we test clusters of 2+, loop through each cluster of 2, 3, 4, 5, etc...
         for num_clust in tested_clusters:
@@ -549,7 +491,8 @@ class ProcessChannel:
             # nofmt
             if np.any(
                 [
-                    len(np.where(predictions[:] == cluster)[0]) <= n_pc + 2
+                    len(np.where(predictions[:] == cluster)[0])
+                    <= self.params.pca[""] + 2
                     for cluster in range(num_clust)
                 ]
             ):
@@ -598,7 +541,7 @@ class ProcessChannel:
                 isi, v1ms, v2ms = clust.get_ISI_and_violations(
                     self.times, self.sampling_rate
                 )
-                cluster_spikes = self.spikes[idx]
+                cluster_spikes = self.spikes_detected[idx]
                 cluster_times = self.times[idx]
 
                 np.save(this_clust_data / "predictions.npy", predictions)
@@ -616,14 +559,14 @@ class ProcessChannel:
 
             for f1, f2 in feature_pairs:
                 logger.info(f"Plotting {(f1, f2)}")
-                feat_str = f"{self.data_columns[f1]}_vs_{self.data_columns[f2]}"
+                feat_str = f"{self.metrics_columns[f1]}_vs_{self.metrics_columns[f2]}"
                 feat_str = feat_str.replace(" ", "")
                 savename = cluster_plot_path / feat_str
                 plot_cluster_features(
                     self.metrics[:, [f1, f2]],
                     predictions,
-                    x_label=self.data_columns[f1],
-                    y_label=self.data_columns[f2],
+                    x_label=self.metrics_columns[f1],
+                    y_label=self.metrics_columns[f2],
                     save_file=str(savename),
                 )
 
@@ -637,7 +580,36 @@ class ProcessChannel:
                 )
                 title = "Mahalanobis distance to cluster %i" % this_cluster
                 plot_mahalanobis_to_cluster(mahalanobis_dist, title, str(savename))
-            pbm.update_cluster_bar()
+
+    def assert_has_spikes(self, spikes):
+        """
+        Checks for spikes in the data. If none are found, writes a warning and returns.
+
+        Parameters
+        ----------
+        spikes : ndarray
+            Array of spike waveforms.
+        times : ndarray
+            Array of spike times.
+
+        Returns
+        -------
+        None
+            Writes a warning and returns if no spikes are found.
+
+        """
+        if spikes.size_on_disk > 16:
+            (self._data_dir / "no_spikes.txt").write_text(
+                "No spikes were found on this channel."
+                " The most likely cause is an early recording cutoff."
+            )
+            warnings.warn(
+                "No spikes were found on this channel. The most likely cause is an early recording cutoff."
+            )
+            (self._data_dir / "no_spikes.txt").write_text(
+                "Sorting finished. No spikes found"
+            )
+            return
 
     def superplots(self, maxclust: int):
         """

@@ -93,20 +93,15 @@ class SortConfig:
         if self.cfg_path.is_dir():
             # if the provided path is a directory, append the filename
             config_file = self.cfg_path.glob("*.ini")
-            if len(list(config_file)) == 0:
+            num_config_files = len(list(config_file))
+            if num_config_files > 1:
                 self.cfg_path = self.cfg_path / "default_config.ini"
                 download_default_config(self.cfg_path)
-
-            elif len(list(config_file)) > 1:
+            elif num_config_files > 1:
                 raise Exception(
                     f"Multiple configuration files found in {self.cfg_path}"
                 )
-            else:
-                self.cfg_path = list(config_file)[0]
-        if self.cfg_path.is_file():
-            # if the provided path is a file, use it
-            pass
-        else:
+        elif not self.cfg_path.is_file():
             self.cfg_path.parent.mkdir(parents=True, exist_ok=True)
             download_default_config(self.cfg_path)
 

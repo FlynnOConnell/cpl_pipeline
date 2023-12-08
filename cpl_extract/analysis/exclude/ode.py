@@ -59,7 +59,6 @@ def _validate_events(event_arr, event_id):
 
 
 def get_lowest_variance_window(arr, sfreq, window_length_sec=10):
-
     arr = arr.get_data()
     window_length = int(window_length_sec * sfreq)  # Convert seconds to samples
     step_size = window_length // 2  # 50% overlap
@@ -69,7 +68,6 @@ def get_lowest_variance_window(arr, sfreq, window_length_sec=10):
 
     # Iterate over possible windows
     for start in range(0, arr.shape[-1] - window_length + 1, step_size):
-
         end = start + window_length
         window = arr[:, start:end]
         window_variance = np.var(window)
@@ -89,7 +87,6 @@ def get_master_df():
     animals = [animal for animal in data_path.glob("*") if animal.is_dir()]
     master = pd.DataFrame()
     for animal_dir in animals:
-
         cache_animal_path = data_path / animal_dir.name
         cache_animal_path.mkdir(parents=True, exist_ok=True)
 
@@ -326,7 +323,6 @@ def determine_group(chan_pair_names):
 
 
 if __name__ == "__main__":
-
     data = main(use_parallel=False)
     data = data.dropna(subset=["raw"])
     day = data.iloc[0]
