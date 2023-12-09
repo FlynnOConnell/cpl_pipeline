@@ -1,9 +1,9 @@
 # To use:
 #
 #   $ conda env create -f environment.yml  # `mamba` works too for this command
-#   $ conda activate cpe  # or change the name: cpe and activate that name
+#   $ conda activate cpl  # or change the name: cpl and activate that name
 
-name: cpe
+name: cpl
 channels:
   - conda-forge
   - default
@@ -26,9 +26,6 @@ dependencies:
   - pyqtgraph
   - pyopenssl
   - pyqt-stubs
-  - easygui
-  - mne
-  - mne-connectivity
   - vispy
   - umap-learn
 
@@ -39,7 +36,6 @@ dependencies:
   - openpyxl
   - OpenSSL
   - pytables
-  - vitables # hdf5 viewer
 
 # Compilation
   - compilers

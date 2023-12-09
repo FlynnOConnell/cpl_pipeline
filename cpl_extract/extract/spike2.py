@@ -7,7 +7,6 @@ import string
 from itertools import compress
 from pathlib import Path
 
-import h5io
 import numpy as np
 import pandas as pd
 
@@ -35,7 +34,6 @@ EVENTS = [
     sp.DataType.Marker,
     sp.DataType.RealMark,
     sp.DataType.TextMark,
-    # sp.DataType.AdcMark,
     sp.DataType.RealMark,
 ]
 
