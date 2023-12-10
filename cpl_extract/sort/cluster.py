@@ -511,14 +511,14 @@ def get_recording_cutoff(
             breaches_per_sec[np.where(breaches_per_sec > 0)[0]]
         )
 
-    # And if they all exceed the cutoffs, assume that the headstage fell off mid-experiment
+    # if they all exceed the cutoffs, assume that the headstage fell off mid-experiment
     recording_cutoff = int(len(filt_el) / sampling_rate)  # cutoff in seconds
     if (
         breach_rate >= max_breach_rate
         and secs_above_cutoff >= max_secs_above_cutoff
         and mean_breach_rate_persec >= max_mean_breach_rate_persec
     ):
-        # Find the first 1s epoch where the number of cutoff breaches is
+        # find the first 1s epoch where the number of cutoff breaches is
         # higher than the maximum allowed mean breach rate
         recording_cutoff = np.where(breaches_per_sec > max_mean_breach_rate_persec)[0][
             0
@@ -657,19 +657,21 @@ class SpikeDetector:
         # Get recording cutoff
         if not status["recording_cutoff"]:
             self.recording_cutoff = get_recording_cutoff(filt_el, **params)
+            if not self._files["recording_cutoff"].is_file():
+                self._files["recording_cutoff"].parent.mkdir(parents=True, exist_ok=True)
             with open(self._files["recording_cutoff"], "w") as f:
                 f.write(str(self.recording_cutoff))
 
             status["recording_cutoff"] = True
             fn = os.path.join(self._plot_dir, "cutoff_time.png")
-            plot_recording_cutoff(filt_el, fs, self.recording_cutoff, out_file=fn)
+            plot_recording_cutoff(filt_el, self.fs, self.recording_cutoff, out_file=fn)
 
         # Truncate electrode trace, deal with early cutoff (<60s)
         if self.recording_cutoff < 60:
             print("Immediate Cutoff for electrode %i...exiting" % electrode)
             return electrode, 0, self.recording_cutoff
 
-        filt_el = filt_el[: int(self.recording_cutoff * fs)]
+        filt_el = filt_el[: int(self.recording_cutoff * self.fs)]
 
         if not status["detection_threshold"]:
             threshold = get_detection_threshold(filt_el)
@@ -687,7 +689,7 @@ class SpikeDetector:
             # detect_spikes returns waveforms upsampled by 10x and times in units
             # of samples
             waves, times, threshold = detect_spikes(
-                filt_el, params["spike_snapshot"], fs, thresh=self.detection_threshold
+                filt_el, params["spike_snapshot"], self.fs, thresh=self.detection_threshold
             )
             if waves is None:
                 print("No waveforms detected on electrode %i" % electrode)
@@ -996,7 +998,7 @@ class CplClust(object):
         )
 
         # Collect data from all recordings
-        waveforms, spike_times, spike_map, fs, offsets = self.get_spike_data()
+        waveforms, spike_times, spike_map, self.fs, offsets = self.get_spike_data()
 
         # Save array to map spikes and predictions back to original recordings
         np.save(self._files["spike_map"], spike_map)
@@ -1063,7 +1065,7 @@ class CplClust(object):
 
                 # Plot waveforms and ISIs of cluster
                 ISIs, violations_1ms, violations_2ms = get_ISI_and_violations(
-                    spike_times[idx], fs, spike_map[idx]
+                    spike_times[idx], self.fs, spike_map[idx]
                 )
                 cluster_waves = waveforms[idx]
                 cluster_times = spike_times[idx]

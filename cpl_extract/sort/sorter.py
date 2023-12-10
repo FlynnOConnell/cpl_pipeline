@@ -23,13 +23,12 @@ import pandas as pd
 from PIL import ImageFont, ImageDraw, Image
 from sklearn.decomposition import PCA
 
-from cpl_extract.logger import logger
+from cpl_extract.logger import cpl_logger as logger
 from cpl_extract.sort import cluster as clust  # avoid naming conflicts
 from cpl_extract.sort.directory_manager import DirectoryManager
 from cpl_extract.sort.plot import plot_cluster_features, plot_mahalanobis_to_cluster
 from cpl_extract.sort.spk_config import SortConfig
 from cpl_extract.sort.utils.progress import ProgressBarManager
-
 
 # Factory
 def sort(

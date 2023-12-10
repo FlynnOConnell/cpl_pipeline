@@ -17,11 +17,7 @@ except ImportError:
         import sonpy as sp
     except:
         pass
-        # raise Warning("sonpy not found. Are you on a M1 Mac?")
 
-import tables
-from cpl_extract import logger as cpl_logger
-from cpl_extract import spk_io
 from cpl_extract.utils import check_substring_content
 
 # any type that contains "Mark" or "mark" is an event channel:
@@ -38,20 +34,6 @@ EVENTS = [
 ]
 
 ADC = [sp.DataType.Adc]
-
-
-class Channel:
-    def __init__(self, name, chan_type, chan_data, times):
-        self.name = name
-        self.type = chan_type
-        self.data: np.ndarray = chan_data
-        self.times: np.ndarray = times
-
-    def __repr__(self):
-        return f"{self.name}"
-
-    def __str__(self):
-        return f"{self.name}"
 
 
 class SonfileException(BaseException):
@@ -91,7 +73,8 @@ def ticks_to_time(ticks, time_base):
 
 class Spike2Data:
     """
-    Class for reading and storing data from a Spike2 file.
+    Spike2 CED Software data extractor. This class is used to extract data from a Spike2 file.
+    Both 32bit and 64bit files (.smr and .smrx) are supported.
 
     Parameters:
     -----------
@@ -150,17 +133,7 @@ class Spike2Data:
 
     """
 
-    @property
-    def logger(self):
-        return self._logger
-
-    def __init__(
-        self,
-        filepath: Path | str,
-        savepath: Path | str,
-        extraction_logger: cpl_logger.logger = None,
-        log_level="INFO",
-    ):
+    def __init__(self, filepath: Path | str):
         """
         Class for reading and storing data from a Spike2 file.
 
@@ -203,48 +176,10 @@ class Spike2Data:
             The total recording length, in seconds.
         """
 
-        if extraction_logger is None:
-            self._logger = cpl_logger.logger
-        else:
-            self._logger = extraction_logger
-        self._log_level = log_level
-        self.errors = {}
         self.filename = Path(filepath)
-        self._savedir = Path(savepath) / self.filename.stem
-
-        self.sonfile = sp.SonFile(str(self.filename), True)
+        self._loaded = False
 
         self.data = pd.DataFrame()
-        self.data["idx"] = range(self._max_channels())  # the index stored by sonpy
-        self.data["name"] = [
-            self.sonfile.GetChannelTitle(idx) for idx in range(self._max_channels())
-        ]
-        self.data["type"] = [
-            self.sonfile.ChannelType(idx) for idx in range(self._max_channels())
-        ]
-        self.data["fs"] = [
-            np.round(1 / (self.sonfile.ChannelDivide(idx) * self._time_base()), 2)
-            for idx in range(self._max_channels())
-        ]
-        self.data["units"] = [
-            self.sonfile.GetChannelUnits(idx) for idx in range(self._max_channels())
-        ]
-        self.rec_length = self._max_time()
-        self.bitrate = 32 if self.sonfile.is32file() else 64
-
-        self.events = self.data[self.data["type"].isin(EVENTS)]
-        self.waves = self.data[self.data["type"].isin(ADC)]
-        # separate out waves by the name containing "u" or "L" (for unit or LFP) using where check_substring_content(self.waves["name"], "u")
-        self.units = self.waves[
-            self.waves["name"].apply(lambda x: check_substring_content(x, "u"))
-        ]
-        self.lfps = self.waves[
-            self.waves["name"].apply(lambda x: check_substring_content(x, "lfp"))
-        ]
-
-        # filter out any types = DataType.Off
-        self.data = self.data[self.data["type"] != sp.DataType.Off]
-        self.TIME_EXTRACTED = False
 
         if self.sonfile.GetOpenError() != 0:
             if self.filename.suffix not in [".smr", ".smrx"]:
@@ -258,42 +193,129 @@ class Spike2Data:
                     f"Double check the file contains valid data."
                 )
 
+    def _flush_sonfile(self):
+        """
+        Flush the sonfile object from memory.
+        """
+        self._sonfile.FlushSystemBuffers()
+        self._loaded = False
+
+    def _load_sonfile_in_memory(self):
+        """
+        Initialize the sonfile object.
+        """
+        self._sonfile = sp.SonFile(str(self.filename), True)
+        self._loaded = True
+
+    def load(self):
+        """
+        Load the sonfile object into memory.
+        """
+        self._load_sonfile_in_memory()
+        self._extract_df()
+
+    def _extract_df(self):
+        if not self._loaded:
+            self._load_sonfile_in_memory()
+
+        self.data["electrode"] = range(self._max_channels())  # the index stored by sonpy
+        self.data["name"] = [self.sonfile.GetChannelTitle(idx) for idx in range(self._max_channels())]
+        self.data['port'] = [self.sonfile.PhysicalChannel(idx) for idx in range(self._max_channels())]
+        self.data["units"] = [self.sonfile.GetChannelUnits(idx) for idx in range(self._max_channels())]
+
+        self.data["type"] = [self.sonfile.ChannelType(idx) for idx in range(self._max_channels())]
+        self.data["sampling_rate"] = [
+            np.round(1 / (self.sonfile.ChannelDivide(idx) * self._time_base()), 2)
+            for idx in range(self._max_channels())
+        ]
+
+        # filter out any types = DataType.Off
+        self.rec_length = self._max_time()
+        self.bitrate = 32 if self.sonfile.is32file() else 64
+
+        self.data = self.data[self.data["type"] != sp.DataType.Off]
+        self.events = self.data[self.data["type"].isin(EVENTS)]
+        self.waves = self.data[self.data["type"].isin(ADC)]
+
+        self.data = self.data.drop(columns=["type"])
+
+        # separate out waves by the name containing "u" or "L" (for unit or LFP) using where check_substring_content(self.waves["name"], "u")
+        self.units = self.waves[self.waves["name"].apply(lambda x: check_substring_content(x, "u"))]
+        self.lfps = self.waves[self.waves["name"].apply(lambda x: check_substring_content(x, "lfp"))]
+
+        self.data_loaded = True
+        self._flush_sonfile()
+
+    @property
+    def sonfile(self):
+        """
+        The SonFile object from the sonpy library.
+        """
+        if self._loaded:
+            return self._sonfile
+        else:
+            self._load_sonfile_in_memory()
+            self._loaded = True
+            return self._sonfile
+
+    @property
+    def call_sonfile_methods(self):
+        """
+        Return a list of all the sonfile methods. Helpful for debugging.
+        """
+        return [method for method in dir(self.sonfile) if callable(getattr(self.sonfile, method))]
+    
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        # Remove the unpickleable entries.
+        del state['_sonfile']
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self._load_sonfile_in_memory()
+
     def __repr__(self):
         return self._formatted_info()
 
     def __str__(self):
-        return self._formatted_info()
+        # Helper function to format channel details
+        def format_channel_details(channels):
+            return ', '.join(f"{row['electrode']}:{row['name']}" for _, row in channels.iterrows())
 
-    @property
-    def log_level(self):
-        return self._log_level
+        bitrate_str = f"{self.bitrate}-bit (.smr)" if self.bitrate == 32 else f"{self.bitrate}-bit (.smrx)"
+        info = [
+            f"Dataset: {self.filename.stem}",
+            f"\n"
+            f"{'Raw Filepath:':<35} {self.filename}",
+            f"{'Recording Length:':<35} {self.rec_length} seconds",
+            f"{'Bitrate:':<35} {bitrate_str}",
+            f"{'Number of Used Channels:':<35} {len(self.data)}",
+        ]
 
-    @log_level.setter
-    def log_level(self, log_level):
-        self._log_level = log_level
-        self._logger.setLevel(log_level)
+        if not self.events.empty:
+            info.append(f"{len(self.events)}{' Event Channels (index, Type):':<35} {format_channel_details(self.events)}")
+        if not self.waves.empty:
+            info.append(f"{'#Waveform Channels:':<35} {len(self.waves)}")
+            info.append("-" * 35)
 
-    @logger.setter
-    def logger(self, new_logger):
-        self._logger = new_logger
-        self._logger.setLevel(self._log_level)
+        if not self.units.empty:
+            info.append(f"{'#Unit Channels:':<35} {len(self.units)}")
+            info.append(f"{'Unit Channels:':<35} {format_channel_details(self.units)}")
+        if not self.lfps.empty:
+            info.append(f"{'Number of LFP Channels:':<35} {len(self.lfps)}")
+            info.append(f"{'LFP Channels:':<35} {format_channel_details(self.lfps)}")
 
-    @property
-    def savedir(self):
-        return self._savedir
-
-    @savedir.setter
-    def savedir(self, savedir):
-        self._savedir = savedir
+        return "\n".join(info)
 
     def _formatted_info(self):
-        nchan = len(self.waves)  # Assuming 'waves' is a dataframe or similar
-        nevents = len(self.events)  # Assuming 'events' is a dataframe or similar
+        nchan = len(self.waves)
+        nevents = len(self.events)
 
-        waves_info = self.waves.to_string(index=False)  # Formatting dataframe as string
+        waves_info = self.waves.to_string(index=False)
         events_info = self.events.to_string(
             index=False
-        )  # Formatting dataframe as string
+        )
 
         info = (
             f"{self.filename} | nchan = {nchan} | nevents = {nevents}\n"
@@ -308,30 +330,6 @@ class Spike2Data:
         )
         return info
 
-    def extract(self, *args):
-        """Extract "waves" or "events" into hdf5 cache."""
-        new5 = spk_io.create_empty_data_h5(self.savedir, True)
-        spk_io.create_hdf_arrays(new5, self.units, self.lfps, self.events)
-        for k in args:
-            if k == "events":
-                for _, row in self.events.iterrows():
-                    self._process_event(
-                        row,
-                    )
-            elif k == "waves":
-                with tables.open_file(new5, "a") as hf5:
-                    x = 1
-                    do_time = True
-                    if hf5.root.raw_time.time_vector.size_on_disk != 0:
-                        do_time = False
-                    for _, row in self.waves.iterrows():
-                        worked = self._process_signal(row, hf5, do_time)
-                        if worked:
-                            do_time = False
-                    hf5.flush()
-            else:
-                raise ValueError(f"Invalid argument {k}.")
-
     def _process_event(self, row):
         """
         Process event channels, i.e. channels that contain events.
@@ -339,11 +337,6 @@ class Spike2Data:
         Event times are converted to seconds.
         """
         idx, name, chantype, fs, units = row
-        self.logger.info(
-            f"Processing event:"
-            f"idx={idx}, name={name}, chantype={chantype}, fs={fs}, units={units}"
-        )
-
         try:
             marks = self.sonfile.ReadMarkers(idx, int(2e9), 0)
 
@@ -375,11 +368,11 @@ class Spike2Data:
             self.logger.warning(f"Error reading marker:{name},{chantype}, {e}")
             return [], []
 
-    def read_data_in_chunks(self, channel_index):
+    def read_data_in_chunks(self, channel_index, chunk_size=None):
+        chunk_size = chunk_size if chunk_size else 64 * 1024
         item_size = self.sonfile.ItemSize(channel_index)
         total_bytes = self.sonfile.ChannelBytes(channel_index)
         total_items = total_bytes // item_size
-        chunk_size = 1000000
 
         start_idx = 0
 
@@ -396,20 +389,14 @@ class Spike2Data:
             return False
         try:
             idx, channel_name, chantype, fs, units = row
-            self.logger.info(
-                f"Processing waveform: idx={idx}, name={channel_name}, chantype={chantype}, fs={fs}, units={units}"
-            )
 
             start_time = 0
             for chunk in self.read_data_in_chunks(idx):
                 # turn chunk into hf5 array
                 hf5.root.raw_unit[channel_name].append(np.array(chunk))
-                # attach fs to attr
                 hf5.root.raw_unit[channel_name]._v_attrs.fs = fs
                 if do_time:
-                    time_vector = np.arange(
-                        start_time, start_time + len(chunk) / fs, 1 / fs
-                    )
+                    time_vector = np.arange(start_time, start_time + len(chunk) / fs, 1 / fs)
                     hf5.root.raw_time.time_vector.append(time_vector)
                     start_time += len(chunk) / fs
             hf5.flush()
@@ -419,60 +406,6 @@ class Spike2Data:
             self.errors["ReadFloats"] = e
             self.logger.error(f"Error reading floats: {e}")
             return False
-
-    def save(self, filepath: str | Path, overwrite_existing=True) -> Path:
-        """
-        Save the data to a h5 file in the users h5 directory.
-
-        The resulting h5 file will be saved to the data/h5 directory with the corresponding filename.
-        The h5 file will contain:
-
-        1) Metadata specific to the file, such as the bandpass filter frequencies.
-            - 'metadata_file'
-        2) Metadata specific to each channel, such as the channel type and sampling rate.
-            - 'metadata_channel'
-        3) The actual data, i.e. the waveforms and spike times.
-            - 'data'
-
-        Parameters
-        ----------
-        filepath : str or Path
-            The path/filename including ext to save to.
-        overwrite_existing : bool, optional
-            Whether to overwrite an existing file with the same name. Default is False.
-
-        Returns
-        -------
-        filename : Path
-            The filename that the data was saved to.
-
-        """
-
-        filepath = Path(filepath)
-        if filepath.suffix != ".h5":
-            filepath = filepath.with_suffix(".h5")
-        if not filepath.parent.exists():
-            self.logger.info(f"Creating {filepath.parent} directory.")
-            filepath.parent.mkdir(exist_ok=True, parents=True)
-        if filepath.exists():
-            if overwrite_existing:
-                self.logger.info(f"Overwriting existing file: {filepath}")
-                spk_io.save_channel_h5(
-                    str(filepath), "channels", self.channels, self.metadata
-                )
-                self.logger.info(f"Saved data to {filepath}")
-                return self.filename
-            else:  # don't overwrite existing file
-                self.logger.info(
-                    f"{filepath} already exists. Set overwrite_existing=True to overwrite. Skipping h5 write."
-                )
-                pass
-        else:
-            self.logger.info(f"Saving data to {filepath}")
-            spk_io.save_channel_h5(
-                str(filepath), "channels", self.channels, self.metadata
-            )
-        return self.filename
 
     # wrappers for sonfile methods with additional information
     def _channel_interval(self, channel: int):

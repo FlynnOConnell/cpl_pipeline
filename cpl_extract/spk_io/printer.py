@@ -4,6 +4,33 @@ from copy import deepcopy
 import re
 import sys
 
+def print_differences(new_dict, old_dict, dict_name, file=sys.stdout):
+    for key in new_dict:
+        if key not in old_dict:
+            print(f'{dict_name} New: {key} = {new_dict[key]}', file=file)
+        elif new_dict[key] != old_dict[key]:
+            print(f'{dict_name} Changed: {key} from {old_dict[key]} to {new_dict[key]}', file=file)
+    for key in old_dict:
+        if key not in new_dict:
+            print(f'{dict_name} Removed: {key}', file=file)
+
+def pretty(d, indent=0, file=sys.stdout):
+    # templated from https://stackoverflow.com/questions/3229419/how-to-pretty-print-nested-dictionaries
+    for key, value in d.items():
+        print('\t' * indent + str(key), file=file)
+        if isinstance(value, dict):
+            pretty(value, indent + 1)
+        else:
+            print('\t' * (indent + 1) + str(value), file=file)
+
+def print_globals_and_locals():
+
+    print("Globals (sys.stderr):", file=sys.stderr)
+    pretty(globals(), file=sys.stderr)
+
+    print("\nLocals:")
+    for key, value in locals().items():
+        print(f"{key}: {value}")
 
 def print_dict(dic, tabs=0):
     """
@@ -45,7 +72,6 @@ def print_dict(dic, tabs=0):
 
     return out
 
-
 def print_dataframe(df, tabs=0, idxfmt="Date"):
     """
     Turns a pandas dataframe into a string without numerical index, date index
@@ -68,7 +94,6 @@ def print_dataframe(df, tabs=0, idxfmt="Date"):
     for i in range(tabs):
         out = "    " + out.replace("\n", "\n    ")
     return out
-
 
 def print_list_table(lis, headers=[]):
     """Make a string from list of lists with columns for each list
@@ -100,14 +125,12 @@ def print_list_table(lis, headers=[]):
     out = "\n".join(out)
     return out
 
-
 def println(txt):
     """Print inline without newline
     required due to how ipython doesn't work right with print(..., end='')
     """
     sys.stdout.write(txt)
     sys.stdout.flush()
-
 
 def get_next_letter(letter):
     """gets next letter in the alphabet

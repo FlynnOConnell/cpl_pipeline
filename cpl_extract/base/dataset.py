@@ -1,29 +1,36 @@
+from pathlib import Path
+
 import pandas as pd
 import numpy as np
 import datetime as dt
-import pickle
 import os
 import shutil
-import sys
 from joblib import Parallel, delayed, cpu_count
 import subprocess
 from tqdm import tqdm
 from copy import deepcopy
 
-from cpl_extract import spk_io
+from cpl_extract import logger, spk_io
+from cpl_extract.analysis.spike_analysis import make_rate_arrays
+from cpl_extract.analysis.spike_sorting import make_spike_arrays
+from cpl_extract.extract import Spike2Data
+from cpl_extract.sort.cluster import SpikeDetector, CplClust, UMAP_METRICS
+from cpl_extract.sort.plot_blechpy import plot_traces_and_outliers
 from cpl_extract.spk_io import printer as pt, writer as wt, prompt
 from cpl_extract.base import objects
-from cpl_extract.extract import Spike2Data
-
+from cpl_extract.logger import cpl_logger
 from cpl_extract.decorators import Logger
 
 import tables
 import scipy.io as sio
 
 from cpl_extract.spk_io.cpl_params import load_params
+from cpl_extract.spk_io.h5io import get_h5_filename, write_electrode_map_to_h5, cleanup_clustering, \
+    write_digital_map_to_h5, write_array_to_hdf5, create_empty_data_h5, create_hdf_arrays, create_trial_data_table
 
 
-class dataset(objects.data_object):
+
+class Dataset(objects.data_object):
     """
     Stores information related to an intan recording directory, allows
     executing basic processing and analysis scripts, and stores parameters data
@@ -31,7 +38,7 @@ class dataset(objects.data_object):
 
     Parameters
     ----------
-    file_dir : str (optional)
+    root_dir : str (optional)
         absolute path to a recording directory, if left empty a filechooser
         will popup
     """
@@ -55,34 +62,47 @@ class dataset(objects.data_object):
         "overlay_psth",
     ]
 
-    def __init__(self, file_dir=None, data_name=None, shell=False):
+    def __init__(self, root_dir=None, data_dir=None, data_name=None, shell=False, file_type='.smr'):
         """
         Initialize dataset object from file_dir, grabs basename from name of
         directory and initializes basic analysis parameters
 
         Parameters
         ----------
-        file_dir : str (optional), file directory for intan recording data
+        root_dir : str (optional), file directory for intan recording data
 
-        Raises
-        ------
-        ValueError
-            if file_dir is not provided and no directory is chosen
-            when prompted
-        NotADirectoryError : if file_dir does not exist
         """
-        super().__init__("dataset", file_dir, data_name=data_name, shell=shell)
-        h5_file = spk_io.get_h5_filename(self.root_dir)
+        super().__init__(data_type=None, root_dir=root_dir, data_name=data_name, shell=shell)
+
+        # TODO: add check for file type + additional file types
+        if file_type != '.smr':
+            raise NotImplementedError("Unsupported recording type. Cannot extract yet.")
+
+        if root_dir.is_file() and root_dir.suffix == '.smr':
+            data_dir = root_dir.parent
+            root_dir = root_dir.parent.parent
+            data_name = root_dir.stem
+
+        h5_file = get_h5_filename(self.root_dir)
         if h5_file is None:
-            h5_file = os.path.join(self.root_dir, "%s.h5" % self.data_name)
-            print(f"No existing h5 file found. New h5 will be created at {h5_file}.")
+            h5_file = self.root_dir / f"{self.data_name}.h5"
+            logger.cpl_logger.info(f"No .h5 file found in {self.root_dir}. \n"
+                                   f"Creating new h5 file: {h5_file}")
+            h5_file = create_empty_data_h5(h5_file)
         else:
             print(f"Existing h5 file found. Using {h5_file}.")
 
         self.h5_file = h5_file
-        self.dataset_creation_date = dt.datetime.today()
+        self.unit_mapping = None
+        self.lfp_mapping = None
+        self.electrode_mapping = None
 
-        self.processing_steps = dataset.PROCESSING_STEPS.copy()
+        self.rec_info = {"file_type": file_type}
+        self.data_dir = data_dir
+        self.data = None
+
+        self.dataset_creation_date = dt.datetime.today()
+        self.processing_steps = Dataset.PROCESSING_STEPS.copy()
         self.process_status = dict.fromkeys(self.processing_steps, False)
 
     def _change_root(self, new_root=None):
@@ -91,16 +111,11 @@ class dataset(objects.data_object):
         self.h5_file = self.h5_file.replace(old_root, new_root)
         return new_root
 
-    @Logger("Initializing Parameters")
     def initParams(
-        self,
-        data_quality="hp",
-        emg_port=None,
-        emg_channels=None,
-        shell=False,
-        dig_in_names=None,
-        dig_out_names=None,
-        accept_params=False,
+            self,
+            data_quality="hp",
+            shell=False,
+            accept_params=False,
     ):
         """
         Initalizes basic default analysis parameters and allows customization
@@ -115,18 +130,9 @@ class dataset(objects.data_object):
             and re-run as 'noisy' if too many early cutoffs occurr.
             Alternately run as 'hp' (high performance)
             default parameter sets found in dio.defualts.clustering_params.json
-        emg_port : str
-            Port ('A', 'B', 'C') of EMG, if there was an EMG. None (default)
-            will query user. False indicates no EMG port and not to query user
         emg_channels : list of int
             channel or channels of EMGs on port specified
             default is None
-        car_keyword : str
-            Specifes default common average reference groups
-            defaults are found in dio.defaults.CAR_params.json
-            'bilateral32' and 'bilateral64' are available keywords
-            If left as None (default) user will be queries to select common
-            average reference groups
         shell : bool
             False (default) for GUI. True for command-line interface
         dig_in_names : list of str
@@ -145,49 +151,48 @@ class dataset(objects.data_object):
             calculations
         """
 
-        file_dir = self.root_dir
-        data = Spike2Data(file_dir)
-        self.events = data.events
-        self.waves = data.waves
-        sampling_rate = self.waves.fs
+        file_dir = Path(self.root_dir)
+        datafiles = [x for x in self.data_dir.glob("*.smr")]
+
+        if len(datafiles) == 0:
+            raise FileNotFoundError(f"No Spike2 files found in {file_dir}")
+        if len(datafiles) > 1:
+            print(f"Multiple Spike2 files found in {file_dir}. \n"
+                  f"Select the one you want to load.")
+            file = prompt.select_from_list(
+                "Select Spike2 file", datafiles, "Spike2 File Selection", shell=shell
+            )
+        else:
+            file = datafiles[0]
+
+        logger.cpl_logger.info("Extracting information from Spike2 file")
+        self.data = Spike2Data(filepath=file, )
+        self.data.load()
+        print(self.data)
+        methods = self.data.call_sonfile_methods
+
+        # add the data dataframe to the rec_info dictionary
+        self.rec_info.update(self.data.data.to_dict())
+        self.lfp_mapping = self.data.lfps
+        self.unit_mapping = self.data.units
+
+        self.electrode_mapping = self.unit_mapping.loc[:, ['electrode', 'port',]]
 
         # Get default parameters from files
-        clustering_params = load_params(
-            "clustering_params", file_dir, default_keyword=data_quality
-        )
+        clustering_params = load_params("clustering_params", file_dir, default_keyword=data_quality)
         spike_array_params = load_params("spike_array_params", file_dir)
         psth_params = load_params("psth_params", file_dir)
         pal_id_params = load_params("pal_id_params", file_dir)
-        spike_array_params["sampling_rate"] = sampling_rate
+        unit_sampling_rates = self.unit_mapping['fs'].unique()
+        if len(unit_sampling_rates) > 1:
+            raise ValueError("Multiple sampling rates found in units. "
+                             "This is not yet supported.")
+
+        spike_array_params["sampling_rate"] = unit_sampling_rates[0]
+        clustering_params["sampling_rate"] = spike_array_params["sampling_rate"]
         clustering_params["file_dir"] = file_dir
-        clustering_params["sampling_rate"] = sampling_rate
+
         self.spike_array_params = spike_array_params
-
-        # Setup digital input mapping
-        if rec_info.get("dig_in"):
-            self._setup_digital_mapping("in", dig_in_names, shell)
-            dim = self.dig_in_mapping.copy()
-        else:
-            self.dig_in_mapping = None
-
-        if rec_info.get("dig_out"):
-            q = prompt.ask_user(
-                "Your info.rhd suggests you have digital " "outputs. Is this True?",
-                shell=shell,
-            )
-            if q == 1:
-                self._setup_digital_mapping("out", dig_out_names, shell)
-                dom = self.dig_out_mapping.copy()
-            else:
-                _ = rec_info.pop("dig_out")
-                self.dig_out_mapping = None
-        else:
-            self.dig_out_mapping = None
-
-        # Setup electrode and emg mapping
-        self._setup_channel_mapping(
-            ports, channels, emg_port, emg_channels, shell=shell
-        )
 
         # Confirm parameters
         if not accept_params:
@@ -222,9 +227,10 @@ class dataset(objects.data_object):
             True for command-line interface
             False (default) for GUI
         """
-        rec_info = self.rec_info
+        if not self.root_dir:
+            logger.log_exception("No root directory set. Cannot setup digital mapping.")
         df = pd.DataFrame()
-        df["channel"] = rec_info.get("dig_%s" % dig_type)
+        df["channel"] = self.rec_info.get("dig_%s" % dig_type)
         # Names
         if dig_in_names:
             df["name"] = dig_in_names
@@ -238,11 +244,8 @@ class dataset(objects.data_object):
         dig_str = dig_type + "put"
 
         # Query for user input
-        prompt = (
-            "Digital %s Parameters\nSet palatability ranks from 1 to %i"
-            "\nor blank to exclude from pal_id analysis"
-        ) % (dig_str, len(df))
-        tmp = prompt.fill_dict(df.to_dict(), prompt=prompt, shell=shell)
+        usrprompt = f"Digital {dig_str} Parameters\nSet palatability ranks from 1 to {len(df)}"
+        tmp = prompt.fill_dict(df.to_dict(), prompt=usrprompt, shell=shell)
 
         # Reformat for storage
         df2 = pd.DataFrame.from_dict(tmp)
@@ -266,7 +269,7 @@ class dataset(objects.data_object):
             self.dig_out_mapping = df2.copy()
 
         if os.path.isfile(self.h5_file):
-            dio.h5io.write_digital_map_to_h5(
+            write_digital_map_to_h5(
                 self.h5_file, self.dig_in_mapping, dig_type
             )
 
@@ -302,7 +305,7 @@ class dataset(objects.data_object):
         self.spike_array_params = tmp.copy()
         wt.write_params_to_json("spike_array_params", self.root_dir, tmp)
         if os.path.isfile(self.h5_file):
-            dio.h5io.write_digital_map_to_h5(self.h5_file, self.dig_in_mapping, "in")
+            write_digital_map_to_h5(self.h5_file, self.dig_in_mapping, "in")
 
         self.save()
 
@@ -401,14 +404,6 @@ class dataset(objects.data_object):
         out.append(pt.print_dataframe(self.electrode_mapping))
         out.append("")
 
-        if hasattr(self, "CAR_electrodes"):
-            out.append("--------------------")
-            out.append("CAR Groups")
-            out.append("--------------------")
-            headers = ["Group %i" % x for x in range(len(self.CAR_electrodes))]
-            out.append(pt.print_list_table(self.CAR_electrodes, headers))
-            out.append("")
-
         if not self.emg_mapping.empty:
             out.append("--------------------")
             out.append("EMG")
@@ -456,9 +451,9 @@ class dataset(objects.data_object):
 
         return "\n".join(out)
 
-    @Logger("Writing parameters to JSON")
     def _write_all_params_to_json(self):
-        """Writes all parameters to json files in analysis_params folder in the
+        """
+        Writes all parameters to json files in analysis_params folder in the
         recording directory
         """
         print("Writing all parameters to json file in analysis_params folder...")
@@ -466,18 +461,37 @@ class dataset(objects.data_object):
         spike_array_params = self.spike_array_params
         psth_params = self.psth_params
         pal_id_params = self.pal_id_params
-        CAR_params = self.CAR_electrodes
-
         rec_dir = self.root_dir
         wt.write_params_to_json("clustering_params", rec_dir, clustering_params)
         wt.write_params_to_json("spike_array_params", rec_dir, spike_array_params)
         wt.write_params_to_json("psth_params", rec_dir, psth_params)
         wt.write_params_to_json("pal_id_params", rec_dir, pal_id_params)
-        wt.write_params_to_json("CAR_params", rec_dir, CAR_params)
 
-    @Logger("Extracting Data")
-    def extract_data(self, filename=None, shell=False):
-        """Create hdf5 store for data and read in Intan .dat files. Also create
+    def process_data(self):
+
+        unit_idx = self.unit_mapping['idx'].unique()
+        start_time = 0
+        with tables.open_file(self.h5_file, "r+") as hf5:
+            _flag = False
+            for idx in unit_idx:
+                unit = self.unit_mapping[self.unit_mapping['idx'] == idx]
+                unit_name = unit['name'].unique()[0]
+                unit_fs = unit['fs'].unique()[0]
+
+                num_chunks = len(list(self.data.read_data_in_chunks(idx)))
+                for chunk in self.data.read_data_in_chunks(idx):
+
+                    exec(f'hf5.root.raw_unit.{unit_name}.append(chunk)')
+                    exec(f'hf5.root.raw_unit.{unit_name}.attrs.fs = unit_fs')
+
+                    if not _flag:
+                        time = np.arange(start_time, start_time + len(chunk) / unit_fs, 1 / unit_fs)
+                        exec(f'hf5.root.time.time_vector.append(time)')
+                _flag = True
+
+    def extract_data(self, filename, shell=False):
+        """
+        Create hdf5 store for data and read in Intan .dat files. Also create
         subfolders for processing outputs
 
         Parameters
@@ -488,36 +502,30 @@ class dataset(objects.data_object):
             parameters and then try noisy after running blech_clust and
             checking if too many electrodes as cutoff too early
         """
-        if self.rec_info["file_type"] is None:
-            raise ValueError("Unsupported recording type. Cannot extract yet.")
 
-        if filename is None:
-            filename = self.h5_file
+        if Path(self.h5_file).is_file():
 
-        print("\nExtract Intan Data\n--------------------")
-        # Create h5 file
-        tmp = dio.h5io.create_empty_data_h5(filename, shell)
-        if tmp is None:
-            return
+            # TODO: add options to continue extraction
+            logger.cpl_logger.info(f"Found existing h5 file: {self.h5_file}")
 
-        # Create arrays for raw data in hdf5 store
-        dio.h5io.create_hdf_arrays(
-            filename, self.rec_info, self.electrode_mapping, self.emg_mapping
-        )
+            # prompt user to delete
+            q = prompt.ask_user("Delete the current h5 file and extract again?", ['No', 'Yes'], shell=shell)
+            if q == 1:
+                logger.cpl_logger.info(f"Deleted existing h5 file: {self.h5_file}")
+                spk_io.create_empty_data_h5(self.h5_file, True)
+                spk_io.create_hdf_arrays(file_name=self.h5_file, rec_info=self.rec_info, unit_mapping=self.unit_mapping,
+                                         lfp_mapping=self.lfp_mapping,)
+            else:
+                # TODO: add option to continue extraction
+                logger.cpl_logger.info(f"Using existing h5 file: {self.h5_file} \n ")
+                return
 
-        # Read in data to arrays
-        dio.h5io.read_files_into_arrays(
-            filename, self.rec_info, self.electrode_mapping, self.emg_mapping
-        )
-
-        # Write electrode and digital input mapping into h5 file
-        # TODO: write EMG and digital output mapping into h5 file
-        dio.h5io.write_electrode_map_to_h5(self.h5_file, self.electrode_mapping)
-        if self.dig_in_mapping is not None:
-            dio.h5io.write_digital_map_to_h5(self.h5_file, self.dig_in_mapping, "in")
-
-        if self.dig_out_mapping is not None:
-            dio.h5io.write_digital_map_to_h5(self.h5_file, self.dig_in_mapping, "out")
+        filename = Path(filename)
+        if filename.suffix == '.smr':
+            logger.cpl_logger.info("Extracting data from Spike2 file")
+            self.process_data()
+        else:
+            raise NotImplementedError("Unsupported recording type. Cannot extract yet.")
 
         # update status
         self.h5_file = filename
@@ -527,12 +535,14 @@ class dataset(objects.data_object):
 
     @Logger("Creating Trial List")
     def create_trial_list(self):
-        """Create lists of trials based on digital inputs and outputs and store
-        to hdf5 store
-        Can only be run after data extraction
+        """
+        Create lists of trials based on digital inputs and outputs and store to hdf5 store.
+
+        Can only be run *after* data extraction.
+
         """
         if self.rec_info.get("dig_in"):
-            in_list = dio.h5io.create_trial_data_table(
+            in_list = create_trial_data_table(
                 self.h5_file, self.dig_in_mapping, self.sampling_rate, "in"
             )
             self.dig_in_trials = in_list
@@ -552,7 +562,8 @@ class dataset(objects.data_object):
 
     @Logger("Marking Dead Channels")
     def mark_dead_channels(self, dead_channels=None, shell=False):
-        """Plots small piece of raw traces and a metric to help identify dead
+        """
+        Plots small piece of raw traces and a metric to help identify dead
         channels. Once user marks channels as dead a new column is added to
         electrode mapping
 
@@ -564,16 +575,16 @@ class dataset(objects.data_object):
         shell : bool, optional
         """
         print("Marking dead channels\n----------")
-        em = self.electrode_mapping.copy()
+        # em = self.electrode_mapping.copy()
+        em = self.unit_mapping.copy()
         if dead_channels is None:
-            prompt.tell_user(
-                "Making traces figure for dead channel detection...", shell=True
-            )
+            prompt.tell_user("Making traces figure for dead channel detection...", shell=True)
             save_file = os.path.join(self.root_dir, "Electrode_Traces.png")
-            fig, ax = datplt.plot_traces_and_outliers(self.h5_file, save_file=save_file)
+            fig, ax = plot_traces_and_outliers(self.h5_file, save_file=save_file)
             if not shell:
-                # Better to open figure outside of python since its a lot of
+                # Better to open figure outside of python since it's a lot of
                 # data on figure and matplotlib is slow
+                # xd-open is a linux command to open file with default program, change for other OS
                 subprocess.call(["xdg-open", save_file])
             else:
                 prompt.tell_user(
@@ -590,60 +601,17 @@ class dataset(objects.data_object):
             )
             dead_channels = list(map(int, choice))
 
-        print(
-            "Marking eletrodes %s as dead.\n"
-            "They will be excluded from common average referencing." % dead_channels
-        )
+        print(f"Marking the following units/electrodes as dead: \n"
+              f"{dead_channels}")
         em["dead"] = False
         em.loc[dead_channels, "dead"] = True
         self.electrode_mapping = em
         if os.path.isfile(self.h5_file):
-            dio.h5io.write_electrode_map_to_h5(self.h5_file, self.electrode_mapping)
+            write_electrode_map_to_h5(self.h5_file, self.electrode_mapping)
 
         self.process_status["mark_dead_channels"] = True
         self.save()
         return dead_channels
-
-    @Logger("Common Average Referencing")
-    def common_average_reference(self):
-        """Define electrode groups and remove common average from  signals
-
-        Parameters
-        ----------
-        num_groups : int (optional)
-            number of CAR groups, if not provided
-            there's a prompt
-        """
-        if not hasattr(self, "CAR_electrodes"):
-            raise ValueError("CAR_electrodes not set")
-
-        if not hasattr(self, "electrode_mapping"):
-            raise ValueError("electrode_mapping not set")
-
-        car_electrodes = self.CAR_electrodes
-        num_groups = len(car_electrodes)
-        em = self.electrode_mapping.copy()
-
-        if "dead" in em.columns:
-            dead_electrodes = em.Electrode[em.dead].to_list()
-        else:
-            dead_electrodes = []
-
-        # Gather Common Average Reference Groups
-        print("CAR Groups\n")
-        headers = ["Group %i" % x for x in range(num_groups)]
-        print(pt.print_list_table(car_electrodes, headers))
-
-        # Reference each group
-        for i, x in enumerate(car_electrodes):
-            tmp = list(set(x) - set(dead_electrodes))
-            dio.h5io.common_avg_reference(self.h5_file, tmp, i)
-
-        # Compress and repack file
-        dio.h5io.compress_and_repack(self.h5_file)
-
-        self.process_status["common_average_reference"] = True
-        self.save()
 
     @Logger("Running Spike Detection")
     def detect_spikes(self, data_quality=None, multi_process=True, n_cores=None):
@@ -661,7 +629,7 @@ class dataset(objects.data_object):
             number of cores to use for parallel processing. default is max-1.
         """
         if data_quality:
-            tmp = dio.params.load_params(
+            tmp = load_params(
                 "clustering_params", self.root_dir, default_keyword=data_quality
             )
             if tmp:
@@ -687,23 +655,20 @@ class dataset(objects.data_object):
 
         if multi_process:
             spike_detectors = [
-                clust.SpikeDetector(data_dir, x, self.clustering_params)
+                SpikeDetector(data_dir, x, self.clustering_params)
                 for x in electrodes
             ]
 
             if n_cores is None or n_cores > cpu_count():
                 n_cores = cpu_count() - 1
 
-            # results = Parallel(n_jobs=n_cores, verbose=10,
-            #                    backend='multiprocessing')(delayed(run_joblib_process)
-            #                                               (sd) for sd in spike_detectors)
             results = Parallel(n_jobs=n_cores)(
                 delayed(run_joblib_process)(sd) for sd in spike_detectors
             )
         else:
             results = [(None, None, None)] * (max(electrodes) + 1)
             spike_detectors = [
-                clust.SpikeDetector(data_dir, x, self.clustering_params)
+                SpikeDetector(data_dir, x, self.clustering_params)
                 for x in electrodes
             ]
             for sd in tqdm(spike_detectors):
@@ -723,21 +688,21 @@ class dataset(objects.data_object):
             cutoffs[x] = z
             clust_res[x] = y
 
-        print("1 - Sucess\n0 - No data or no spikes\n-1 - Error")
+        print("1 - Success\n0 - No data or no spikes\n-1 - Error")
 
         em = self.electrode_mapping.copy()
         em["cutoff_time"] = em["Electrode"].map(cutoffs)
         em["clustering_result"] = em["Electrode"].map(clust_res)
         self.electrode_mapping = em.copy()
         self.process_status["spike_detection"] = True
-        dio.h5io.write_electrode_map_to_h5(self.h5_file, em)
+        write_electrode_map_to_h5(self.h5_file, em)
         self.save()
         print("Spike Detection Complete\n------------------")
         return results
 
     @Logger("Running Blech Clust")
     def blech_clust_run(
-        self, data_quality=None, multi_process=True, n_cores=None, umap=True
+            self, data_quality=None, multi_process=True, n_cores=None, umap=True
     ):
         """Write clustering parameters to file and
         Run blech_process on each electrode using GNU parallel
@@ -756,7 +721,7 @@ class dataset(objects.data_object):
             raise FileNotFoundError("Must run spike detection before clustering.")
 
         if data_quality:
-            tmp = dio.params.load_params(
+            tmp = load_params(
                 "clustering_params", self.root_dir, default_keyword=data_quality
             )
             if tmp:
@@ -780,16 +745,16 @@ class dataset(objects.data_object):
 
         if not umap:
             clust_objs = [
-                clust.CplClust(self.root_dir, x, params=self.clustering_params)
+                CplClust(self.root_dir, x, params=self.clustering_params)
                 for x in electrodes
             ]
         else:
             clust_objs = [
-                clust.CplClust(
+                CplClust(
                     self.root_dir,
                     x,
                     params=self.clustering_params,
-                    data_transform=clust.UMAP_METRICS,
+                    data_transform=UMAP_METRICS,
                     n_pc=5,
                 )
                 for x in electrodes
@@ -811,7 +776,7 @@ class dataset(objects.data_object):
 
         self.process_status["spike_clustering"] = True
         self.process_status["cleanup_clustering"] = False
-        dio.h5io.write_electrode_map_to_h5(self.h5_file, em)
+        write_electrode_map_to_h5(self.h5_file, em)
         self.save()
         print("Clustering Complete\n------------------")
 
@@ -826,7 +791,7 @@ class dataset(objects.data_object):
         if self.process_status["cleanup_clustering"]:
             return
 
-        h5_file = dio.h5io.cleanup_clustering(self.root_dir, h5_file=self.h5_file)
+        h5_file = cleanup_clustering(self.root_dir, h5_file=self.h5_file)
         self.h5_file = h5_file
         self.process_status["cleanup_clustering"] = True
         self.save()
@@ -845,7 +810,7 @@ class dataset(objects.data_object):
         if not self.process_status["cleanup_clustering"]:
             self.cleanup_clustering()
 
-        sorter = clust.SpikeSorter(self.root_dir, electrode=electrode, shell=shell)
+        sorter = SpikeSorter(self.root_dir, electrode=electrode, shell=shell)
         if not shell:
             root, sorting_GUI = ssg.launch_sorter_GUI(sorter)
             return root, sorting_GUI
@@ -931,7 +896,7 @@ class dataset(objects.data_object):
 
         print("Generating unit arrays with parameters:\n----------")
         print(pt.print_dict(params, tabs=1))
-        ss.make_spike_arrays(self.h5_file, params)
+        make_spike_arrays(self.h5_file, params)
         self.process_status["make_unit_arrays"] = True
         self.save()
 
@@ -977,7 +942,7 @@ class dataset(objects.data_object):
         for idx, row in dig_ins.iterrows():
             dig_in_ch = row["channel"]
             print(dig_in_ch)
-            spike_analysis.make_rate_arrays(self.h5_file, dig_in_ch)
+            make_rate_arrays(self.h5_file, dig_in_ch)
 
     def make_psth_plots(self, sd=True, save_prefix=None):
         unit_table = self.get_unit_table()
@@ -1264,12 +1229,12 @@ def port_in_dataset(rec_dir=None, shell=False):
         if rec_dir is None:
             return None
 
-    dat = dataset(rec_dir, shell=shell)
+    dat = Dataset(rec_dir, shell=shell)
     # Check files that will be overwritten: log_file, save_file
     if os.path.isfile(dat.save_file):
         prompt = (
-            "%s already exists. Continuing will overwrite this. Continue?"
-            % dat.save_file
+                "%s already exists. Continuing will overwrite this. Continue?"
+                % dat.save_file
         )
         q = prompt.ask_user(prompt, shell=shell)
         if q == 0:
@@ -1278,8 +1243,8 @@ def port_in_dataset(rec_dir=None, shell=False):
 
     if os.path.isfile(dat.log_file):
         prompt = (
-            "%s already exists. Continuing will append to this. Continue?"
-            % dat.log_file
+                "%s already exists. Continuing will append to this. Continue?"
+                % dat.log_file
         )
         q = prompt.ask_user(prompt, shell=shell)
         if q == 0:
@@ -1323,8 +1288,8 @@ def port_in_dataset(rec_dir=None, shell=False):
         dio.h5io.write_digital_map_to_h5(dat.h5_file, dat.dig_in_mapping, "in")
 
     if (
-        dat.rec_info.get("dig_out") is not None
-        and "digital_output_map" not in node_list
+            dat.rec_info.get("dig_out") is not None
+            and "digital_output_map" not in node_list
     ):
         dio.h5io.write_digital_map_to_h5(dat.h5_file, dat.dig_out_mapping, "out")
 
@@ -1436,7 +1401,7 @@ def port_in_dataset(rec_dir=None, shell=False):
         array_time = np.arange(-params["pre_stimulus"], params["post_stimulus"], 1)
         for x in digs:
             if f"spike_trains.{x}.array_time" not in node_list:
-                dio.h5io.write_array_to_hdf5(
+                write_array_to_hdf5(
                     dat.h5_file, f"/spike_trains/{x}", "array_time", array_time
                 )
 
@@ -1469,7 +1434,7 @@ def validate_data_integrity(rec_dir, verbose=False):
     ]
     tests = dict.fromkeys(test_names, "NOT TESTED")
     numbers = dict.fromkeys(number_names, -1)
-    file_type = dio.rawIO.get_recording_filetype(rec_dir)
+    file_type = get_recording_filetype(rec_dir)
     if file_type is None:
         file_type_check = "UNSUPPORTED"
     else:
@@ -1477,23 +1442,24 @@ def validate_data_integrity(rec_dir, verbose=False):
 
     # Check info.rhd integrity
     info_file = os.path.join(rec_dir, "info.rhd")
-    try:
-        rec_info = dio.rawIO.read_rec_info(rec_dir, shell=True)
-        with open(info_file, "rb") as f:
-            info = dio.load_intan_rhd_format.read_header(f)
-
-        tests["recording_info"] = "PASS"
-    except FileNotFoundError:
-        tests["recording_info"] = "MISSING"
-    except Exception as e:
-        info_size = os.path.getsize(os.path.join(rec_dir, "info.rhd"))
-        if info_size == 0:
-            tests["recording_info"] = "EMPTY"
-        else:
-            tests["recording_info"] = "FAIL"
-
-        print(pt.print_dict(tests, tabs=1))
-        return tests, numbers
+    return None
+    # try:
+    #     rec_info = read_rec_info(rec_dir, shell=True)
+    #     with open(info_file, "rb") as f:
+    #         info = load_intan_rhd_format.read_header(f)
+    #
+    #     tests["recording_info"] = "PASS"
+    # except FileNotFoundError:
+    #     tests["recording_info"] = "MISSING"
+    # except Exception as e:
+    #     info_size = os.path.getsize(os.path.join(rec_dir, "info.rhd"))
+    #     if info_size == 0:
+    #         tests["recording_info"] = "EMPTY"
+    #     else:
+    #         tests["recording_info"] = "FAIL"
+    #
+    #     print(pt.print_dict(tests, tabs=1))
+    #     return tests, numbers
 
     counts = {x: info(x) for x in info.keys() if "num" in x}
     numbers.update(counts)
@@ -1575,7 +1541,7 @@ def validate_data_integrity(rec_dir, verbose=False):
             if os.path.basename(fn) in missing_files:
                 continue
 
-            data = dio.rawIO.read_one_channel_file(fn)
+            data = rawIO.read_one_channel_file(fn)
             lengths.append((x["native_channel_name"], data.shape[0]))
             if data.shape[0] < min_samples:
                 min_samples = data.shape[0]

@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from pathlib import Path
+
 import pandas as pd
 import numpy as np
 import tables
@@ -80,7 +84,8 @@ def make_unit_plots(file_dir, unit_name, save_dir=None):
 
 
 def plot_traces_and_outliers(h5_file, window=60, save_file=None):
-    """plot first 30 sec of raw data traces as well as a subplot with a metric
+    """
+    plot first 30 sec of raw data traces as well as a subplot with a metric
     to help identify dead channels (max(abs(trace)) * std(trace))
 
     Parameters
@@ -897,23 +902,23 @@ def plot_waveforms_wavelet_tranform(
         return fig, ax.reshape((n_rows, n_cols))
 
 
-def plot_recording_cutoff(filt_el, fs, cutoff, out_file=None):
+def plot_recording_cutoff(filt_el, fs, cutoff, out_file=None) -> tuple:
     fig, ax = plt.subplots(figsize=(15, 10))
     test_el = np.reshape(filt_el[: int(fs) * int(len(filt_el) / fs)], (-1, int(fs)))
     ax.plot(np.arange(test_el.shape[0]), np.mean(test_el, axis=1))
     ax.axvline(cutoff, color="black", linewidth=4.0)
     ax.set_xlabel("Recording time (secs)", fontsize=18)
     ax.set_ylabel("Average voltage recorded\nper sec (microvolts)", fontsize=18)
-    ax.set_title(
-        "Recording cutoff time\n(indicated by the black horizontal line)", fontsize=18
-    )
+    ax.set_title("Recording cutoff time\n(indicated by the black horizontal line)", fontsize=18)
 
     if out_file is not None:
-        fig.savefig(out_file, bbox_inches="tight")
+        if not Path(out_file).parent.is_dir():
+            Path(out_file).parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(out_file, dpi=300)
         plt.close(fig)
+        return fig, ax
+    else:
         return None, None
-
-    return fig, ax
 
 
 def plot_explained_pca_variance(explained_variance_ratio, out_file=None):

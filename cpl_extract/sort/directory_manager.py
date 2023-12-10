@@ -12,9 +12,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from cpl_extract.logger import logger
+from cpl_extract.logger import cpl_logger as logger
 from cpl_extract.sort.spk_config import SortConfig
-
 
 class DirectoryManager:
     """

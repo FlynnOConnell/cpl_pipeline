@@ -26,10 +26,10 @@ class electrode_map_particle(tables.IsDescription):
     """PyTables particle for storing electrode mapping"""
 
     Electrode = tables.Int16Col()
-    Port = tables.StringCol(5)
-    Channel = tables.Int16Col()
-    area = tables.StringCol(20)
-    CAR_group = tables.Int16Col()
+    Port = tables.Int16Col()
+    Channel = tables.StringCol(20)
+    # area = tables.StringCol(20)
+    # CAR_group = tables.Int16Col()
     dead = tables.BoolCol()
     cutoff_time = tables.Float32Col()
     clustering_result = tables.Int16Col()

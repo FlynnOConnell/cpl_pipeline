@@ -213,7 +213,7 @@ def select_from_list(prompt, items, title="", multi_select=False, shell=False):
     str (if multi_select=False): string of selected choice
     list (if multi_select=True): list of strings that were selected
     """
-    if "SSH_CONNECION" in os.environ:
+    if "SSH_CONNECION" in os.environ:  # this needs to be more robust
         shell = True
 
     if not isinstance(items, list):

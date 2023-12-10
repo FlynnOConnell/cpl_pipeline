@@ -1,6 +1,10 @@
+import logging
 import os
 import time
 import json
+from json import JSONDecodeError
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 from cpl_extract.spk_io import printer as pt, prompt
@@ -127,65 +131,6 @@ def get_din_channels(file_dir):
     return DIN
 
 
-@Timer("Collecting parameters for common average referencing")
-def select_CAR_groups(num_groups, electrode_mapping, shell=False):
-    """Returns a dict containing standard params for common average referencing
-    Each dict field with fields, num groups, car_electrodes
-    Can set num_groups to an integer or as unilateral or bilateral
-    Settings as unilateral or bilateral will automatically assign channels to
-    groups, setting to a number will allow choice of channels for each group
-    unilateral: 1 CAR group, all channels on port
-    bilateral: 2 CAR groups, [0-7,24-31] & [8-23], assumes same port for both
-
-    Parameters
-    ----------
-    num_groups : int or 'bilateral', number of CAR groups, bilateral
-                 autmatically assigns the first and last 8 electrodes to group 1 and the
-                 middle 16 to group 2
-    electrode_mapping : pandas.DataFrame, mapping electrode numbers to port and channel,
-                        has columns: 'Electrode', 'Port' and 'Channel'
-
-    Returns
-    -------
-    num_groups : int, number of CAR groups
-    car_electrodes : list of lists of ints, list with a list of electrodes for
-                     each CAR group
-
-    Throws
-    ------
-    ValueError : if num_groups is not a valid int (>0) or 'bilateral'
-    """
-    electrodes = electrode_mapping["Electrode"].tolist()
-    car_electrodes = []
-    if num_groups == 1:
-        car_electrodes.append(electrodes)
-    else:
-        select_list = []
-        for idx, row in electrode_mapping.iterrows():
-            select_list.append(", ".join([str(x) for x in row]))
-        for i in range(num_groups):
-            tmp = prompt.select_from_list(
-                "Choose CAR electrodes for group %i" ": [Electrode, Port, Channel]" % i,
-                select_list,
-                title="Group %i Electrodes" % i,
-                multi_select=True,
-                shell=shell,
-            )
-            if tmp is None:
-                raise ValueError("Must select electrodes for CAR groups")
-            car_electrodes.append([int(x.split(",")[0]) for x in tmp])
-
-    # if 'dead' in electrode_mapping.columns:
-    #     dead_ch = electrode_mapping['Electrode'][electrode_mapping['dead']]
-    #     dead_ch = dead_ch.to_list()
-    #     for group in car_electrodes:
-    #         for dc in dead_ch:
-    #             if dc in group:
-    #                 group.remove(dc)
-
-    return car_electrodes
-
-
 def flatten_channels(ports, channels, emg_port=None, emg_channels=None):
     """takes all ports and all channels and makes a dataframe mapping ports and
     channels to electrode numbers from 0 to N
@@ -250,61 +195,54 @@ def read_dict_from_json(save_file):
     ----------
     save_file : str
     """
-    with open(save_file, "r") as f:
-        out = json.load(f)
-
-    return out
+    # TODO: add better error handling for issues that could arise tyring to read a json file
+    try:
+        with open(save_file, "r") as f:
+            out = json.load(f)
+        return out
+    except (FileNotFoundError, JSONDecodeError) as error:
+        if "logger" in globals():
+            logger = globals()["logger"]
+            logger.warn(error)
+        else:
+            print(error)
+        return None
 
 
 def load_params(param_name, rec_dir=None, default_keyword=None):
-    """checks rec_dir (if provided) for parameters in the analysis_params
-    folder, if params do not exist then this  loads and returns the defaults
-    from the package defaults folder.
 
-    Parameters
-    ----------
-    param_name : basename of param file, i.e. CAR_params or pal_id_params
-    rec_dir : str (optional)
-        recording dir containing an analysis_params folder
-        if not provided or None (default) then defaults are loaded
-    default_keyword : str (optional)
-        if provided and a rec specific param file does not exists then  this
-        will to used to a grab a subset of params from the default file
-        This is if multiple defaults are in a single default file
-    """
-    if not param_name.endswith(".json"):
-        param_name += ".json"
+    param_name = param_name if param_name.endswith(".json") else param_name + ".json"
+    default_file = Path(PARAM_DIR) / param_name
+    rec_file = Path(rec_dir) / "analysis_params" / param_name if rec_dir else None
 
-    default_file = os.path.join(PARAM_DIR, param_name)
-    if rec_dir is not None:
-        rec_file = os.path.join(rec_dir, "analysis_params", param_name)
-    else:
-        rec_file = None
-
-    if rec_file is not None and os.path.isfile(rec_file):
-        out = read_dict_from_json(rec_file)
-    elif os.path.isfile(default_file):
-        print(
-            "%s not found in recording directory. Pulling parameters from defaults"
-            % param_name
-        )
-        out = read_dict_from_json(default_file)
+    if rec_file and rec_file.is_file():
+        out = read_dict_from_json(str(rec_file))
+        if out is None:
+            out = read_dict_from_json(str(default_file))
+            if out is None:
+                print(f"Unable to retrieve {param_name} from defaults or recording directory")
+                raise FileNotFoundError
+        if default_keyword and default_keyword in out:
+            out = out[default_keyword]
+    elif default_file.is_file():
+        print(f"{param_name} not found in recording directory. Pulling parameters from defaults")
+        out = read_dict_from_json(str(default_file))
         if out.get("multi") is True and default_keyword is None:
-            raise ValueError(
-                "Multple defaults in %s file, but no keyword provided" % param_name
-            )
-
+            print(f"Multiple defaults in {param_name} file, but no keyword provided")
+            logger = logging.getLogger('cpl')
+            logger.critical(f"Multiple defaults in {param_name} file, but no keyword provided")
+            raise ValueError(f"Multiple defaults in {param_name} file, but no keyword provided")
         elif out and default_keyword:
             out = out.get(default_keyword)
             if out is None:
-                print("No %s found for keyword %s" % (param_name, default_keyword))
-
+                print(f"No {param_name} found for keyword {default_keyword}")
+                raise FileNotFoundError(f"No {param_name} found for keyword {default_keyword}")
         elif out is None:
-            print("%s default file is empty" % param_name)
+            raise FileNotFoundError(f"{param_name} default file is empty")
 
     else:
-        print("%s.json not found in recording directory or in defaults")
-        out = None
+        print(f"{param_name}.json not found in recording directory or in defaults")
+        raise FileNotFoundError
 
     return out
 

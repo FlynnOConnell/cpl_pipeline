@@ -1,52 +1,77 @@
+from __future__ import annotations
+
 import os
+from pathlib import Path
+
+from cpl_extract import logger
 from cpl_extract.spk_io import prompt
 import pickle
 
 
-class data_object(object):
+class data_object:
     def __init__(
-        self,
-        data_type,
-        root_dir=None,
-        data_name=None,
-        savefile=None,
-        logfile=None,
-        shell=False,
+            self,
+            data_type: str = None,
+            root_dir: str | Path = None,
+            data_name: str = None,
+            save_file: str | Path = None,
+            log_file: str | Path = None,
+            shell: bool = False,
     ):
         if "SSH_CONNECTION" in os.environ:
             shell = True
 
+        # use the class name as the data_type if not provided
+        if data_type is None:
+            logger.cpl_logger.info("No data_type provided, using class name.")
+            data_type = self.__class__.__name__.lower()
+
         if root_dir is None:
-            root_dir = prompt.get_filedirs(
-                "Select %s directory" % data_type, shell=shell
-            )
+            root_dir = prompt.get_filedirs("Select %s directory" % data_type, shell=shell)
             if root_dir is None or not os.path.isdir(root_dir):
-                raise NotADirectoryError(
-                    "Must provide a valid root directory for the %s" % data_type
-                )
+                raise NotADirectoryError("Must provide a valid root directory for the %s" % data_type)
 
         if data_name is None:
-            data_name = prompt.get_user_input(
-                "Enter name for %s" % data_type, os.path.basename(root_dir), shell
-            )
+            data_name = prompt.get_user_input("Enter name for %s" % data_type, os.path.basename(root_dir), shell)
 
-        if savefile is None:
-            savefile = os.path.join(root_dir, "%s_%s.p" % (data_name, data_type))
+        if save_file is None:
+            save_file = os.path.join(root_dir, "%s_%s.p" % (data_name, data_type))
 
-        if logfile is None:
-            home = os.path.expanduser("~")
-            logfile = os.path.join(home, "%s_%s.log" % (data_name, data_type))
-
+        if log_file is None:
+            # check globals for logfile
+            if f"{data_name}_{data_type}.log" in globals():
+                log_file = globals()["cpl_extract_logfile"]
+                logger.cpl_logger.info(f"Using global logfile {log_file}.")
+            elif f"{data_name}.log" in globals():
+                log_file = globals()["cpl_extract_logfile"]
+                logger.cpl_logger.info(f"Using global logfile {log_file}.")
+            else:
+                log_file = Path().home() / "cpl_extract" / "logs" / f"{data_name}_{data_type}.log"
+                logger.cpl_logger.info(f"Using default logfile {log_file}.")
+                globals()[str(log_file)] = log_file
+                logger.log_exception("info")
+            if not os.path.isfile(log_file):
+                # create log file
+                log_file.parent.mkdir(parents=True, exist_ok=True)
+                open(log_file, "w").close()
+                logger.cpl_logger.info(f"Created logfile {log_file}.")
         self.root_dir = root_dir
         self.data_type = data_type
         self.data_name = data_name
-        self.save_file = savefile
-        self.log_file = logfile
+        self.save_file = save_file
+        self.log_file = log_file
 
     def save(self):
+        """Saves the data_object to a .p file"""
+        if not self.save_file.endswith(".p"):
+            self.save_file += ".p"
+        if not Path(self.save_file).parent.exists():
+            print(f"Creating directory {self.save_file.parent}...for saving the pickled data object.")
+            Path(self.save_file).parent.mkdir(parents=True, exist_ok=True)
         with open(self.save_file, "wb") as f:
-            pickle.dump(self, f)
-            print("Saved %s to %s\n" % (self.data_name, self.save_file))
+            pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
+            print(f"Saving {self.data_type}: {self.data_name}... \n"
+                  f"Saving to {self.save_file}")
 
     def _change_root(self, new_root=None):
         if "SSH_CONNECTION" in os.environ:

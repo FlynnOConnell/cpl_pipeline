@@ -24,13 +24,12 @@ import numpy as np
 # logging.getLogger("vispy").setLevel(logging.ERROR)
 # logging.getLogger("OpenGL").setLevel(logging.ERROR)
 # logging.getLogger("numexpr").setLevel(logging.WARNING)
-# logging.getLogger("numba").setLevel(logging.WARNING)
+logging.getLogger("numba").setLevel(logging.CRITICAL)
 # logging.getLogger("PIL").setLevel(logging.WARNING)
 # logging.getLogger("h5py").setLevel(logging.WARNING)
 # logging.getLogger("tables").setLevel(logging.WARNING)
 
 OUTLOG = False
-
 
 def _get_spk_caller():
     """Helper to get spk calling function from the stack"""
@@ -149,10 +148,10 @@ class _SpkStreamHandler(logging.StreamHandler):
         self._spk_emit_list = list()
 
 
-logger = logging.getLogger("cpl")
+cpl_logger = logging.getLogger("cpl_extract")  # parent logger, import with 'from cpl_extract.logger import cpl_logger'
 _lf = _SpkFormatter()
 _lh = _SpkStreamHandler()  # needs _lf to exist
-logger.addHandler(_lh)
+cpl_logger.addHandler(_lh)
 
 logging_types = dict(
     debug=logging.DEBUG,
@@ -164,7 +163,8 @@ logging_types = dict(
 
 
 def set_log_level(verbose, match=None, return_old=False):
-    """Convenience function for setting the logging level
+    """
+    Convenience function for setting the logging level
 
     Parameters
     ----------
@@ -188,6 +188,14 @@ def set_log_level(verbose, match=None, return_old=False):
     small performance overhead is added. Thus, it is suggested to only use
     these options when performance is not crucial.
 
+    Examples
+    --------
+    >>> from cpl_extract import logger
+    >>> logger.cpl_logger.info("This is an info message")
+    >>> logger.cpl_logger.debug("This is a debug message")
+    >>> logger.cpl_logger.set_log_level("info", match="info", return_old=True)
+
+
     """
     # This method is responsible for setting properties of the handler and
     # formatter such that proper messages (possibly with the spk caller
@@ -203,7 +211,7 @@ def set_log_level(verbose, match=None, return_old=False):
         verbose = logging_types[verbose]
     else:
         raise TypeError("verbose must be a bool or string")
-    _logger = logging.getLogger("spk")
+    _logger = logging.getLogger("cpl_extract")
     old_verbose = _logger.level
     old_match = _lh._spk_set_match(match)
     _logger.setLevel(verbose)
@@ -216,8 +224,7 @@ def set_log_level(verbose, match=None, return_old=False):
         out = (old_verbose, old_match)
     return out
 
-
-class use_log_level(object):
+class use_log_level:
     """Context manager that temporarily sets logging level
 
     Parameters
@@ -282,7 +289,6 @@ class use_log_level(object):
         if not self._print_msg:
             _lh._spk_print_msg = True  # set it back
 
-
 def log_exception(level="warning", tb_skip=2):
     """
     Send an exception and traceback to the logger.
@@ -305,11 +311,9 @@ def log_exception(level="warning", tb_skip=2):
     msg += stack
     msg += "  << caught exception here: >>\n"
     msg += "".join(tb[1:]).rstrip()
-    logger.log(logging_types[level], msg)
+    cpl_logger.log(logging_types[level.lower()], msg)
 
-
-logger.log_exception = log_exception  # make this easier to reach
-
+cpl_logger.log_exception = log_exception  # make this easier to reach
 
 def _handle_exception(
     ignore_callback_errors, print_callback_errors, obj, cb_event=None, node=None
@@ -318,9 +322,9 @@ def _handle_exception(
 
     See EventEmitter._invoke_callback for a use example.
     """
-    if not hasattr(obj, "_spk_err_registry"):
+    if not hasattr(obj, "_cpl_err_registry"):
         obj._spk_err_registry = {}
-    registry = obj._spk_err_registry
+    registry = obj._cpl_err_registry
 
     if cb_event is not None:
         cb, event = cb_event
@@ -359,17 +363,16 @@ def _handle_exception(
             else:
                 registry[key] = 1
         if this_print == "full":
-            logger.log_exception()
+            cpl_logger.log_exception()
             if exp_type == "callback":
-                logger.error("Invoking %s for %s" % (cb, event))
+                cpl_logger.error("Invoking %s for %s" % (cb, event))
             else:  # == 'node':
-                logger.error("Drawing node %s" % node)
+                cpl_logger.error("Drawing node %s" % node)
         elif this_print is not None:
             if exp_type == "callback":
-                logger.error("Invoking %s repeat %s" % (cb, this_print))
+                cpl_logger.error("Invoking %s repeat %s" % (cb, this_print))
             else:  # == 'node':
-                logger.error("Drawing node %s repeat %s" % (node, this_print))
-
+                cpl_logger.error("Drawing node %s repeat %s" % (node, this_print))
 
 def _serialize_buffer(buffer, array_serialization=None):
     """Serialize a NumPy array."""
@@ -384,7 +387,6 @@ def _serialize_buffer(buffer, array_serialization=None):
         "The array serialization method should be 'binary' or " "'base64'."
     )
 
-
 class NumPyJSONEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.ndarray):
@@ -393,20 +395,3 @@ class NumPyJSONEncoder(json.JSONEncoder):
             return obj.item()
 
         return json.JSONEncoder.default(self, obj)
-
-
-def state_exchange(exchange, data):
-    if OUTLOG:
-        with open(OUTLOG, "a") as f:
-            f.write(exchange)
-            f.write(json.dumps(data, indent=2, cls=NumPyJSONEncoder))
-            f.write("\n")
-            f.write("-" * 60)
-            f.write("\n")
-
-
-def initialize_logger(config):
-    global OUTLOG
-    OUTLOG = config.get("log_file", False)
-    if OUTLOG and Path(OUTLOG).exists():
-        os.remove(OUTLOG)
