@@ -1,35 +1,29 @@
-"""
-Logging and error handling utilities.
-
-Adapted from loggers from mne-python and vispy.
-"""
 import base64
 import logging
-import os
 import sys
 import inspect
 import re
 import traceback
 import json
 from functools import partial
-from pathlib import Path
 
 import numpy as np
 
-# Suppress output from some loud libraries
-# logging.getLogger("matplotlib").setLevel(logging.WARNING)
-# logging.getLogger("sklearn").setLevel(logging.WARNING)
-# logging.getLogger("scipy").setLevel(logging.WARNING)
-# logging.getLogger("numpy").setLevel(logging.WARNING)
-# logging.getLogger("vispy").setLevel(logging.ERROR)
-# logging.getLogger("OpenGL").setLevel(logging.ERROR)
-# logging.getLogger("numexpr").setLevel(logging.WARNING)
+logging.getLogger("matplotlib").setLevel(logging.WARNING)
 logging.getLogger("numba").setLevel(logging.CRITICAL)
-# logging.getLogger("PIL").setLevel(logging.WARNING)
-# logging.getLogger("h5py").setLevel(logging.WARNING)
-# logging.getLogger("tables").setLevel(logging.WARNING)
+logging.getLogger("tables").setLevel(logging.WARNING)
 
-OUTLOG = False
+def setup_file_logging(log_file_path):
+    print(f"Setting up file logging at: {log_file_path}")
+    file_handler = logging.FileHandler(log_file_path)
+    file_handler.setFormatter(_SpkFormatter())
+    file_handler.setLevel(logging.INFO)
+    cpl_logger.addHandler(file_handler)
+
+    # Debugging: Print current handlers
+    for handler in cpl_logger.handlers:
+        print(f"Handler: {handler}, Level: {logging.getLevelName(handler.level)}")
+
 
 def _get_spk_caller():
     """Helper to get spk calling function from the stack"""
@@ -45,7 +39,6 @@ def _get_spk_caller():
             caller = "{0}:{1}{2}({3}): ".format(module, clsname, func, line)
             return caller
     return "unknown"
-
 
 class _WrapStdOut(object):
     """Class to work around how doctest captures stdout"""
@@ -69,12 +62,13 @@ class _WrapStdOut(object):
         # (windows? good luck)
         return getattr(sys.stdout, name)
 
-
 class _SpkFormatter(logging.Formatter):
     """Formatter that optionally prepends caller"""
 
-    def __init__(self):
-        logging.Formatter.__init__(self, "%(levelname)s: %(message)s")
+
+    def __init__(self, fmt=None):
+        _fmt = "%(levelname)s: [%(module)s] %(message)s" if fmt is None else fmt
+        logging.Formatter.__init__(self, _fmt)
         self._spk_prepend_caller = False
 
     def _spk_set_prepend(self, prepend):
@@ -86,7 +80,6 @@ class _SpkFormatter(logging.Formatter):
             out = _get_spk_caller() + out
         return out
 
-
 class _SpkStreamHandler(logging.StreamHandler):
     """Stream handler allowing matching and recording
 
@@ -95,7 +88,7 @@ class _SpkStreamHandler(logging.StreamHandler):
         1. Recording emitted messages.
         2. Performing regexp substring matching.
 
-    Prepending of traceback information is done in _spk2eFormatter.
+    Prepending of traceback information is done in _Formatter.
     """
 
     def __init__(self):
@@ -107,6 +100,11 @@ class _SpkStreamHandler(logging.StreamHandler):
         self._spk_set_emit_record(False)
         self._spk_set_match(None)
         self._spk_print_msg = True
+
+    def emit(self, record):
+        """ Flush after every logging call."""
+        super().emit(record)
+        self.flush()
 
     def _spk_emit_match_andor_record(self, record):
         """Log message emitter that optionally matches and/or records"""
@@ -147,10 +145,10 @@ class _SpkStreamHandler(logging.StreamHandler):
     def _spk_reset_list(self):
         self._spk_emit_list = list()
 
-
-cpl_logger = logging.getLogger("cpl_extract")  # parent logger, import with 'from cpl_extract.logger import cpl_logger'
+cpl_logger = logging.getLogger("cpl_extract")
 _lf = _SpkFormatter()
 _lh = _SpkStreamHandler()  # needs _lf to exist
+_lh.setFormatter(_lf)
 cpl_logger.addHandler(_lh)
 
 logging_types = dict(
@@ -191,7 +189,7 @@ def set_log_level(verbose, match=None, return_old=False):
     Examples
     --------
     >>> from cpl_extract import logger
-    >>> logger.cpl_logger.info("This is an info message")
+    >>> print("This is an info message")
     >>> logger.cpl_logger.debug("This is a debug message")
     >>> logger.cpl_logger.set_log_level("info", match="info", return_old=True)
 
@@ -223,6 +221,7 @@ def set_log_level(verbose, match=None, return_old=False):
     if return_old:
         out = (old_verbose, old_match)
     return out
+
 
 class use_log_level:
     """Context manager that temporarily sets logging level
@@ -289,6 +288,7 @@ class use_log_level:
         if not self._print_msg:
             _lh._spk_print_msg = True  # set it back
 
+
 def log_exception(level="warning", tb_skip=2):
     """
     Send an exception and traceback to the logger.
@@ -313,7 +313,9 @@ def log_exception(level="warning", tb_skip=2):
     msg += "".join(tb[1:]).rstrip()
     cpl_logger.log(logging_types[level.lower()], msg)
 
+
 cpl_logger.log_exception = log_exception  # make this easier to reach
+
 
 def _handle_exception(
     ignore_callback_errors, print_callback_errors, obj, cb_event=None, node=None
@@ -374,6 +376,7 @@ def _handle_exception(
             else:  # == 'node':
                 cpl_logger.error("Drawing node %s repeat %s" % (node, this_print))
 
+
 def _serialize_buffer(buffer, array_serialization=None):
     """Serialize a NumPy array."""
     if array_serialization == "binary":
@@ -386,6 +389,7 @@ def _serialize_buffer(buffer, array_serialization=None):
     raise ValueError(
         "The array serialization method should be 'binary' or " "'base64'."
     )
+
 
 class NumPyJSONEncoder(json.JSONEncoder):
     def default(self, obj):

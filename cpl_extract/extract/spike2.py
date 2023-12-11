@@ -10,6 +10,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from cpl_extract.spk_io.merge import check_substring_content
+
 try:
     from sonpy import lib as sp
 except ImportError:
@@ -18,7 +20,6 @@ except ImportError:
     except:
         pass
 
-from cpl_extract.utils import check_substring_content
 
 # any type that contains "Mark" or "mark" is an event channel:
 # - Marker
@@ -196,7 +197,7 @@ class Spike2Data:
     def __getstate__(self):
         state = self.__dict__.copy()
         # Remove the unpickleable entries.
-        del state['_sonfile']
+        del state["_sonfile"]
         return state
 
     def __setstate__(self, state):
@@ -209,20 +210,27 @@ class Spike2Data:
     def __str__(self):
         # Helper function to format channel details
         def format_channel_details(channels):
-            return ', '.join(f"{row['electrode']}:{row['name']}" for _, row in channels.iterrows())
+            return ", ".join(
+                f"{row['electrode']}:{row['name']}" for _, row in channels.iterrows()
+            )
 
-        bitrate_str = f"{self.bitrate}-bit (.smr)" if self.bitrate == 32 else f"{self.bitrate}-bit (.smrx)"
+        bitrate_str = (
+            f"{self.bitrate}-bit (.smr)"
+            if self.bitrate == 32
+            else f"{self.bitrate}-bit (.smrx)"
+        )
         info = [
             f"Dataset: {self.filename.stem}",
-            f"\n"
-            f"{'Raw Filepath:':<35} {self.filename}",
+            f"\n" f"{'Raw Filepath:':<35} {self.filename}",
             f"{'Recording Length:':<35} {self.rec_length} seconds",
             f"{'Bitrate:':<35} {bitrate_str}",
             f"{'Number of Used Channels:':<35} {len(self.data)}",
         ]
 
         if not self.events.empty:
-            info.append(f"{len(self.events)}{' Event Channels (index, Type):':<35} {format_channel_details(self.events)}")
+            info.append(
+                f"{len(self.events)}{' Event Channels (index, Type):':<35} {format_channel_details(self.events)}"
+            )
         if not self.waves.empty:
             info.append(f"{'#Waveform Channels:':<35} {len(self.waves)}")
             info.append("-" * 35)
@@ -277,17 +285,21 @@ class Spike2Data:
 
         channel_indices = range(self._max_channels())
 
-        self.data = pd.DataFrame({
-            "electrode": channel_indices,
-            "name": [self.sonfile.GetChannelTitle(idx) for idx in channel_indices],
-            "port": [self.sonfile.PhysicalChannel(idx) for idx in channel_indices],
-            "units": [self.sonfile.GetChannelUnits(idx) for idx in channel_indices],
-            "sampling_rate": [
-                np.round(1 / (self.sonfile.ChannelDivide(idx) * self._time_base()), 2)
-                for idx in channel_indices
-            ],
-            "SonpyType": [self.sonfile.ChannelType(idx) for idx in channel_indices]
-        })
+        self.data = pd.DataFrame(
+            {
+                "electrode": channel_indices,
+                "name": [self.sonfile.GetChannelTitle(idx) for idx in channel_indices],
+                "port": [self.sonfile.PhysicalChannel(idx) for idx in channel_indices],
+                "units": [self.sonfile.GetChannelUnits(idx) for idx in channel_indices],
+                "sampling_rate": [
+                    np.round(
+                        1 / (self.sonfile.ChannelDivide(idx) * self._time_base()), 2
+                    )
+                    for idx in channel_indices
+                ],
+                "SonpyType": [self.sonfile.ChannelType(idx) for idx in channel_indices],
+            }
+        )
 
         self.rec_length = self._max_time()
         self.bitrate = 32 if self.sonfile.is32file() else 64
@@ -297,11 +309,15 @@ class Spike2Data:
 
         # if data type is a signal, and the channel name contains "u", then it is a unit
         self.data["unit"] = self.data.apply(
-            lambda row: row["SonpyType"] in SIGNALS and check_substring_content(row["name"], "u"), axis=1
+            lambda row: row["SonpyType"] in SIGNALS
+            and check_substring_content(row["name"], "u"),
+            axis=1,
         )
 
         self.data["lfp"] = self.data.apply(
-            lambda row: row["SonpyType"] in SIGNALS and check_substring_content(row["name"], "lfp"), axis=1
+            lambda row: row["SonpyType"] in SIGNALS
+            and check_substring_content(row["name"], "lfp"),
+            axis=1,
         )
 
         self.data["event"] = self.data.apply(

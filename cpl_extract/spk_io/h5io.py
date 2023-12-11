@@ -11,65 +11,17 @@ import subprocess
 import pandas as pd
 import numpy as np
 
-from cpl_extract import logger
-from cpl_extract.decorators import Timer
-from cpl_extract.sort import cluster as clust
+from cpl_extract.utils import userIO
+from cpl_extract.utils.decorators import Timer
+from cpl_extract.analysis import cluster as clust
 from cpl_extract.spk_io import prompt, println, particles, cpl_params
 
-def create_time_vector(num_samples, sampling_rate):
-    """
-    Create a time vector from a given number of samples and sampling rate.
+support_rec_types = {
+    "spike230bit": ".smr",
+    "spike264bit": ".smrx",
+    "plexon": ".pl2",
+}
 
-    Parameters
-    ----------
-    num_samples : int
-        number of samples
-    sampling_rate : float
-        sampling rate in Hzj
-
-    Returns
-    -------
-    time_vector : np.ndarray
-        time vector: in seconds
-
-    """
-
-    duration = num_samples / sampling_rate
-    time_vector = np.linspace(0, duration, num_samples, endpoint=False)
-    return time_vector
-
-def _open_h5(h5f: str | Path | tables.file.File) -> tables.file.File:
-    if isinstance(h5f, (str, Path)):
-        assert (os.path.isfile(h5f))
-        return tables.open_file(h5f, "r+")
-    elif isinstance(h5f, tables.file.File):
-        return h5f
-
-def check_node_exists(
-        hf5: str | Path | tables.file.File,
-        group_path: str | Path,
-        node_name: str | Path,
-):
-    hf5 = _open_h5(hf5)
-    if not group_path.startswith("/"):
-        group_path = "/" + group_path
-    if not group_path.endswith("/") and not node_name.startswith("/"):
-        group_path += "/"
-    try:
-        hf5.get_node(group_path, name=node_name)
-        return True
-    except tables.NoSuchNodeError:
-        logger.cpl_logger.info(f"Node {node_name} not found in {group_path}."
-                               f"Available nodes: "
-                               f"{[child._v_name for child in hf5.get_node(group_path)._f_list_nodes()]}")
-        return False
-
-def get_time_vector(hf5, node_path):
-    if check_node_exists(hf5, node_path, "time_vector"):
-        return hf5.get_node(node_path, name="time_vector")[:]
-    else:
-        return create_time_vector(hf5.get_node(node_path, name="raw").shape[0],
-                                  hf5.get_node(node_path, name="raw")._v_attrs["sampling_rate"])
 
 
 def get_h5_filename(file_dir, shell=True):
@@ -209,8 +161,10 @@ def get_next_unit_name(rec_dir, h5_file=None):
 
 
 def get_spike_data(rec_dir, units=None, din=None, trials=None, h5_file=None):
-    """Opens hf5 file in rec_dir and returns a Trial x Time spike array and a
+    """
+    Opens hf5 file in rec_dir and returns a Trial x Time spike array and a
     1D time vector
+
     Parameters
     ----------
     rec_dir : str, path to recording directory
@@ -267,9 +221,9 @@ def get_spike_data(rec_dir, units=None, din=None, trials=None, h5_file=None):
             out[dig_str] = spike_array
 
     if (
-            isinstance(trials, int)
-            or isinstance(trials, np.int32)
-            or isinstance(trials, np.int64)
+        isinstance(trials, int)
+        or isinstance(trials, np.int32)
+        or isinstance(trials, np.int64)
     ):
         for k in out.keys():
             out[k] = out[k][:trials]
@@ -290,29 +244,29 @@ def get_raw_digital_signal(rec_dir, dig_type, channel, h5_file=None):
 
     with tables.open_file(h5_file, "r") as hf5:
         if (
-                "/digital_%s" % dig_type in hf5
-                and "/digital_%s/dig_%s_%i" % (dig_type, dig_type, channel) in hf5
+            "/digital_%s" % dig_type in hf5
+            and "/digital_%s/dig_%s_%i" % (dig_type, dig_type, channel) in hf5
         ):
             out = hf5.root["digital_%s" % dig_type]["dig_%s_%i" % (dig_type, channel)][
-                  :
-                  ]
+                :
+            ]
             return out
     return None
 
 
-def get_raw_trace(h5_file=None, rec_dir=None, chan_idx=None, chan_name=None, el_map=None):
+def get_raw_trace(h5_file=None, rec_dir=None, chan_idx=None, el_map=None):
     """
     Returns raw voltage trace for electrode from hdf5 store
     If /raw is not in hdf5, this grabs the raw trace from the dat file if it is
     present and electrode_mapping was provided
-
     """
 
     if h5_file is None:
         h5_file = get_h5_filename(rec_dir, shell=True)
+
     with tables.open_file(h5_file, "r") as hf5:
-        if "/raw" in hf5 and f"/raw/electrode{chan_idx}" in hf5.root.raw:
-            out = hf5.root.raw[f"electrode{chan_idx}"][:] * 0.195
+        if "/raw" in hf5 and f"/raw/electrode{chan_idx}" in hf5:
+            out = hf5.root.raw[f"electrode{chan_idx}"][:]
             return out
         else:
             return None
@@ -345,15 +299,16 @@ def get_referenced_trace(rec_dir, electrode, h5_file=None):
 
 
 def get_raw_unit_waveforms(
-        rec_dir,
-        unit_name,
-        electrode_mapping=None,
-        clustering_params=None,
-        shell=True,
-        required_descrip=None,
-        h5_file=None,
+    rec_dir,
+    unit_name,
+    electrode_mapping=None,
+    clustering_params=None,
+    shell=True,
+    required_descrip=None,
+    h5_file=None,
 ):
-    """Returns the waveforms of a single unit extracting them directly from the
+    """
+    Returns the waveforms of a single unit extracting them directly from the
     raw data files.
 
     Parameters
@@ -429,6 +384,23 @@ def get_raw_unit_waveforms(
     return slices_dj, descriptor, new_fs
 
 
+def write_spike2_array_to_h5(h5_file, electrode, waves=None, times=None,):
+
+    if not Path(h5_file).exists():
+        h5_file = get_h5_filename(h5_file)
+
+    if waves is not None and times is not None:
+        assert waves.shape[0] == times.shape[0]
+
+    println("Writing electrode%i to %s..." % (electrode, h5_file))
+    with tables.open_file(h5_file, "r+") as hf5:
+        electrode_str = "electrode%i" % electrode
+        hf5.root.raw.electrode_str.append(waves[:])
+        if times is not None:
+            hf5.root.raw.time_vector.append(times[:])
+        print("Done!")
+
+
 def get_unit_waveforms(file_dir, unit, required_descrip=None, h5_file=None):
     if isinstance(unit, int):
         un = "unit%03i" % unit
@@ -451,7 +423,6 @@ def get_unit_waveforms(file_dir, unit, required_descrip=None, h5_file=None):
 
     return waveforms, descriptor, fs * 10
 
-
 def get_unit_spike_times(file_dir, unit, required_descrip=None, h5_file=None):
     if isinstance(unit, int):
         un = "unit%03i" % unit
@@ -473,7 +444,6 @@ def get_unit_spike_times(file_dir, unit, required_descrip=None, h5_file=None):
             return None, descriptor, fs
 
     return times, descriptor, fs * 10
-
 
 def get_unit_as_cluster(file_dirs, unit, rec_key=None):
     if isinstance(unit, int):
@@ -527,7 +497,6 @@ def get_unit_as_cluster(file_dirs, unit, rec_key=None):
 
     return clusters
 
-
 def get_electrode_mapping(rec_dir, h5_file=None):
     if h5_file is None:
         h5_file = get_h5_filename(rec_dir)
@@ -537,7 +506,6 @@ def get_electrode_mapping(rec_dir, h5_file=None):
         table = hf5.root.electrode_map[:]
         el_map = read_table_into_DataFrame(table)
     return el_map
-
 
 def get_digital_mapping(rec_dir, dig_type, h5_file=None):
     if h5_file is None:
@@ -551,7 +519,6 @@ def get_digital_mapping(rec_dir, dig_type, h5_file=None):
         dig_map = read_table_into_DataFrame(table)
 
     return dig_map
-
 
 def get_node_list(h5_file):
     with tables.open_file(h5_file, "r") as hf5:
@@ -577,6 +544,38 @@ def get_node_list(h5_file):
 
         return out
 
+def get_recording_filetype(file_dir):
+    """
+    Check Intan recording directory to determine type of recording and thus
+    extraction method to use. Asks user to confirm, and manually correct if
+    incorrect
+
+    Parameters
+    ----------
+    file_dir : str, recording directory to check
+
+    Returns
+    -------
+    str : file_type of recording
+    """
+    file_list = os.listdir(file_dir)
+    file_type = None
+    for k, v in support_rec_types.items():
+        regex = re.compile(v)
+        if any([True for x in file_list if regex.match(x) is not None]):
+            file_type = k
+
+    if file_type is None:
+        msg = "\n   ".join(
+            [
+                "unsupported recording type. Supported types are:",
+                *list(support_rec_types.keys()),
+            ]
+        )
+    else:
+        msg = '"' + file_type + '"'
+
+    return file_type
 
 def write_electrode_map_to_h5(h5_file, electrode_map):
     """Writes electrode mapping DataFrame to table in hdf5 store"""
@@ -585,7 +584,9 @@ def write_electrode_map_to_h5(h5_file, electrode_map):
         if "/electrode_map" in hf5:
             hf5.remove_node("/", "electrode_map")
 
-        table = hf5.create_table("/", "electrode_map", particles.electrode_map_particle, "Electrode Map")
+        table = hf5.create_table(
+            "/", "electrode_map", particles.electrode_map_particle, "Electrode Map"
+        )
         new_row = table.row
         for i, row in electrode_map.iterrows():
             for k, v in row.items():
@@ -599,7 +600,6 @@ def write_electrode_map_to_h5(h5_file, electrode_map):
                 new_row[k] = v
             new_row.append()
         hf5.flush()
-
 
 def write_digital_map_to_h5(h5_file, digital_map, dig_type):
     """Write digital input/output mapping DataFrame to table in hdf5 store"""
@@ -624,7 +624,6 @@ def write_digital_map_to_h5(h5_file, digital_map, dig_type):
 
         hf5.flush()
 
-
 def read_table_into_DataFrame(table):
     df = pd.DataFrame.from_records(table)
     dt = df.dtypes
@@ -634,7 +633,6 @@ def read_table_into_DataFrame(table):
         df[k] = df[k].apply(lambda x: x.decode("utf-8"))
 
     return df
-
 
 def read_unit_description(unit_description):
     try:
@@ -652,9 +650,8 @@ def read_unit_description(unit_description):
     else:
         return "Unlabelled"
 
-
 def add_new_unit(
-        rec_dir, electrode, waves, times, single_unit, pyramidal, interneuron, h5_file=None
+    rec_dir, electrode, waves, times, single_unit, pyramidal, interneuron, h5_file=None
 ):
     """Adds new sorted unit to h5_file and returns the new unit name
     Creates new row for unit description and add waveforms and times arrays
@@ -703,9 +700,8 @@ def add_new_unit(
 
     return unit_name
 
-
 def edit_unit_descriptor(
-        file_dir, unit_num, descriptor_key, descriptor_val, h5_file=None
+    file_dir, unit_num, descriptor_key, descriptor_val, h5_file=None
 ):
     """
     use this to edit unit table, i.e. if you made a mistake labeling a neuron in spike sorting
@@ -734,73 +730,58 @@ def edit_unit_descriptor(
 
     return
 
-
-def create_empty_data_h5(filename: str | Path, data_groups: list | np.ndarray[str] = None, overwrite: bool = False,
-                         shell=False) -> Path:  # converted to path within this functin
-    """
-    Create empty h5 store for data with approriate data groups.
+def create_empty_data_h5(filename, overwrite=False, shell=False):
+    """Create empty h5 store for blech data with approriate data groups
 
     Parameters
     ----------
-    filename : str, Path
-        path to create h5 storage
-    data_groups : list or np.ndarray of str
-        list of data groups to create
-    overwrite : bool (optional)
-        False (default) to prompt user if file already exists
-        True to overwrite existing file
-    shell : bool (optional)
-        True (default) for command line interface if multiple h5 files found
-        False for GUI
-
-    Returns
-    -------
-    filepath : pathlib.Path
-        path object pointing to the h5 file
+    filename : str, absolute path to h5 file for recording
     """
 
     if "SHH_CONNECTION" in os.environ:
         shell = True
 
-    if data_groups is None:
-        data_groups = ["time", "raw", "raw_lfp", "digital_in", "digital_out", "trial_info"]
-    else:
-        assert (isinstance(data_groups, (list, np.ndarray)))
+    if not hasattr(filename, "endswith"):
+        filename = str(filename)
+    if not filename.endswith(".h5") and not filename.endswith(".hdf5"):
+        filename += ".h5"
 
-    filename = Path(filename)
-    if not filename.suffix == ".h5":
-        filename = filename.with_suffix(".h5")
+    basename = os.path.splitext(os.path.basename(filename))[0]
 
-    basename = filename.stem
-    if filename.exists():
+    if os.path.isfile(filename):
         if overwrite:
             q = 1
         else:
-            q = prompt.ask_user(
+            q = userIO.ask_user(
                 "%s already exists. Would you like to delete?" % filename,
                 choices=["No", "Yes"],
                 shell=shell,
-            )
+                )
+
         if q == 0:
-            logger.cpl_logger.info(f"Not deleting current h5 file: {filename}."
-                                   "Exiting...")
-            return filename
+            return None
         else:
             println("Deleting existing h5 file...")
-            filename.unlink(missing_ok=True)  # is missing_ok beneficial?
+            os.remove(filename)
+            print("Done!")
 
-    println(f"Creating empty h5 store: {filename}...")
-    with tables.open_file(str(filename), "w", title=basename) as hf5:
+    print("Creating empty HDF5 store with raw data groups")
+    println("Writing %s.h5 ..." % basename)
+    data_groups = ["raw", "raw_lfp","time", "digital_in", "digital_out", "trial_info"]
+    with tables.open_file(filename, "w", title=basename) as hf5:
         for grp in data_groups:
             hf5.create_group("/", grp)
         hf5.flush()
+
     print("Done!\n")
     return filename
 
-
 def create_hdf_arrays(
-        file_name: str | Path, rec_info: dict, unit_mapping: pd.DataFrame = None, lfp_mapping: pd.DataFrame = None,
-        event_mapping: pd.DataFrame = None
+    file_name: str | Path,
+    rec_info: dict,
+    electrode_mapping: pd.DataFrame = None,
+    lfp_mapping: pd.DataFrame = None,
+    event_mapping: pd.DataFrame = None,
 ) -> None:
     file_name = Path(file_name)
     if not file_name.suffix == ".h5":
@@ -815,18 +796,22 @@ def create_hdf_arrays(
         # Create array for raw time vector
         hf5.create_earray("/time", "time_vector", f_atom, (0,))
 
-        if unit_mapping is not None:  # only ones to sort
-            if not unit_mapping.empty:
-                for idx, row in unit_mapping.iterrows():
-                    hf5.create_earray("/raw", f"electrode{row['electrode']}", atom, (0,))
+        if electrode_mapping is not None:  # only ones to sort
+            if not electrode_mapping.empty:
+                for idx, row in electrode_mapping.iterrows():
+                    hf5.create_earray(
+                        "/raw", f"electrode{row['electrode']}", atom, (0,)
+                    )
                     hf5.root.raw._v_attrs["sampling_rate"] = row["sampling_rate"]
                     hf5.root.raw._v_attrs["units"] = row["units"]
-                hf5.root.raw._v_attrs["num_electrodes"] = len(unit_mapping)
+                hf5.root.raw._v_attrs["num_electrodes"] = len(electrode_mapping)
 
         if lfp_mapping is not None:
             if not lfp_mapping.empty:
                 for idx, row in lfp_mapping.iterrows():
-                    hf5.create_earray("/raw_lfp", f"lfp{row['electrode']}", f_atom, (0,))
+                    hf5.create_earray(
+                        "/raw_lfp", f"lfp{row['electrode']}", f_atom, (0,)
+                    )
                     # attach the sampling rate to the lfp group
                     hf5.root.raw_lfp._v_attrs["sampling_rate"] = row["sampling_rate"]
                 hf5.root.raw_lfp._v_attrs["num_electrodes"] = len(lfp_mapping)
@@ -1130,7 +1115,8 @@ def compress_and_repack(h5_file, new_file=None):
 
 @Timer("Clustering Cleanup")
 def cleanup_clustering(file_dir, h5_file=None):
-    """Consolidate memory monitor files from clustering, remove raw and
+    """
+    Consolidate memory monitor files from clustering, remove raw and
     referenced data from hdf5 and repack
 
     Parameters
@@ -1154,12 +1140,6 @@ def cleanup_clustering(file_dir, h5_file=None):
         if "/raw" in hf5:
             println("Removing raw data from hdf5 store...")
             hf5.remove_node("/raw", recursive=1)
-            changes = True
-            print("Done!")
-
-        if "/referenced" in hf5:
-            println("Removing referenced data from hdf5 store...")
-            hf5.remove_node("/referenced", recursive=1)
             changes = True
             print("Done!")
 
@@ -1191,7 +1171,7 @@ def cleanup_clustering(file_dir, h5_file=None):
 @Timer("Gathering Trial Data and Creating Table")
 def create_trial_data_table(h5_file, digital_map, fs, dig_type="in"):
     """
-    Returns trial data: trial num, dio #, dio name, on times, off times
+    Returns trial data: trial num, spk_io #, spk_io name, on times, off times
 
     Parameters
     ----------

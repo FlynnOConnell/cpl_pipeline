@@ -210,7 +210,6 @@ def read_dict_from_json(save_file):
 
 
 def load_params(param_name, rec_dir=None, default_keyword=None):
-
     param_name = param_name if param_name.endswith(".json") else param_name + ".json"
     default_file = Path(PARAM_DIR) / param_name
     rec_file = Path(rec_dir) / "analysis_params" / param_name if rec_dir else None
@@ -220,23 +219,33 @@ def load_params(param_name, rec_dir=None, default_keyword=None):
         if out is None:
             out = read_dict_from_json(str(default_file))
             if out is None:
-                print(f"Unable to retrieve {param_name} from defaults or recording directory")
+                print(
+                    f"Unable to retrieve {param_name} from defaults or recording directory"
+                )
                 raise FileNotFoundError
         if default_keyword and default_keyword in out:
             out = out[default_keyword]
     elif default_file.is_file():
-        print(f"{param_name} not found in recording directory. Pulling parameters from defaults")
+        print(
+            f"{param_name} not found in recording directory. Pulling parameters from defaults"
+        )
         out = read_dict_from_json(str(default_file))
         if out.get("multi") is True and default_keyword is None:
             print(f"Multiple defaults in {param_name} file, but no keyword provided")
-            logger = logging.getLogger('cpl')
-            logger.critical(f"Multiple defaults in {param_name} file, but no keyword provided")
-            raise ValueError(f"Multiple defaults in {param_name} file, but no keyword provided")
+            logger = logging.getLogger("cpl")
+            logger.critical(
+                f"Multiple defaults in {param_name} file, but no keyword provided"
+            )
+            raise ValueError(
+                f"Multiple defaults in {param_name} file, but no keyword provided"
+            )
         elif out and default_keyword:
             out = out.get(default_keyword)
             if out is None:
                 print(f"No {param_name} found for keyword {default_keyword}")
-                raise FileNotFoundError(f"No {param_name} found for keyword {default_keyword}")
+                raise FileNotFoundError(
+                    f"No {param_name} found for keyword {default_keyword}"
+                )
         elif out is None:
             raise FileNotFoundError(f"{param_name} default file is empty")
 

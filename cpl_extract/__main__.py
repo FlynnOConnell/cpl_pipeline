@@ -1,10 +1,8 @@
-from pathlib import Path
 import argparse
 
 import logger
-from sort.run_sort import run
-from cpl_extract.sort.spk_config import SortConfig
 from cpl_extract.defaults import defaults
+from cpl_extract import run_sort
 
 
 def main():
@@ -37,13 +35,10 @@ def main():
         args.verbose = ops["verbose"]
 
     logger.set_log_level(verbose=args.loglevel)
-    config = SortConfig(Path(args.config))  # the config contains the path to the data
-    if args.sort:
-        run(config, parallel=args.parallel, overwrite=args.overwrite)
-    else:
-        pass
-        # gui.run(config)
+    pass
 
+def main_test():
+    run_sort.main()
 
 if __name__ == "__main__":
-    main()
+    main_test()

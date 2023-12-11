@@ -93,7 +93,7 @@ def waveforms_datashader(waveforms, threshold=None):
 
     if threshold is not None:
         scaled_thresh = (threshold - np.max(yticklabels)) * (
-                1200 / (np.min(yticklabels) - np.max(yticklabels))
+            1200 / (np.min(yticklabels) - np.max(yticklabels))
         )
         ax.axhline(scaled_thresh, linestyle="--", color="r", alpha=0.3)
 

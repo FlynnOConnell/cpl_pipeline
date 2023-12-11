@@ -7,8 +7,7 @@ import itertools
 
 
 def make_spike_arrays(h5_file, params):
-    """
-    Makes stimulus triggered spike array for all sorted units
+    """Makes stimulus triggered spike array for all sorted units
 
     Parameters
     ----------

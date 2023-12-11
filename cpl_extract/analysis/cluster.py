@@ -4,6 +4,8 @@ import itertools
 import os
 import shutil
 from collections.abc import Iterable
+from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -19,15 +21,22 @@ from statsmodels.stats.diagnostic import lilliefors
 from scipy.interpolate import interp1d
 from scipy.signal import butter, filtfilt
 
-from cpl_extract import logger
-from cpl_extract.sort.plot_blechpy import (
+from cpl_extract.analysis.spike_analysis import spike_time_xcorr, spike_time_acorr
+from cpl_extract.plot.data_plot import (
     plot_waveforms,
     plot_ISIs,
     plot_cluster_features,
-    plot_mahalanobis_to_cluster, plot_recording_cutoff, plot_explained_pca_variance,
+    plot_mahalanobis_to_cluster,
+    plot_recording_cutoff,
+    plot_explained_pca_variance,
+    plot_waveforms_pca,
+    plot_correlogram,
+    plot_waveforms_umap,
+    plot_waveforms_wavelet_tranform,
+    plot_spike_raster,
 )
-from cpl_extract.sort.spk_config import SortConfig
-from cpl_extract.spk_io import print_dict, h5io
+from cpl_extract.spk_io import print_dict, h5io, prompt
+from cpl_extract.spk_io.prompt import select_from_list, tell_user
 from cpl_extract.spk_io.writer import (
     write_dict_to_json,
     write_pandas_to_table,
@@ -35,8 +44,7 @@ from cpl_extract.spk_io.writer import (
     read_pandas_from_table,
 )
 
-
-def get_filtered_electrode(data, freq=[300.0, 3000.0], sampling_rate=30000.0):
+def get_filtered_electrode(data, freq=(300.0, 3000.0), sampling_rate=30000.0):
     el = data
     m, n = butter(
         2,
@@ -46,15 +54,13 @@ def get_filtered_electrode(data, freq=[300.0, 3000.0], sampling_rate=30000.0):
     filt_el = filtfilt(m, n, el)
     return filt_el
 
-
 def get_waveforms(
     el_trace,
     spike_times,
-    snapshot=[0.5, 1.0],
+    snapshot=(0.5, 1.0),
     sampling_rate=30000.0,
-    bandpass=[300, 3000],
+    bandpass=(300, 3000),
 ):
-
     # Filter and extract waveforms
     filt_el = get_filtered_electrode(
         el_trace, freq=bandpass, sampling_rate=sampling_rate
@@ -69,7 +75,6 @@ def get_waveforms(
     slices_dj, times_dj = dejitter(slices, spike_times, snapshot, sampling_rate)
 
     return slices_dj, sampling_rate * 10
-
 
 def detect_spikes(filt_el, spike_snapshot, fs, thresh=None, verbose=True):
     """
@@ -99,7 +104,7 @@ def detect_spikes(filt_el, spike_snapshot, fs, thresh=None, verbose=True):
     """
     # get indices of spike snapshot, expand by .1 ms in each direction
     if verbose:
-        logger.cpl_logger.info("Detecting spikes")
+        print("Detecting spikes")
     snapshot = np.arange(
         -(spike_snapshot[0] + 0.1) * fs / 1000,
         1 + (spike_snapshot[1] + 0.1) * fs / 1000,
@@ -124,7 +129,6 @@ def detect_spikes(filt_el, spike_snapshot, fs, thresh=None, verbose=True):
 
     waves_dj, times_dj = dejitter(np.array(waves), np.array(times), spike_snapshot, fs)
     return waves_dj, times_dj, thresh
-
 
 def group_consecutives(arr):
     """
@@ -153,7 +157,6 @@ def group_consecutives(arr):
     out.append(arr[prev:])
     return out
 
-
 def filter_signal(
     signal,
     sampling_rate: int | float,
@@ -179,7 +182,7 @@ def filter_signal(
     """
 
     if verbose:
-        logger.cpl_logger.info("Filtering electrode signal")
+        print("Filtering electrode signal")
     # noinspection
     m, n = butter(
         2,
@@ -188,7 +191,6 @@ def filter_signal(
     )
     filt_el = filtfilt(m, n, signal)
     return filt_el
-
 
 def get_detection_threshold(filt_el, verbose=True):
     """
@@ -206,14 +208,17 @@ def get_detection_threshold(filt_el, verbose=True):
 
     """
     if verbose:
-        logger.cpl_logger.info("Calculating spike detection threshold")
+        print("Calculating spike detection threshold")
     m = np.mean(filt_el)
     th = 5.0 * np.median(np.abs(filt_el) / 0.6745)
     return m - th
 
-
 def dejitter(
-    slices: list[np.ndarray] | np.ndarray, spike_times, spike_snapshot, sampling_rate, verbose=True,
+    slices,
+    spike_times,
+    spike_snapshot,
+    sampling_rate,
+    verbose=True,
 ):
     """
     Adjust the alignment of extracted spike waveforms to minimize jitter.
@@ -222,12 +227,12 @@ def dejitter(
     ----------
     slices : np.ndarray or list of np.ndarray
         Extracted spike waveforms, each as a 1-D array. Can be a list of arrays or a 2-D array.
-    spike_times : list of int
-        List of indices indicating the positions of the extracted spikes in the input array.
     sampling_rate : float
         The sampling rate of the signal in Hz.
     spike_snapshot : tuple of float, optiona
         The time range (in milliseconds) around each spike to extract, given as (pre_spike_time, post_spike_time).
+    verbose : bool, optional
+        Whether to print status updates.
 
     Returns
     -------
@@ -235,9 +240,10 @@ def dejitter(
         The dejittered spike waveforms as a 2-D array.
     spike_times_dejittered : array-like
         The updated spike times as a 1-D array.
+
     """
     if verbose:
-        logger.cpl_logger.info("Dejittering waveforms")
+        print("Dejittering waveforms")
     x = np.arange(0, len(slices[0]), 1)
     xnew = np.arange(0, len(slices[0]) - 1, 0.1)
 
@@ -267,11 +273,9 @@ def dejitter(
                 spike_times_dejittered.append(spike_times[i])
     return np.array(slices_dejittered), np.array(spike_times_dejittered)
 
-
 def implement_wavelet_transform(waves, n_pc=10, verbose=True):
-
     if verbose:
-        logger.cpl_logger.info("Implementing wavelet transform")
+        print("Implementing wavelet transform")
     coeffs = pywt.wavedec(waves, "haar", axis=1)
     all_coeffs = np.column_stack(coeffs)
     k_stats = np.zeros((all_coeffs.shape[1],))
@@ -282,17 +286,14 @@ def implement_wavelet_transform(waves, n_pc=10, verbose=True):
     idx = np.argsort(p_vals)
     return all_coeffs[:, idx[:n_pc]]
 
-
 def implement_pca(scaled_slices):
     pca = PCA()
     pca_slices = pca.fit_transform(scaled_slices)
     return pca_slices, pca.explained_variance_ratio_
 
-
 def implement_umap(waves, n_pc=3, n_neighbors=30, min_dist=0.0):
     reducer = umap.UMAP(n_components=n_pc, n_neighbors=n_neighbors, min_dist=min_dist)
     return reducer.fit_transform(waves)
-
 
 def get_waveform_energy(waves: np.ndarray, verbose=True) -> np.ndarray:
     """
@@ -309,9 +310,8 @@ def get_waveform_energy(waves: np.ndarray, verbose=True) -> np.ndarray:
     np.array
     """
     if verbose:
-        logger.cpl_logger.info("Computing waveform energy")
+        print("Computing waveform energy")
     return np.sqrt(np.sum(waves**2, axis=1)) / waves.shape[1]
-
 
 def get_spike_slopes(waves, verbose=True):
     """
@@ -326,7 +326,7 @@ def get_spike_slopes(waves, verbose=True):
     np.array
     """
     if verbose:
-        logger.cpl_logger.info("Computing spike slopes")
+        print("Computing spike slopes")
     slopes = np.zeros((waves.shape[0],))
     for i, wave in enumerate(waves):
         peaks = find_peaks(wave)[0]
@@ -339,7 +339,6 @@ def get_spike_slopes(waves, verbose=True):
         slopes[i] = (wave[minima] - wave[maxima]) / (minima - maxima)
 
     return slopes
-
 
 def get_ISI_and_violations(
     spike_times,
@@ -366,7 +365,7 @@ def get_ISI_and_violations(
     """
 
     if verbose:
-        logger.cpl_logger.info("Computing ISI and violations")
+        print("Computing ISI and violations")
 
     if rec_map is not None:
         if not isinstance(fs, dict):
@@ -390,7 +389,6 @@ def get_ISI_and_violations(
 
     return ISIs, violations1, violations2
 
-
 def scale_waveforms(waves, energy=None, verbose=True):
     """
     Scale the extracted spike waveforms by their energy.
@@ -408,7 +406,7 @@ def scale_waveforms(waves, energy=None, verbose=True):
         The scaled spike waveforms as a 2-D array.
     """
     if verbose:
-        logger.cpl_logger.info("Scaling waveforms by energy")
+        print("Scaling waveforms by energy")
     if energy is None:
         energy = get_waveform_energy(waves)
     elif len(energy) != waves.shape[0]:
@@ -424,7 +422,6 @@ def scale_waveforms(waves, energy=None, verbose=True):
         scaled_slices[i] = w[0] / w[1]
 
     return scaled_slices
-
 
 def compute_waveform_metrics(waves, n_pc=3, use_umap=False, verbose=True):
     """
@@ -446,7 +443,7 @@ def compute_waveform_metrics(waves, n_pc=3, use_umap=False, verbose=True):
     """
 
     if verbose:
-        logger.cpl_logger.info("Computing waveform metrics")
+        print("Computing waveform metrics")
 
     data = np.zeros((waves.shape[0], 3))
     for i, wave in enumerate(waves):
@@ -472,7 +469,6 @@ def compute_waveform_metrics(waves, n_pc=3, use_umap=False, verbose=True):
     data_columns = ["amplitude", "energy", "spike_slope"]
     data_columns.extend(["PC%i" % i for i in range(n_pc)])
     return data, data_columns
-
 
 def get_mahalanobis_distances_to_cluster(data, model, clusters, target_cluster):
     """
@@ -507,7 +503,6 @@ def get_mahalanobis_distances_to_cluster(data, model, clusters, target_cluster):
         out_distances[other_cluster] = mahalanobis_dist
 
     return out_distances
-
 
 def get_recording_cutoff(
     filt_el,
@@ -575,25 +570,29 @@ def get_recording_cutoff(
 
     return recording_cutoff
 
-
 def UMAP_METRICS(waves, n_pc):
     return compute_waveform_metrics(waves, n_pc, use_umap=True)
 
-
-class SpikeDetector:
+class SpikeDetection:
     """Interface to manage spike detection and data extraction in preparation
     for GMM clustering. Intended to help create and access the neccessary
     files. If object will detect is file already exist to avoid re-creation
     unless overwrite is specified as True.
     """
 
-    def __init__(self, file_dir, channel_name, params=None, overwrite=False,):
+    def __init__(
+        self,
+        file_dir,
+        electrode,
+        params=None,
+        overwrite=False,
+    ):
         # Setup paths to files and directories needed
         self._file_dir = Path(file_dir)
         if self._file_dir.suffix == ".h5":
             self._file_dir = self._file_dir.parent
-        self._channel_name = channel_name
-        self._out_dir = self._file_dir / "spike_detection" / f"{channel_name}"
+        self._electrode = electrode
+        self._out_dir = Path(file_dir) / "spike_detection" / f"electrode_{electrode}"
         self._out_dir.mkdir(parents=True, exist_ok=True)
         self._data_dir = self._out_dir / "data"
         self._plot_dir = self._out_dir / "plots"
@@ -643,7 +642,9 @@ class SpikeDetector:
         if params is None and os.path.isfile(self._files["params"]):
             self.params = read_dict_from_json(str(self._files["params"]))
         elif params is None:
-            raise FileNotFoundError("params must be provided if spike_detection_params.json does not exist.")
+            raise FileNotFoundError(
+                "params must be provided if spike_detection_params.json does not exist."
+            )
         else:
             self.params = {}
             self.params["voltage_cutoff"] = params["data_params"][
@@ -664,7 +665,7 @@ class SpikeDetector:
             snapshot_pre = params["spike_snapshot"]["Time before spike (ms)"]
             snapshot_post = params["spike_snapshot"]["Time after spike (ms)"]
             self.params["spike_snapshot"] = [snapshot_pre, snapshot_post]
-            self.params["sampling_rate"] = params['sampling_rate']
+            self.params["sampling_rate"] = params["sampling_rate"]
 
             # Write params to json file
             write_dict_to_json(self.params, self._files["params"])
@@ -683,40 +684,42 @@ class SpikeDetector:
     def run(self):
         status = self._status
         file_dir = self._file_dir
-        electrode = self._channel_name
+        electrode = self._electrode
         params = self.params
 
         # Check if this even needs to be run
         if all(status.values()):
             return electrode, 1, self.recording_cutoff
 
-        print(f"Could not find referenced data for {self._channel_name}...running spike detection")
+        print(f"Could not find referenced data for {self._electrode}...running spike detection")
         self._referenced = False
         ref_el = h5io.get_raw_trace(rec_dir=file_dir, chan_idx=electrode)
+        if ref_el is None:
+            raise FileNotFoundError(f"Could not find referenced data for {electrode} in {file_dir}")
 
         # Filter electrode trace
-        filt_el = get_filtered_electrode(
-            ref_el, freq=params["bandpass"], sampling_rate=params['sampling_rate']
-        )
+        filt_el = get_filtered_electrode(ref_el, freq=params["bandpass"], sampling_rate=params["sampling_rate"])
         del ref_el
         # Get recording cutoff
         if not status["recording_cutoff"]:
             self.recording_cutoff = get_recording_cutoff(filt_el, **params)
             if not self._files["recording_cutoff"].is_file():
-                self._files["recording_cutoff"].parent.mkdir(parents=True, exist_ok=True)
+                self._files["recording_cutoff"].parent.mkdir(
+                    parents=True, exist_ok=True
+                )
             with open(self._files["recording_cutoff"], "w") as f:
                 f.write(str(self.recording_cutoff))
 
             status["recording_cutoff"] = True
             fn = os.path.join(self._plot_dir, "cutoff_time.png")
-            plot_recording_cutoff(filt_el, params['sampling_rate'], self.recording_cutoff, out_file=fn)
+            plot_recording_cutoff(filt_el, params["sampling_rate"], self.recording_cutoff, out_file=fn)
 
         # Truncate electrode trace, deal with early cutoff (<60s)
         if self.recording_cutoff < 60:
             print("Immediate Cutoff for electrode %i...exiting" % electrode)
             return electrode, 0, self.recording_cutoff
 
-        filt_el = filt_el[: int(self.recording_cutoff * params['sampling_rate'])]
+        filt_el = filt_el[: int(self.recording_cutoff * params["sampling_rate"])]
 
         if not status["detection_threshold"]:
             threshold = get_detection_threshold(filt_el)
@@ -734,7 +737,10 @@ class SpikeDetector:
             # detect_spikes returns waveforms upsampled by 10x and times in units
             # of samples
             waves, times, threshold = detect_spikes(
-                filt_el, params["spike_snapshot"], params['sampling_rate'], thresh=self.detection_threshold
+                filt_el,
+                params["spike_snapshot"],
+                params["sampling_rate"],
+                thresh=self.detection_threshold,
             )
             if waves is None:
                 print("No waveforms detected on electrode %i" % electrode)
@@ -869,7 +875,7 @@ class SpikeDetector:
         out = []
         out.append("SpikeDetection\n--------------")
         out.append("Recording Directory: %s" % self._file_dir)
-        out.append("Electrode: %i" % self._channel_name)
+        out.append("Electrode: %i" % self._electrode)
         out.append("Output Directory: %s" % self._out_dir)
         out.append("###################################\n")
         out.append("Status:")
@@ -882,7 +888,6 @@ class SpikeDetector:
         out.append(print_dict(self._files))
         return "\n".join(out)
 
-
 class ClusterGMM:
     def __init__(
         self,
@@ -890,7 +895,6 @@ class ClusterGMM:
         n_restarts: int = None,
         thresh: int | float = None,
     ):
-
         self.params = {"iterations": n_iters, "restarts": n_restarts, "thresh": thresh}
 
     def fit(self, data, n_clusters):
@@ -954,8 +958,7 @@ class ClusterGMM:
         self._bic = min_bic
         return best_model, predictions, min_bic
 
-
-class CplClust(object):
+class CplClust:
     def __init__(
         self,
         rec_dirs,
@@ -970,10 +973,6 @@ class CplClust(object):
         """Recording directories should be ordered to make spike sorting easier later on"""
         if not isinstance(rec_dirs, Iterable):
             rec_dirs = [rec_dirs]
-        self.clustered = False
-
-        # rec_dirs = [x[:-1] if x.endswith(os.sep) else x for x in rec_dirs]
-        self._rec_key = None
         self.rec_dirs = rec_dirs
         self.electrode = channel_number
         self._data_transform = data_transform
@@ -981,9 +980,9 @@ class CplClust(object):
         if out_dir is None:
             if len(rec_dirs) > 1:
                 top = os.path.dirname(rec_dirs[0])
-                out_dir = os.path.join(top, "cpl_extract", f"{channel_number}")
+                out_dir = os.path.join(top, "cpl_extract", f"electrode_{channel_number}")
             else:
-                out_dir = os.path.join(rec_dirs[0], "cpl_extract", f"{channel_number}")
+                out_dir = os.path.join(rec_dirs[0], "cpl_extract", f"electrode_{channel_number}")
 
         if overwrite:
             shutil.rmtree(out_dir)
@@ -1044,7 +1043,13 @@ class CplClust(object):
         )
 
         # Collect data from all recordings
-        waveforms, spike_times, spike_map, self.params['sampling_rate'], offsets = self.get_spike_data()
+        (
+            waveforms,
+            spike_times,
+            spike_map,
+            self.params["sampling_rate"],
+            offsets,
+        ) = self.get_spike_data()
 
         # Save array to map spikes and predictions back to original recordings
         np.save(self._files["spike_map"], spike_map)
@@ -1059,6 +1064,7 @@ class CplClust(object):
             index=tested_clusters,
         )
         for n_clust in tested_clusters:
+            print("Running GMM for %i clusters" % n_clust)
             data_dir = os.path.join(self._data_dir, "%i_clusters" % n_clust)
             plot_dir = os.path.join(self._plot_dir, "%i_clusters" % n_clust)
             wave_plot_dir = os.path.join(
@@ -1111,10 +1117,9 @@ class CplClust(object):
 
                 # Plot waveforms and ISIs of cluster
                 ISIs, violations_1ms, violations_2ms = get_ISI_and_violations(
-                    spike_times[idx], self.params['sampling_rate'], spike_map[idx]
+                    spike_times[idx], self.params["sampling_rate"], spike_map[idx]
                 )
                 cluster_waves = waveforms[idx]
-                cluster_times = spike_times[idx]
                 isi_fn = os.path.join(wave_plot_dir, "Cluster%i_ISI.png" % c)
                 wave_fn = os.path.join(wave_plot_dir, "Cluster%i_waveforms.png" % c)
                 title_str = (
@@ -1157,9 +1162,7 @@ class CplClust(object):
 
         # Save results table
         self.results = clust_results
-        write_pandas_to_table(
-            clust_results, self._files["clustering_results"], overwrite=True
-        )
+        write_pandas_to_table(clust_results, self._files["clustering_results"], overwrite=True)
         self.clustered = True
         return True
 
@@ -1173,7 +1176,7 @@ class CplClust(object):
         offset = 0
         for i in sorted(self._rec_key.keys()):
             rec = self._rec_key[i]
-            spike_detect = SpikeDetector(rec, self.electrode)
+            spike_detect = SpikeDetection(rec, self.electrode)
             t = spike_detect.get_spike_times()
             fs[i] = spike_detect.params["sampling_rate"]
             if t is None:
@@ -1200,6 +1203,43 @@ class CplClust(object):
                 )
 
         return waveforms, spike_times, spike_map, fs, offsets
+
+    def get_clusters(self, solution_num, cluster_nums):
+        if not isinstance(cluster_nums, list):
+            cluster_nums = [cluster_nums]
+
+        waveforms, times, spike_map, fs, offsets = self.get_spike_data()
+        predictions = self.get_predictions(solution_num)
+        out = []
+        for c in cluster_nums:
+            idx = np.where(predictions == c)[0]
+            if len(idx) == 0:
+                continue
+
+            tmp_clust = SpikeCluster(
+                "Cluster_%i" % c,
+                self.electrode,
+                solution_num,
+                c,
+                1,
+                waveforms[idx],
+                times[idx],
+                spike_map[idx],
+                self._rec_key.copy(),
+                fs.copy(),
+                offsets.copy(),
+                manipulations="",
+            )
+            out.append(tmp_clust)
+
+        return out
+
+    def get_predictions(self, n_clusters):
+        fn = os.path.join(self._data_dir, "%i_clusters" % n_clusters, "predictions.npy")
+        if os.path.isfile(fn):
+            return np.load(fn)
+        else:
+            return None
 
     def _load_existing_data(self):
         params = self.params
@@ -1287,7 +1327,7 @@ class CplClust(object):
         out = []
         for rec in self.rec_dirs:
             try:
-                spike_detect = SpikeDetector(rec, self.electrode)
+                spike_detect = SpikeDetection(rec, self.electrode)
                 if all(spike_detect._status):
                     out.append(True)
                 else:
@@ -1297,3 +1337,729 @@ class CplClust(object):
                 out.append(False)
 
         return out
+
+class SpikeSorter:
+    def __init__(self, rec_dirs, electrode, clustering_dir=None, shell=False):
+        if not isinstance(rec_dirs, Iterable):
+            rec_dirs = [rec_dirs]
+
+        rec_dirs = [Path(x).resolve() for x in rec_dirs]
+        self.rec_dirs = rec_dirs
+        self.electrode = electrode
+        if clustering_dir is None:
+            if len(rec_dirs) > 1:
+                top = os.path.dirname(rec_dirs[0])
+                clustering_dir = os.path.join(
+                    top, "cpl_extract", "electrode_%i" % electrode
+                )
+            else:
+                clustering_dir = os.path.join(
+                    rec_dirs[0], "cpl_extract", "electrode_%i" % electrode
+                )
+
+        self.clustering_dir = clustering_dir
+        try:
+            clust = CplClust(rec_dirs, electrode, out_dir=clustering_dir, no_write=True)
+        except FileNotFoundError:
+            clust = None
+
+        if clust is None or not clust.clustered:
+            raise ValueError("Recordings have not been clustered yet.")
+
+        # Match recording directory ordering to clustering
+        self.rec_dirs = clust.rec_dirs
+        self.clustering = clust
+        self._current_solution = None
+        self._active = None
+        self._last_saved = None
+        self._previous = None
+        self._shell = shell
+        self._split_results = None
+        self._split_starter = None
+        self._split_index = None
+        self._last_umap_embedding = None
+        self._last_action = None
+        self._last_popped = None  # Dict of indices to clusters
+        self._last_added = None  # List of indices
+
+        thresh = []
+        for rd in rec_dirs:
+            sd = SpikeDetection(rd, electrode)
+            thresh.append(sd.detection_threshold)
+
+        self._detection_thresholds = thresh
+
+    def undo(self):
+        if self._last_action is None:
+            return
+
+        if self._last_action == "save":
+            self.undo_last_save()
+            return
+
+        # Remove last added
+        for k in reversed(sorted(self._last_added)):
+            self._active.pop(k)
+
+        # Insert previous clusters
+        for k in sorted(self._last_popped.keys()):
+            self._active.insert(k, self._last_popped[k])
+
+        # reset
+        self._last_action = None
+        self._last_popped = None
+        self._last_added = None
+
+    def set_active_clusters(self, solution_num):
+        self._current_solution = solution_num
+        cluster_nums = list(range(solution_num))
+        clusters = self.clustering.get_clusters(solution_num, cluster_nums)
+        if len(clusters) == 0:
+            raise ValueError("Solution or clusters not found")
+
+        self._active = clusters
+        self._last_action = None
+        self._last_popped = None
+        self._last_added = None
+
+    def save_clusters(self, target_clusters, single_unit, pyramidal, interneuron):
+        """Saves active clusters as cells, write them to the h5_files in the
+        appropriate recording directories
+
+        Parameters
+        ----------
+        target_clusters: list of int
+            indicies of active clusters to save
+        single_unit : list of bool
+            elements in list must correspond to elements in active clusters
+        pyramidal : list of bool
+        interneuron : list of bool
+        """
+        if self._active is None:
+            return
+
+        if any([i >= len(self._active) for i in target_clusters]):
+            raise ValueError("Target cluster is out of range.")
+
+        n_clusters = len(target_clusters)
+        if (
+            len(single_unit) != n_clusters
+            or len(pyramidal) != n_clusters
+            or len(interneuron) != n_clusters
+        ):
+            raise ValueError(
+                "Length of input lists must match number of "
+                "active clusters. Expected %i" % n_clusters
+            )
+
+        self._last_action = "save"
+        self._last_popped = {i: self._active[i] for i in target_clusters}
+        self._last_added = []
+        clusters = [self._active[i] for i in target_clusters]
+        rec_key = self.clustering._rec_key
+        self._last_saved = dict.fromkeys(rec_key.keys(), None)
+
+        for clust, single, pyr, intr in zip(
+            clusters, single_unit, pyramidal, interneuron
+        ):
+            for i, rec in rec_key.items():
+                idx = np.where(clust["spike_map"] == i)[0]
+                if len(idx) == 0:
+                    continue
+
+                waves = clust["spike_waveforms"][idx]
+                times = clust["spike_times"][idx]
+                unit_name = h5io.add_new_unit(
+                    rec, self.electrode, waves, times, single, pyr, intr
+                )
+                if self._last_saved[i] is None:
+                    self._last_saved[i] = [unit_name]
+                else:
+                    self._last_saved[i].append(unit_name)
+
+                metrics_dir = os.path.join(rec, "sorted_unit_metrics", unit_name)
+                if not os.path.isdir(metrics_dir):
+                    os.makedirs(metrics_dir)
+
+                # Write cluster info to file
+                print_clust = clust.copy()
+                for k, v in clust.items():
+                    if isinstance(v, np.ndarray):
+                        print_clust.pop(k)
+
+                print_clust.pop("rec_key")
+                print_clust.pop("fs")
+                clust_info_file = os.path.join(metrics_dir, "cluster.info")
+                with open(clust_info_file, "a+") as log:
+                    print(
+                        "%s sorted on %s"
+                        % (unit_name, datetime.today().strftime("%m/%d/%y %H:%M")),
+                        file=log,
+                    )
+                    print("Cluster info: \n----------", file=log)
+                    print(print_dict(print_clust), file=log)
+                    print("Saved metrics to %s" % metrics_dir, file=log)
+                    print("--------------\n", file=log)
+
+        prompt.tell_user(
+            "Target clusters successfully saved to recording " "directories.",
+            shell=True,
+        )
+        self._active = [
+            self._active[i]
+            for i in range(len(self._active))
+            if i not in target_clusters
+        ]
+
+    def undo_last_save(self):
+        if self._last_saved is None:
+            return
+
+        rec_key = self.clustering._rec_key
+        last_saved = self._last_saved
+        for i, rec in rec_key.items():
+            for unit in reversed(np.sort(last_saved[i])):
+                h5io.delete_unit(rec, unit)
+
+        for k in sorted(self._last_popped.keys()):
+            self._active.insert(k, self._last_popped[k])
+
+        self._last_saved = None
+        self._last_popped = None
+        self._last_added = None
+        self._last_action = None
+
+    def split_cluster(
+        self,
+        target_clust,
+        n_iter,
+        n_restart,
+        thresh,
+        n_clust,
+        store_split=False,
+        umap=False,
+    ):
+        """splits the target active cluster using a GMM"""
+        if target_clust >= len(self._active):
+            raise ValueError("Invalid target. Only %i active clusters" % len(self._active))
+
+        cluster = self._active.pop(target_clust)
+        self._split_starter = cluster
+        self._split_index = target_clust
+
+        try:
+            GMM = ClusterGMM(n_iter, n_restart, thresh)
+            waves = cluster["spike_waveforms"]
+            data, data_columns = compute_waveform_metrics(waves, use_umap=umap)
+            model, predictions, bic = GMM.fit(data, n_clust)
+            new_clusts = []
+            for i in np.unique(predictions):
+                idx = np.where(predictions == i)[0]
+                edit_str = cluster[
+                    "manipulations"
+                ] + "\nSplit %s into %i " "clusters. This is sub-cluster %i" % (
+                    cluster["Cluster_Name"],
+                    n_clust,
+                    i,
+                )
+                tmp_clust = SpikeCluster(
+                    cluster["Cluster_Name"] + "-%i" % i,
+                    cluster["electrode_num"],
+                    cluster["solution_num"],
+                    cluster["cluster_num"],
+                    cluster["cluster_id"] * 10 + i,
+                    waves[idx],
+                    cluster["spike_times"][idx],
+                    cluster["spike_map"][idx],
+                    cluster["rec_key"].copy(),
+                    cluster["fs"].copy(),
+                    cluster["offsets"].copy(),
+                    manipulations=edit_str,
+                )
+                new_clusts.append(tmp_clust)
+
+            # Plot cluster and ask to choose which to keep
+            figs = []
+            for i, c in enumerate(new_clusts):
+                _, viol_1ms, viol_2ms = get_ISI_and_violations(
+                    c["spike_times"], c["fs"], c["spike_map"]
+                )
+                plot_title = (
+                    "Index: %i\n1ms violations: %i, 2ms violations: %i\n"
+                    "Total Waveforms: %i"
+                    % (i, viol_1ms, viol_2ms, len(c["spike_times"]))
+                )
+                tmp_fig, _ = plot_waveforms(c["spike_waveforms"], title=plot_title)
+                figs.append(tmp_fig)
+                tmp_fig.show()
+
+            f2 = plot_waveforms_pca([c["spike_waveforms"] for c in new_clusts])
+            figs.append(f2)
+            f2.show()
+        except:
+            # So cluster isn't lost with error
+            self._active.insert(target_clust, cluster)
+            self._split_starter = None
+            self._split_index = None
+            raise
+
+        if store_split:
+            self._split_results = new_clusts
+            return new_clusts
+        else:
+            self._split_starter = None
+            self._split_index = None
+            selection_list = ["all"] + ["%i" % i for i in range(len(new_clusts))]
+            prompt = "Select split clusters to keep\nCancel to reset."
+            ans = select_from_list(
+                prompt, selection_list, multi_select=True, shell=self._shell
+            )
+            if ans is None or "all" in ans:
+                print("Reset to before split")
+                self._active.insert(target_clust, cluster)
+            else:
+                keepers = [new_clusts[int(i)] for i in ans]
+                start_idx = len(self._active)
+                self._last_added = list(range(start_idx, start_idx + len(keepers)))
+                self._last_popped = {target_clust: cluster}
+                self._last_action = "split"
+                self._active.extend(keepers)
+
+            return True
+
+    def set_split(self, choices):
+        if self._split_starter is None:
+            raise ValueError("Not split stored.")
+
+        if len(choices) == 0:
+            self._active.insert(self._split_index, self._split_starter)
+        else:
+            keepers = [self._split_results[i] for i in choices]
+            start_idx = len(self._active)
+            self._last_added = list(range(start_idx, start_idx + len(keepers)))
+            self._last_popped = {self._split_index: self._split_starter}
+            self._last_action = "split"
+            self._active.extend(keepers)
+
+        self._split_index = None
+        self._split_results = None
+        self._split_starter = None
+
+    def merge_clusters(self, target_clusters):
+        if any([i >= len(self._active) for i in target_clusters]):
+            raise ValueError("Target cluster is out of range.")
+
+        new_clust = []
+        self._last_popped = {}
+        self._last_action = "merge"
+        self._last_added = []
+        for c in target_clusters:
+            self._last_popped[c] = self._active[c]
+
+            if len(new_clust) == 0:
+                new_clust = deepcopy(self._active[c])
+                continue
+
+            clust = self._active[c]
+            sm1 = new_clust["spike_map"]
+            sm2 = clust["spike_map"]
+            st1 = new_clust["spike_times"]
+            st2 = clust["spike_times"]
+            sw1 = new_clust["spike_waveforms"]
+            sw2 = clust["spike_waveforms"]
+
+            spike_map = np.hstack((sm1, sm2))
+            spike_times = np.hstack((st1, st2))
+            spike_waveforms = np.vstack((sw1, sw2))
+
+            # Re-order to spike_map
+            idx = np.argsort(spike_map)
+            spike_map = spike_map[idx]
+            spike_times = spike_times[idx]
+            spike_waveforms = spike_waveforms[idx]
+
+            # Re-order so spike_times within a reocrding are in order
+            times = []
+            waves = []
+            new_map = []
+            for i in np.unique(spike_map):
+                idx = np.where(spike_map == i)[0]
+                st = spike_times[idx]
+                sw = spike_waveforms[idx]
+                sm = spike_map[idx]
+                idx2 = np.argsort(st)
+                st = st[idx2]
+                sw = sw[idx2]
+                sm = sm[idx2]
+                times.append(st)
+                waves.append(sw)
+                new_map.append(sm)
+
+            times = np.hstack(times)
+            waves = np.vstack(waves)
+            spike_map = np.hstack(new_map)
+            del new_map, spike_times, spike_waveforms
+
+            new_clust["spike_map"] = spike_map
+            new_clust["spike_times"] = times
+            new_clust["spike_waveforms"] = waves
+            new_clust["manipulations"] += "\nMerged with %s." % clust["Cluster_Name"]
+            new_clust["Cluster_Name"] += "+" + clust["Cluster_Name"].replace(
+                "Cluster_", ""
+            )
+
+        self._active = [
+            self._active[i]
+            for i in range(len(self._active))
+            if i not in target_clusters
+        ]
+
+        self._last_added = [len(self._active)]
+        self._active.append(new_clust)
+
+    def discard_clusters(self, target_clusters):
+        if isinstance(target_clusters, int):
+            target_clusters = [target_clusters]
+
+        if len(target_clusters) == 0:
+            return
+
+        self._last_action = "discard"
+        self._last_popped = {i: self._active[i] for i in target_clusters}
+        self._last_added = []
+        self._active = [
+            self._active[i]
+            for i in range(len(self._active))
+            if i not in target_clusters
+        ]
+
+    def plot_clusters_waveforms(self, target_clusters):
+        if len(target_clusters) == 0:
+            return
+
+        for i in target_clusters:
+            c = self._active[i]
+            isi, v1, v2 = get_ISI_and_violations(
+                c["spike_times"], c["fs"], c["spike_map"]
+            )
+            title = (
+                "Index : %i\n1ms violations: %0.1f, 2ms violations: %0.1f"
+                "\ntotal waveforms: %i" % (i, v1, v2, len(c["spike_waveforms"]))
+            )
+            fig, ax = plot_waveforms(
+                c["spike_waveforms"],
+                title=title,
+                threshold=self._detection_thresholds[0],
+            )
+            fig.show()
+
+    def split_by_rec(self, target_cluster):
+        if isinstance(target_cluster, list) and len(target_cluster) != 1:
+            return
+        elif isinstance(target_cluster, list):
+            target_cluster = target_cluster[0]
+
+        clust = self._active[target_cluster]
+        sm = clust["spike_map"]
+        recs = np.unique(sm)
+        if len(sm) == 1:
+            return
+        else:
+            clust = self._active.pop(target_cluster)
+            st = clust["spike_times"]
+            sw = clust["spike_waveforms"]
+            keepers = []
+            for i in recs:
+                idx = np.where(sm == i)[0]
+                new_clust = deepcopy(clust)
+                new_clust["spike_times"] = st[idx]
+                new_clust["spike_waveforms"] = sw[idx, :]
+                new_clust["cluster_id"] = clust["cluster_id"] * 10 + i
+                new_clust["spike_map"] = sm[idx]
+                new_clust["manipulations"] = "\nSplit by recording"
+                keepers.append(new_clust)
+
+        start_idx = len(self._active)
+        self._last_added = list(range(start_idx, start_idx + len(keepers)))
+        self._last_popped = {target_cluster: clust}
+        self._last_action = "split"
+        self._active.extend(keepers)
+
+    def plot_cluster_waveforms_by_rec(self, target_cluster):
+        if isinstance(target_cluster, list) and len(target_cluster) != 1:
+            return
+        elif isinstance(target_cluster, list):
+            target_cluster = target_cluster[0]
+
+        c = self._active[target_cluster]
+        sm = c["spike_map"]
+        for i in np.unique(sm):
+            idx = np.where(sm == i)[0]
+            waves = c["spike_waveforms"][idx, :]
+            isi, v1, v2 = get_ISI_and_violations(c["spike_times"][idx], c["fs"][i])
+            title = (
+                "Index : %i, Rec: %i\n1ms violations: %0.1f, 2ms violations: %0.1f"
+                "\ntotal waveforms: %i" % (target_cluster, i, v1, v2, len(waves))
+            )
+            fig, ax = plot_waveforms(waves, title=title)
+            fig.show()
+
+    def plot_cluster_waveforms_over_time(self, target_cluster, interval):
+        if isinstance(target_cluster, list) and len(target_cluster) != 1:
+            return
+        elif isinstance(target_cluster, list):
+            target_cluster = target_cluster[0]
+
+        c = self._active[target_cluster]
+        spike_times = c.get_spike_time_vector("s")
+        start_times = np.arange(spike_times[0], spike_times[-1] + 1, interval)
+        if len(start_times) > 10:
+            tell_user("This would open more than 10 figures, choose a larger interval")
+            return
+
+        if len(start_times) == 0:
+            return
+
+        for i, start_time in enumerate(start_times):
+            idx = np.where(
+                (spike_times >= start_time) & (spike_times < start_time + interval)
+            )[0]
+            waves = c["spike_waveforms"][idx, :]
+            isi, v1, v2 = get_ISI_and_violations(c["spike_times"][idx], c["fs"][0])
+            title = (
+                "Index : %i, Rec: %i\n1ms violations: %0.1f, 2ms violations: %0.1f"
+                "\ntotal waveforms: %i" % (target_cluster, i, v1, v2, len(waves))
+            )
+            fig, ax = plot_waveforms(
+                waves, title=title, threshold=self._detection_thresholds[0]
+            )
+            fig.show()
+
+    def plot_clusters_pca(self, target_clusters):
+        if len(target_clusters) == 0:
+            return
+
+        waves = [self._active[i]["spike_waveforms"] for i in target_clusters]
+        fig = plot_waveforms_pca(waves, cluster_ids=target_clusters)
+        fig.show()
+
+    def plot_clusters_umap(self, target_clusters):
+        if len(target_clusters) == 0:
+            return
+
+        waves = [self._active[i]["spike_waveforms"] for i in target_clusters]
+        fig = plot_waveforms_umap(waves, cluster_ids=target_clusters)
+        fig.show()
+
+    def plot_clusters_wavelets(self, target_clusters):
+        if len(target_clusters) == 0:
+            return
+
+        waves = [self._active[i]["spike_waveforms"] for i in target_clusters]
+        fig, ax = plot_waveforms_wavelet_tranform(
+            waves, cluster_ids=target_clusters, n_pc=4
+        )
+        fig.show()
+
+    def plot_clusters_raster(self, target_clusters):
+        if len(target_clusters) == 0:
+            return
+
+        clusters = [self._active[i] for i in target_clusters]
+        spike_times = []
+        spike_waves = []
+        vlines = {}
+        for c in clusters:
+            # Adjust spike times by offset so recordings are not overlapping
+            st = c.get_spike_time_vector(units="s")
+            vlines = {i: c["offsets"][i] / c["fs"][i] for i in c["fs"].keys()}
+            spike_times.append(st)
+            spike_waves.append(c["spike_waveforms"])
+
+        fig, ax = plot_spike_raster(spike_times, spike_waves, target_clusters)
+        ax.set_xlabel("Time (s)")
+        for x in vlines.values():
+            ax.axvline(x, color="black", linewidth=2)
+
+        fig.show()
+
+    def plot_clusters_ISI(self, target_clusters):
+        if len(target_clusters) == 0:
+            return
+
+        for i in target_clusters:
+            cluster = self._active[i]
+            isi, v1, v2 = get_ISI_and_violations(
+                cluster["spike_times"], cluster["fs"], cluster["spike_map"]
+            )
+            fig, ax = plot_ISIs(isi, total_spikes=len(cluster["spike_times"]))
+            title = ax.get_title()
+            title = "Index: %i\n%s" % (i, title)
+            ax.set_title(title)
+            fig.show()
+
+    def plot_clusters_acorr(self, target_clusters):
+        if len(target_clusters) == 0 or not all(
+            [x < len(self._active) for x in target_clusters]
+        ):
+            return
+
+        for i in target_clusters:
+            cluster = self._active[i]
+            acf, bin_centers, edges = spike_time_acorr(
+                cluster.get_spike_time_vector(units="ms")
+            )
+            fig, ax = plot_correlogram(acf, bin_centers, edges)
+            title = "Index: %i\nAutocorrelogram" % (i)
+            ax.set_title(title)
+            fig.show()
+
+    def plot_clusters_xcorr(self, target_clusters):
+        if len(target_clusters) == 0 or not all(
+            [x < len(self._active) for x in target_clusters]
+        ):
+            return
+
+        pairs = itertools.combinations(target_clusters, 2)
+        for x, y in pairs:
+            clust1 = self._active[x]
+            clust2 = self._active[y]
+            xcf, bin_centers, edges = spike_time_xcorr(
+                clust1.get_spike_time_vector(units="ms"),
+                clust2.get_spike_time_vector(units="ms"),
+            )
+            fig, ax = plot_correlogram(xcf, bin_centers, edges)
+            title = "Cross-correlogram\n%i vs %i" % (x, y)
+            ax.set_title(title)
+            fig.show()
+
+    def get_mean_waveform(self, target_cluster):
+        """Returns mean waveform of target_cluster in active clusters. Also
+        returns St. Dev. of waveforms
+        """
+        cluster = self._active[target_cluster]
+        return cluster.get_mean_waveform()
+
+    def get_possible_solutions(self):
+        results = self.clustering.results.dropna()
+        converged = list(results[results["converged"]].index)
+        return converged
+
+class SpikeCluster(dict):
+    def __init__(
+        self,
+        name,
+        electrode,
+        solution,
+        cluster,
+        cluster_id,
+        waves,
+        times,
+        spike_map,
+        rec_key,
+        fs={0: 30000},
+        offsets={0: 0},
+        manipulations="",
+    ):
+        # Confirm spike_map, rec_key, fs and offsets are all in sync
+        rec_nums = np.unique(spike_map)
+        if (
+            not all([x in rec_key.keys() for x in rec_nums])
+            or not all([x in fs.keys() for x in rec_nums])
+            or not all([x in offsets.keys() for x in rec_nums])
+        ):
+            raise ValueError(
+                "rec_key, fs and offsets must have entries for "
+                "each unique element of spike_map"
+            )
+
+        # Confirm same number of waves, times and map entries
+        if waves.shape[0] != len(times) or len(times) != len(spike_map):
+            raise ValueError("Must have same number of waves, times and map entries")
+
+        super(SpikeCluster, self).__init__(
+            Cluster_Name=name,
+            electrode_num=electrode,
+            solution_num=solution,
+            cluster_num=cluster,
+            cluster_id=cluster_id,
+            spike_waveforms=waves,
+            spike_times=times,
+            spike_map=spike_map,
+            rec_key=rec_key,
+            fs=fs,
+            offsets=offsets,
+            manipulations=manipulations,
+        )
+
+    def delete_spikes(self, idx, msg=None):
+        self["spike_waveforms"] = np.delete(self["spike_waveforms"], idx, axis=0)
+        self["spike_times"] = np.delete(self["spike_times"], idx)
+        self["spike_map"] = np.delete(self["spike_map"], idx)
+        print("deleted %i spikes." % len(idx))
+        if msg is not None:
+            self["manipulations"] += "/n" + msg + "\n-Removed %i spikes" % len(idx)
+
+    def get_spike_time_vector(self, units="samples"):
+        """Return vector of all spike times with offsets added if multiple
+        recordings are present
+
+        Parameters
+        ----------
+        units : {'samples' (default), 'ms', 's'}, units for spike times returned
+
+        Returns
+        -------
+        numpy.ndarray
+        """
+        if units.lower() == "ms":
+            times = np.array(
+                [
+                    (a + self["offsets"][b]) / (self["fs"][b] / 1000)
+                    for a, b in zip(
+                        self["spike_times"].astype("float64"), self["spike_map"]
+                    )
+                ]
+            )
+        elif units.lower() == "s":
+            times = np.array(
+                [
+                    (a + self["offsets"][b]) / self["fs"][b]
+                    for a, b in zip(
+                        self["spike_times"].astype("float64"), self["spike_map"]
+                    )
+                ]
+            )
+        elif units.lower() == "samples":
+            times = np.array(
+                [
+                    (a + self["offsets"][b])
+                    for a, b in zip(self["spike_times"], self["spike_map"])
+                ]
+            )
+        else:
+            raise ValueError("units must be either samples or ms")
+
+        return times
+
+    def __eq__(self, other):
+        times1 = self.get_spike_time_vector(units="samples")
+        times2 = other.get_spike_time_vector(units="samples")
+        times1 = np.sort(times1)
+        times2 = np.sort(times2)
+        return np.array_equal(times1, times2)
+
+    def get_mean_waveform(self):
+        """
+        Returns mean waveform of cluster. Also
+        returns std. and waveform counts.
+
+        Returns
+        -------
+        np.ndarray, np.ndarray, int
+        mean waveform, st. dev of waveforms, number of waveforms
+        """
+        mean_wave = np.mean(self["spike_waveforms"], axis=0)
+        std_wave = np.std(self["spike_waveforms"], axis=0)
+        n_waves = self["spike_waveforms"].shape[0]
+        return mean_wave, std_wave, n_waves
