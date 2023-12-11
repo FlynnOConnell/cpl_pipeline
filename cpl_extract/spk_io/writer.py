@@ -12,8 +12,11 @@ def write_dict_to_json(dat, save_file):
     Parameters
     ----------
     dat : dict
-    save_file : str
+    save_file : str | Path
     """
+    for k, v in dat.items():  # Path() objects are not serializable, so convert to str
+        if isinstance(v, Path):  # :(
+            dat[k] = str(v)
     with open(save_file, "w") as f:
         json.dump(dat, f, indent=4)
 
@@ -27,6 +30,9 @@ def write_params_to_json(param_name, rec_dir, params, overwrite=False):
     param_name : str, name of parameter file
     rec_dir : str, recording directory
     params : dict, paramters
+
+    Args:
+        overwrite:
     """
     if not param_name.endswith(".json"):
         param_name += ".json"

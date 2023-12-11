@@ -10,50 +10,66 @@ import shutil
 import subprocess
 import pandas as pd
 import numpy as np
+
+from cpl_extract import logger
 from cpl_extract.decorators import Timer
 from cpl_extract.sort import cluster as clust
 from cpl_extract.spk_io import prompt, println, particles, cpl_params
 
-
-def create_empty_data_h5(filename, overwrite=False, shell=False) -> str:
-    """Create empty h5 store for blech data with approriate data groups
+def create_time_vector(num_samples, sampling_rate):
+    """
+    Create a time vector from a given number of samples and sampling rate.
 
     Parameters
     ----------
-    filename : str, absolute path to h5 file for recording
+    num_samples : int
+        number of samples
+    sampling_rate : float
+        sampling rate in Hzj
+
+    Returns
+    -------
+    time_vector : np.ndarray
+        time vector: in seconds
+
     """
 
-    if "SHH_CONNECTION" in os.environ:
-        shell = True
+    duration = num_samples / sampling_rate
+    time_vector = np.linspace(0, duration, num_samples, endpoint=False)
+    return time_vector
 
-    filename = Path(filename)
-    if not filename.suffix == ".h5":
-        filename = filename.with_suffix(".h5")
+def _open_h5(h5f: str | Path | tables.file.File) -> tables.file.File:
+    if isinstance(h5f, (str, Path)):
+        assert (os.path.isfile(h5f))
+        return tables.open_file(h5f, "r+")
+    elif isinstance(h5f, tables.file.File):
+        return h5f
 
-    basename = filename.stem
-    if Path(filename).exists():
-        if overwrite:
-            q = 1
-        else:
-            q = prompt.ask_user(
-                "%s already exists. Would you like to delete?" % filename,
-                choices=["No", "Yes"],
-                shell=shell,
-            )
-        if q == 0:
-            return None
-        else:
-            println("Deleting existing h5 file...")
-            os.remove(filename)
+def check_node_exists(
+        hf5: str | Path | tables.file.File,
+        group_path: str | Path,
+        node_name: str | Path,
+):
+    hf5 = _open_h5(hf5)
+    if not group_path.startswith("/"):
+        group_path = "/" + group_path
+    if not group_path.endswith("/") and not node_name.startswith("/"):
+        group_path += "/"
+    try:
+        hf5.get_node(group_path, name=node_name)
+        return True
+    except tables.NoSuchNodeError:
+        logger.cpl_logger.info(f"Node {node_name} not found in {group_path}."
+                               f"Available nodes: "
+                               f"{[child._v_name for child in hf5.get_node(group_path)._f_list_nodes()]}")
+        return False
 
-    println("Writing %s.h5 ..." % basename)
-    data_groups = ["time", "raw", "raw_lfp", "digital_in", "digital_out", "trial_info"]
-    with tables.open_file(str(filename), "w", title=basename) as hf5:
-        for grp in data_groups:
-            hf5.create_group("/", grp)
-        hf5.flush()
-    print("Done!\n")
-    return Path(filename)
+def get_time_vector(hf5, node_path):
+    if check_node_exists(hf5, node_path, "time_vector"):
+        return hf5.get_node(node_path, name="time_vector")[:]
+    else:
+        return create_time_vector(hf5.get_node(node_path, name="raw").shape[0],
+                                  hf5.get_node(node_path, name="raw")._v_attrs["sampling_rate"])
 
 
 def get_h5_filename(file_dir, shell=True):
@@ -95,6 +111,693 @@ def get_h5_filename(file_dir, shell=True):
     return os.path.join(file_dir, h5_files[0])
 
 
+def get_unit_descriptor(rec_dir, unit_num, h5_file=None):
+    """Returns the unit description for a unit in the h5 file in rec_dir"""
+    if isinstance(unit_num, str):
+        unit_num = parse_unit_number(unit_num)
+
+    if h5_file is None:
+        h5_file = get_h5_filename(rec_dir)
+
+    with tables.open_file(h5_file, "r") as hf5:
+        descrip = hf5.root.unit_descriptor[unit_num]
+
+    return descrip
+
+
+def get_unit_names(rec_dir, h5_file=None):
+    """Finds h5 file in dir, gets names of sorted units and returns
+
+    Parameters
+    ----------
+    rec_dir : str, full path to recording dir
+
+    Returns
+    -------
+    list of str
+    """
+    if h5_file is None:
+        h5_file = get_h5_filename(rec_dir)
+
+    with tables.open_file(h5_file, "r") as hf5:
+        if "/sorted_units" in hf5:
+            units = hf5.list_nodes("/sorted_units")
+            unit_names = [x._v_name for x in units]
+        else:
+            unit_names = []
+
+    return unit_names
+
+
+def get_unit_table(rec_dir, h5_file=None):
+    """Returns pandas DataFrame with sorted unit info read from hdf5 store
+
+    Parameters
+    ----------
+    rec_dir : str, path to dir containing .h5 file
+
+    Returns
+    -------
+    pandas.DataFrame with columns:
+        - unit_name
+        - unit_num
+        - electrode
+        - single_unit
+        - regular_spiking
+        - fast_spiking
+    """
+    if h5_file is None:
+        h5_file = get_h5_filename(rec_dir)
+
+    units = get_unit_names(rec_dir, h5_file=h5_file)
+    unit_table = pd.DataFrame(units, columns=["unit_name"])
+    unit_table["unit_num"] = unit_table["unit_name"].apply(
+        lambda x: parse_unit_number(x)
+    )
+
+    def add_descrip(row):
+        descrip = get_unit_descriptor(rec_dir, row["unit_num"], h5_file=h5_file)
+        row["electrode"] = descrip["electrode_number"]
+        row["single_unit"] = bool(descrip["single_unit"])
+        row["regular_spiking"] = bool(descrip["regular_spiking"])
+        row["fast_spiking"] = bool(descrip["fast_spiking"])
+        return row
+
+    unit_table = unit_table.apply(add_descrip, axis=1)
+    return unit_table
+
+
+def get_next_unit_name(rec_dir, h5_file=None):
+    """returns node name for next sorted unit
+
+    Parameters
+    ----------
+    rec_dir : str, full path to recording directory
+
+    Returns
+    -------
+    str , name of next unit in sequence ex: "unit001"
+    """
+    units = get_unit_names(rec_dir, h5_file=h5_file)
+    unit_nums = sorted([parse_unit_number(i) for i in units])
+    if units == []:
+        out = "unit%03d" % 0
+    else:
+        out = "unit%03d" % int(max(unit_nums) + 1)
+
+    return out
+
+
+def get_spike_data(rec_dir, units=None, din=None, trials=None, h5_file=None):
+    """Opens hf5 file in rec_dir and returns a Trial x Time spike array and a
+    1D time vector
+    Parameters
+    ----------
+    rec_dir : str, path to recording directory
+    units : str or int or list of str/int, unit names or unit numbers
+    din : int, digital input channel
+    trials: int or list-like
+        if None (default), returns all trials, if int N returns first N-trials
+        for each din, if list-like then returns those indices for each taste
+
+    Returns
+    -------
+    time : numpy.array
+    spike_array : numpy.array
+    """
+    if h5_file is None:
+        h5_file = get_h5_filename(rec_dir)
+
+    if units is None:
+        units = get_unit_names(rec_dir)
+    elif not isinstance(units, list):
+        units = [units]
+
+    unit_nums = []
+    for u in units:
+        if isinstance(u, int):
+            unit_nums.append(u)
+        else:
+            unit_nums.append(parse_unit_number(u))
+
+    unit_nums = np.array(unit_nums)
+    if len(unit_nums) == 1:
+        unit_nums = unit_nums[0]
+
+    if not isinstance(din, list):
+        din = [din]
+
+    out = {}
+    time = None
+    with tables.open_file(h5_file, "r") as hf5:
+        if din[0] is None and len(din) == 1:
+            dins = [x._v_name for x in hf5.list_nodes("/spike_trains")]
+        else:
+            dins = ["dig_in_%i" % x for x in din if x is not None]
+
+        for dig_str in dins:
+            st = hf5.root.spike_trains[dig_str]
+            tmp_time = st["array_time"][:]
+            if time is None:
+                time = tmp_time
+            elif not np.array_equal(time, tmp_time):
+                raise ValueError("Misaligned time vectors encountered")
+
+            spike_array = st["spike_array"][:, unit_nums, :]
+            out[dig_str] = spike_array
+
+    if (
+            isinstance(trials, int)
+            or isinstance(trials, np.int32)
+            or isinstance(trials, np.int64)
+    ):
+        for k in out.keys():
+            out[k] = out[k][:trials]
+
+    elif trials is not None:
+        for k in out.keys():
+            out[k] = out[k][trials]
+
+    if len(out) == 1:
+        out = out.popitem()[1]
+
+    return time, out
+
+
+def get_raw_digital_signal(rec_dir, dig_type, channel, h5_file=None):
+    if h5_file is None:
+        h5_file = get_h5_filename(rec_dir)
+
+    with tables.open_file(h5_file, "r") as hf5:
+        if (
+                "/digital_%s" % dig_type in hf5
+                and "/digital_%s/dig_%s_%i" % (dig_type, dig_type, channel) in hf5
+        ):
+            out = hf5.root["digital_%s" % dig_type]["dig_%s_%i" % (dig_type, channel)][
+                  :
+                  ]
+            return out
+    return None
+
+
+def get_raw_trace(h5_file=None, rec_dir=None, chan_idx=None, chan_name=None, el_map=None):
+    """
+    Returns raw voltage trace for electrode from hdf5 store
+    If /raw is not in hdf5, this grabs the raw trace from the dat file if it is
+    present and electrode_mapping was provided
+
+    """
+
+    if h5_file is None:
+        h5_file = get_h5_filename(rec_dir, shell=True)
+    with tables.open_file(h5_file, "r") as hf5:
+        if "/raw" in hf5 and f"/raw/electrode{chan_idx}" in hf5.root.raw:
+            out = hf5.root.raw[f"electrode{chan_idx}"][:] * 0.195
+            return out
+        else:
+            return None
+
+
+def get_referenced_trace(rec_dir, electrode, h5_file=None):
+    """Returns referenced voltage trace for electrode from hdf5 store
+    If /referenced is not in hdf5, return None
+
+    Parameters
+    ----------
+    rec_dir : str, recording directory
+    electrode : int
+
+    Returns
+    -------
+    np.array of the scaled referenced voltage trace or None if referenced trace
+    could not be obtained
+    """
+    if h5_file is None:
+        h5_file = get_h5_filename(rec_dir)
+
+    with tables.open_file(h5_file, "r") as hf5:
+        if "/referenced" in hf5 and "/referenced/electrode%i" % electrode in hf5:
+            out = hf5.root.referenced["electrode%i" % electrode][:] * 1.0
+        else:
+            out = None
+
+    return out
+
+
+def get_raw_unit_waveforms(
+        rec_dir,
+        unit_name,
+        electrode_mapping=None,
+        clustering_params=None,
+        shell=True,
+        required_descrip=None,
+        h5_file=None,
+):
+    """Returns the waveforms of a single unit extracting them directly from the
+    raw data files.
+
+    Parameters
+    ----------
+    rec_dir : str
+    unit_name : str or int
+    electrode_mapping : pd.DataFrame (optional)
+        if raw data is not in hf5 this is used to get the raw data from the
+        original dat files
+        if not provided program will try to grab this from the h5 file
+    clustering_params : dict (optional)
+        requires fields 'spike_snapshot' and 'bandpass_params'
+        if not provided these will be queried from the json file written in the
+        rec_dir or from the defaults if no params are in rec_dir
+    shell : bool (optional)
+        True to CLI (default in ssh). False for GUI. Only relevant if multiple
+        h5 files in rec_dir
+    required_descrip : tuple (optional)
+        required unit description. Returns None instead of raw trace if unit
+        does not match required_descrip
+
+    Returns
+    -------
+    raw_trace, unit_descriptor, sampling_rate
+    np.array, tuple, float
+    """
+    if isinstance(unit_name, int):
+        unit_num = unit_name
+        unit_name = "unit%03i" % unit_num
+    else:
+        unit_num = parse_unit_number(unit_name)
+
+    if electrode_mapping is None:
+        electrode_mapping = get_electrode_mapping(rec_dir)
+
+    if clustering_params is None:
+        clustering_params = cpl_params.load_params("clustering_params", rec_dir)
+
+    snapshot = clustering_params["spike_snapshot"]
+    snapshot = [snapshot["Time before spike (ms)"], snapshot["Time after spike (ms)"]]
+    bandpass = clustering_params["bandpass_params"]
+    bandpass = [bandpass["Lower freq cutoff"], bandpass["Upper freq cutoff"]]
+    fs = clustering_params["sampling_rate"]
+    if fs is None:
+        raise ValueError("clustering_params.json does not exist")
+
+    # Get spike times for unit
+    if h5_file is None:
+        h5_file = get_h5_filename(rec_dir, shell=shell)
+
+    with tables.open_file(h5_file, "r") as hf5:
+        spike_times = hf5.root.sorted_units[unit_name]["times"][:]
+        descriptor = hf5.root.unit_descriptor[unit_num]
+
+    if required_descrip is not None:
+        if descriptor != required_descrip:
+            return None, descriptor, fs
+
+    print("Getting raw waveforms for %s %s" % (os.path.basename(rec_dir), unit_name))
+    electrode = descriptor["electrode_number"]
+    raw_el = get_raw_trace(rec_dir, electrode, electrode_mapping)
+    if electrode_mapping is None and raw_el is None:
+        raise FileNotFoundError(
+            "Raw data not found in h5 file and" " electrode_mapping not found"
+        )
+
+    if raw_el is None:
+        raise FileNotFoundError("Raw data not found")
+
+    slices_dj, new_fs = clust.get_waveforms(
+        raw_el, spike_times, sampling_rate=fs, snapshot=snapshot, bandpass=bandpass
+    )
+    return slices_dj, descriptor, new_fs
+
+
+def get_unit_waveforms(file_dir, unit, required_descrip=None, h5_file=None):
+    if isinstance(unit, int):
+        un = "unit%03i" % unit
+    else:
+        un = unit
+        unit = parse_unit_number(un)
+
+    if h5_file is None:
+        h5_file = get_h5_filename(file_dir)
+
+    clustering_params = cpl_params.load_params("clustering_params", file_dir)
+    fs = clustering_params["sampling_rate"]
+    with tables.open_file(h5_file, "r") as hf5:
+        waveforms = hf5.root.sorted_units[un].waveforms[:]
+        descriptor = hf5.root.unit_descriptor[unit]
+
+    if required_descrip is not None:
+        if descriptor != required_descrip:
+            return None, descriptor, fs
+
+    return waveforms, descriptor, fs * 10
+
+
+def get_unit_spike_times(file_dir, unit, required_descrip=None, h5_file=None):
+    if isinstance(unit, int):
+        un = "unit%03i" % unit
+    else:
+        un = unit
+        unit = parse_unit_number(un)
+
+    if h5_file is None:
+        h5_file = get_h5_filename(file_dir)
+
+    clustering_params = cpl_params.load_params("clustering_params", file_dir)
+    fs = clustering_params["sampling_rate"]
+    with tables.open_file(h5_file, "r") as hf5:
+        times = hf5.root.sorted_units[un].times[:]
+        descriptor = hf5.root.unit_descriptor[unit]
+
+    if required_descrip is not None:
+        if descriptor != required_descrip:
+            return None, descriptor, fs
+
+    return times, descriptor, fs * 10
+
+
+def get_unit_as_cluster(file_dirs, unit, rec_key=None):
+    if isinstance(unit, int):
+        un = "unit%03i" % unit
+    else:
+        un = unit
+        unit = parse_unit_number(unit)
+
+    if isinstance(file_dirs, str):
+        file_dirs = [file_dirs]
+
+    if rec_key is None:
+        rec_key = {k: v for k, v in enumerate(file_dirs)}
+
+    waves = []
+    times = []
+    spike_map = []
+    fs = dict.fromkeys(rec_key.keys())
+    offsets = dict.fromkeys(rec_key.keys())
+    offset = 0
+    for k in sorted(rec_key.keys()):
+        v = rec_key[k]
+        tmp_waves, descriptor, tmp_fs = get_unit_waveforms(v, unit)
+        tmp_times, _, _ = get_unit_spike_times(v, unit)
+        waves.append(tmp_waves)
+        times.append(tmp_times)
+        tmp_map = np.ones(tmp_times.shape) * k
+        spike_map.append(tmp_map)
+        fs[k] = tmp_fs
+        em = get_electrode_mapping(v)
+        el = descriptor["electrode_number"]
+        offsets[k] = offset
+        offset += 3 * tmp_fs + em.query("Electrode==@el")["cutoff_time"].values[0]
+
+    spike_map = np.hstack(spike_map)
+    times = np.hstack(times)
+    waves = np.vstack(waves)
+    clusters = {
+        "Cluster_Name": un,
+        "solution_num": 0,
+        "cluster_num": unit,
+        "cluster_id": unit,
+        "spike_waveforms": waves,
+        "spike_times": times,
+        "spike_map": spike_map,
+        "rec_key": rec_key,
+        "fs": fs,
+        "offsets": offsets,
+        "manipulations": "",
+    }
+
+    return clusters
+
+
+def get_electrode_mapping(rec_dir, h5_file=None):
+    if h5_file is None:
+        h5_file = get_h5_filename(rec_dir)
+    with tables.open_file(h5_file, "r") as hf5:
+        if "/electrode_map" not in hf5:
+            return None
+        table = hf5.root.electrode_map[:]
+        el_map = read_table_into_DataFrame(table)
+    return el_map
+
+
+def get_digital_mapping(rec_dir, dig_type, h5_file=None):
+    if h5_file is None:
+        h5_file = get_h5_filename(rec_dir)
+
+    with tables.open_file(h5_file, "r") as hf5:
+        if ("/digital_%sput_map" % dig_type) not in hf5:
+            return None
+
+        table = hf5.root["digital_%sput_map" % dig_type][:]
+        dig_map = read_table_into_DataFrame(table)
+
+    return dig_map
+
+
+def get_node_list(h5_file):
+    with tables.open_file(h5_file, "r") as hf5:
+
+        def list_nodes(node):
+            out = [node._v_name]
+            n = node._v_name
+            if not isinstance(node, tables.group.Group):
+                return out
+
+            nc = node._v_nchildren
+            if nc > 0:
+                nodes = hf5.list_nodes(node)
+                for child in nodes:
+                    out.extend(["%s.%s" % (n, x) for x in list_nodes(child)])
+
+            return out
+
+        nodes = hf5.list_nodes("/")
+        out = []
+        for node in nodes:
+            out.extend(list_nodes(node))
+
+        return out
+
+
+def write_electrode_map_to_h5(h5_file, electrode_map):
+    """Writes electrode mapping DataFrame to table in hdf5 store"""
+    print("Writing electrode_map to %s..." % h5_file)
+    with tables.open_file(h5_file, "r+") as hf5:
+        if "/electrode_map" in hf5:
+            hf5.remove_node("/", "electrode_map")
+
+        table = hf5.create_table("/", "electrode_map", particles.electrode_map_particle, "Electrode Map")
+        new_row = table.row
+        for i, row in electrode_map.iterrows():
+            for k, v in row.items():
+                if k not in table.colnames:
+                    continue
+                if pd.isna(v):
+                    if type(new_row[k]) == str:
+                        v = "None"
+                    else:
+                        v = -1
+                new_row[k] = v
+            new_row.append()
+        hf5.flush()
+
+
+def write_digital_map_to_h5(h5_file, digital_map, dig_type):
+    """Write digital input/output mapping DataFrame to table in hdf5 store"""
+    dig_str = "digital_%sput_map" % dig_type
+    print("Writing %s to %s..." % (dig_str, h5_file))
+    with tables.open_file(h5_file, "r+") as hf5:
+        if ("/" + dig_str) in hf5:
+            hf5.remove_node("/%s" % dig_str)
+
+        table = hf5.create_table(
+            "/",
+            dig_str,
+            particles.digital_mapping_particle,
+            "Digital %sput Map" % dig_type,
+        )
+        new_row = table.row
+        for i, row in digital_map.iterrows():
+            for k, v in row.items():
+                new_row[k] = row[k]
+
+            new_row.append()
+
+        hf5.flush()
+
+
+def read_table_into_DataFrame(table):
+    df = pd.DataFrame.from_records(table)
+    dt = df.dtypes
+    idx = np.where(dt == "object")[0]
+    for i in idx:
+        k = dt.keys()[i]
+        df[k] = df[k].apply(lambda x: x.decode("utf-8"))
+
+    return df
+
+
+def read_unit_description(unit_description):
+    try:
+        rsu = bool(unit_description["regular_spiking"])
+        fsu = bool(unit_description["fast_spiking"])
+    except ValueError:
+        raise ValueError("Not a proper unit description")
+
+    if rsu and fsu:
+        return "Mislabelled"
+    elif rsu:
+        return "Regular-spiking"
+    elif fsu:
+        return "Fast-spiking"
+    else:
+        return "Unlabelled"
+
+
+def add_new_unit(
+        rec_dir, electrode, waves, times, single_unit, pyramidal, interneuron, h5_file=None
+):
+    """Adds new sorted unit to h5_file and returns the new unit name
+    Creates new row for unit description and add waveforms and times arrays
+
+    Parameters
+    ----------
+    rec_dir : str
+    electrode : int
+    waves : np.array
+    times : np.array
+    single_unit : bool or int
+    pyramidal : bool or int
+    interneuron : bool or int
+
+    Returns
+    -------
+    str : unit_name
+    """
+    if h5_file is None:
+        h5_file = get_h5_filename(rec_dir)
+
+    unit_name = get_next_unit_name(rec_dir)
+
+    with tables.open_file(h5_file, "r+") as hf5:
+        if "/sorted_units" not in hf5:
+            hf5.create_group("/", "sorted_units")
+
+        if "/unit_descriptor" not in hf5:
+            hf5.create_table(
+                "/", "unit_descriptor", description=particles.unit_descriptor
+            )
+
+        table = hf5.root.unit_descriptor
+        unit_descrip = table.row
+        unit_descrip["electrode_number"] = int(electrode)
+        unit_descrip["single_unit"] = int(single_unit)
+        unit_descrip["regular_spiking"] = int(pyramidal)
+        unit_descrip["fast_spiking"] = int(interneuron)
+
+        hf5.create_group("/sorted_units", unit_name, title=unit_name)
+        waveforms = hf5.create_array("/sorted_units/%s" % unit_name, "waveforms", waves)
+        times = hf5.create_array("/sorted_units/%s" % unit_name, "times", times)
+        unit_descrip.append()
+        table.flush()
+        hf5.flush()
+
+    return unit_name
+
+
+def edit_unit_descriptor(
+        file_dir, unit_num, descriptor_key, descriptor_val, h5_file=None
+):
+    """
+    use this to edit unit table, i.e. if you made a mistake labeling a neuron in spike sorting
+    unit_num takes integers, corresponds to unit_num in get_unit_table()
+    descriptor_key takes string, can be "single_unit", "regular_spiking", or "fast_spiking"
+    descriptor_val takes boolean, can be True or False
+    """
+    if isinstance(unit_num, str):
+        unit_num = parse_unit_number(unit_num)
+
+    print("\n----------\n editing unit %i descriptor\n----------\n" % unit_num)
+    if h5_file is None:
+        h5_file = get_h5_filename(file_dir)
+
+    unit_names = get_unit_names(file_dir)
+    unit_numbers = [parse_unit_number(i) for i in unit_names]
+    if unit_num not in unit_numbers:
+        print("Unit %i not found in data. Cannot edit descriptor " % unit_num)
+        return False
+
+    with tables.open_file(h5_file, "r+") as hf5:
+        unit_descriptor = hf5.root.unit_descriptor[unit_num]
+        unit_descriptor[descriptor_key] = descriptor_val
+        hf5.root.unit_descriptor[[unit_num]] = unit_descriptor
+        hf5.flush()
+
+    return
+
+
+def create_empty_data_h5(filename: str | Path, data_groups: list | np.ndarray[str] = None, overwrite: bool = False,
+                         shell=False) -> Path:  # converted to path within this functin
+    """
+    Create empty h5 store for data with approriate data groups.
+
+    Parameters
+    ----------
+    filename : str, Path
+        path to create h5 storage
+    data_groups : list or np.ndarray of str
+        list of data groups to create
+    overwrite : bool (optional)
+        False (default) to prompt user if file already exists
+        True to overwrite existing file
+    shell : bool (optional)
+        True (default) for command line interface if multiple h5 files found
+        False for GUI
+
+    Returns
+    -------
+    filepath : pathlib.Path
+        path object pointing to the h5 file
+    """
+
+    if "SHH_CONNECTION" in os.environ:
+        shell = True
+
+    if data_groups is None:
+        data_groups = ["time", "raw", "raw_lfp", "digital_in", "digital_out", "trial_info"]
+    else:
+        assert (isinstance(data_groups, (list, np.ndarray)))
+
+    filename = Path(filename)
+    if not filename.suffix == ".h5":
+        filename = filename.with_suffix(".h5")
+
+    basename = filename.stem
+    if filename.exists():
+        if overwrite:
+            q = 1
+        else:
+            q = prompt.ask_user(
+                "%s already exists. Would you like to delete?" % filename,
+                choices=["No", "Yes"],
+                shell=shell,
+            )
+        if q == 0:
+            logger.cpl_logger.info(f"Not deleting current h5 file: {filename}."
+                                   "Exiting...")
+            return filename
+        else:
+            println("Deleting existing h5 file...")
+            filename.unlink(missing_ok=True)  # is missing_ok beneficial?
+
+    println(f"Creating empty h5 store: {filename}...")
+    with tables.open_file(str(filename), "w", title=basename) as hf5:
+        for grp in data_groups:
+            hf5.create_group("/", grp)
+        hf5.flush()
+    print("Done!\n")
+    return filename
+
+
 def create_hdf_arrays(
         file_name: str | Path, rec_info: dict, unit_mapping: pd.DataFrame = None, lfp_mapping: pd.DataFrame = None,
         event_mapping: pd.DataFrame = None
@@ -112,7 +815,7 @@ def create_hdf_arrays(
         # Create array for raw time vector
         hf5.create_earray("/time", "time_vector", f_atom, (0,))
 
-        if unit_mapping is not None:  #  only ones to sort
+        if unit_mapping is not None:  # only ones to sort
             if not unit_mapping.empty:
                 for idx, row in unit_mapping.iterrows():
                     hf5.create_earray("/raw", f"electrode{row['electrode']}", atom, (0,))
@@ -150,91 +853,147 @@ def write_array_to_hdf5(hf5, loc, name, arr):
         hf5.flush()
 
 
-@Timer("Extracting Amplifier Signal Data")
-def read_in_amplifier_signal(hf5, file_dir, file_type, num_channels, el_map, em_map):
-    """Read intan amplifier files into hf5 array.
-    For electrode and emg signals.
-    Supported recording types:
-        - one file per signal type
-        - one file per channel
+def delete_unit(file_dir, unit_num, h5_file=None):
+    """Delete a sorted unit and re-label all following units.
 
     Parameters
     ----------
-    hf5 : tables.file.File, hdf5 object to write data into
-    file_dir : str, path to recording directory
-    file_type : str
-        type of recording files to read in. Currently supported: 'one file per
-        signal type' and 'one file per channel'
-    num_channels: int
-        number of amplifier channels from info.rhd or
-        blechby.rawIO.read_recording_info
-    el_map, em_map : pandas.DataFrames
-        dataframe mapping electrode or emg number to port and channel numer.
-        Must have columns Port and Channel and either Electrode (el_map) or EMG
-        (em_map)
+    file_dir : str, full path to recording directory
+    unit_num : int, number of unit to delete
     """
-    exec_str = "hf5.root.%s.%s%i.append(data[:])"
-
-    # Read in electrode data
-    for idx, row in el_map.iterrows():
-        port = row["Port"]
-        channel = row["Channel"]
-        electrode = row["Electrode"]
-
-        if file_type == "one file per signal type":
-            data = None
-        elif file_type == "one file per channel":
-            file_name = os.path.join(file_dir, "amp-%s-%03d.dat" % (port, channel))
-            println("Reading data from %s..." % os.path.basename(file_name))
-            data = 1
-            print("Done!")
-
-        tmp_str = exec_str % ("raw", "electrode", electrode)
-        println(
-            "Writing data from port %s channel %i to electrode%i..."
-            % (port, channel, electrode)
-        )
-        exec(tmp_str)
-        print("Done!")
-        hf5.flush()
-
-    # Read in emg data if it exists
-    if not em_map.empty:
-        for idx, row in em_map.iterrows():
-            port = row["Port"]
-            channel = row["Channel"]
-            emg = row["EMG"]
-
-            if file_type == "one file per signal type":
-                data = None
-            elif file_type == "one file per channel":
-                file_name = os.path.join(file_dir, "amp-%s-%03d.dat" % (port, channel))
-                println("Reading data from %s..." % os.path.basename(file_name))
-                data = None
-                print("Done!")
-
-            tmp_str = exec_str % ("raw_emg", "emg", emg)
-            println(
-                "Writing data from port %s channel %i to emg%i..."
-                % (port, channel, emg)
-            )
-            exec(tmp_str)
-            print("Done!")
-            hf5.flush()
-
-
-def get_unit_descriptor(rec_dir, unit_num, h5_file=None):
-    """Returns the unit description for a unit in the h5 file in rec_dir"""
     if isinstance(unit_num, str):
         unit_num = parse_unit_number(unit_num)
 
+    print("\n----------\nDeleting unit %i from dataset\n----------\n" % unit_num)
     if h5_file is None:
-        h5_file = get_h5_filename(rec_dir)
+        h5_file = get_h5_filename(file_dir)
 
-    with tables.open_file(h5_file, "r") as hf5:
-        descrip = hf5.root.unit_descriptor[unit_num]
+    unit_names = get_unit_names(file_dir)
+    unit_numbers = [parse_unit_number(i) for i in unit_names]
+    if unit_num not in unit_numbers:
+        print("Unit %i not found in data. Nothing being deleted" % unit_num)
+        return False
 
-    return descrip
+    metrics_dir = os.path.join(file_dir, "sorted_unit_metrics")
+    plot_dir = os.path.join(file_dir, "unit_waveforms_plots")
+
+    unit_name = "unit%03d" % unit_num
+    change_units = [x for x in unit_numbers if x > unit_num]
+    new_units = [x - 1 for x in change_units]
+    new_names = ["unit%03d" % x for x in new_units]
+    old_names = ["unit%03d" % x for x in change_units]
+    old_prefix = ["Unit%i" % x for x in change_units]
+    new_prefix = ["Unit%i" % x for x in new_units]
+
+    # Remove metrics
+    if os.path.exists(os.path.join(metrics_dir, unit_name)):
+        shutil.rmtree(os.path.join(metrics_dir, unit_name))
+
+    # remove unit from hdf5 store
+    with tables.open_file(h5_file, "r+") as hf5:
+        hf5.remove_node("/sorted_units", name=unit_name, recursive=True)
+        table = hf5.root.unit_descriptor
+        table.remove_row(unit_num)
+        # rename rest of units in hdf5 and metrics folders
+        print("Renaming following units...")
+        for x, y in zip(old_names, new_names):
+            print("Renaming %s to %s" % (x, y))
+            hf5.rename_node("/sorted_units", newname=y, name=x)
+            os.rename(os.path.join(metrics_dir, x), os.path.join(metrics_dir, y))
+
+        hf5.flush()
+
+    # delete and rename plot files
+    if os.path.exists(plot_dir):
+        swap_files = [
+            ("Unit%i.png" % x, "Unit%i.png" % y)
+            for x, y in zip(change_units, new_units)
+        ]
+        swap_files2 = [
+            ("Unit%i_mean_sd.png" % x, "Unit%i_mean_sd.png" % y)
+            for x, y in zip(change_units, new_units)
+        ]
+        swap_files.extend(swap_files2)
+        del_plots = ["Unit%i.png" % unit_num, "Unit%i_mean_sd.png" % unit_num]
+        print("Correcting names of plots and metrics...")
+        for x in del_plots:
+            if os.path.exists(os.path.join(plot_dir, x)):
+                os.remove(os.path.join(plot_dir, x))
+
+        for x in swap_files:
+            if os.path.exists(os.path.join(plot_dir, x[0])):
+                os.rename(os.path.join(plot_dir, x[0]), os.path.join(plot_dir, x[1]))
+
+    # compress_and_repack(h5_file)
+    print("Finished deleting unit\n----------")
+    return True
+
+
+def parse_unit_number(unit_name):
+    """number of unit extracted from unit_name
+
+    Parameters
+    ----------
+    unit_name : str, unit###
+
+    Returns
+    -------
+    int
+    """
+    pattern = "unit(\d*)"
+    parser = re.compile(pattern)
+    out = int(parser.match(unit_name)[1])
+    return out
+
+
+def fix_unit_numbering(file_dir):
+    """checks all units in an h5 file and makes sure all numbers are
+    continuous. Corrects if not.
+
+    Parameters
+    ----------
+    file_dir : str, path to recording dir that contains h5 file
+    """
+    print("\n----------\nCorrecting unit names in dataset\n----------\n")
+
+    unit_table = get_unit_table(file_dir)
+    if all(unit_table.unit_num == unit_table.index):
+        print("No Unit Names Changed. All good!")
+        return True
+
+    change_map = {x: y for x, y in zip(unit_table.unit_num, unit_table.index)}
+    h5_file = get_h5_filename(file_dir)
+
+    metrics_dir = os.path.join(file_dir, "sorted_unit_metrics")
+    plot_dir = os.path.join(file_dir, "unit_waveforms_plots")
+
+    with tables.open_file(h5_file, "a") as hf5:
+        for x, y in change_map.items():
+            u1 = "unit%03d" % x
+            u2 = "unit%03d" % y
+            if x == y:
+                continue
+
+            print(f"Renaming {u1} to {u2}")
+            hf5.rename_node("/sorted_units", newname=u2, name=u1)
+            m1 = os.path.join(metrics_dir, u1)
+            m2 = os.path.join(metrics_dir, u2)
+            if os.path.isdir(m1):
+                os.rename(m1, m2)
+
+            p1 = os.path.join(plot_dir, f"Unit{x}.png")
+            p2 = os.path.join(plot_dir, f"Unit{y}.png")
+            q1 = os.path.join(plot_dir, f"Unit{x}_mean_sd.png")
+            q2 = os.path.join(plot_dir, f"Unit{y}_mean_sd.png")
+            if os.path.isfile(p1):
+                os.rename(p1, p2)
+            if os.path.isfile(q1):
+                os.rename(q1, q2)
+
+        hf5.flush()
+
+    print("Finished correcting unit names\n----------")
+    return True
 
 
 @Timer("Common Average Referencing")
@@ -599,761 +1358,74 @@ def read_trial_data_table(h5_file, dig_type="in", channels=None):
     return df
 
 
-def parse_unit_number(unit_name):
-    """number of unit extracted from unit_name
+@Timer("Extracting Amplifier Signal Data")
+def read_in_amplifier_signal(hf5, file_dir, file_type, num_channels, el_map, em_map):
+    """Read intan amplifier files into hf5 array.
+    For electrode and emg signals.
+    Supported recording types:
+        - one file per signal type
+        - one file per channel
 
     Parameters
     ----------
-    unit_name : str, unit###
-
-    Returns
-    -------
-    int
+    hf5 : tables.file.File, hdf5 object to write data into
+    file_dir : str, path to recording directory
+    file_type : str
+        type of recording files to read in. Currently supported: 'one file per
+        signal type' and 'one file per channel'
+    num_channels: int
+        number of amplifier channels from info.rhd or
+        blechby.rawIO.read_recording_info
+    el_map, em_map : pandas.DataFrames
+        dataframe mapping electrode or emg number to port and channel numer.
+        Must have columns Port and Channel and either Electrode (el_map) or EMG
+        (em_map)
     """
-    pattern = "unit(\d*)"
-    parser = re.compile(pattern)
-    out = int(parser.match(unit_name)[1])
-    return out
+    exec_str = "hf5.root.%s.%s%i.append(data[:])"
 
+    # Read in electrode data
+    for idx, row in el_map.iterrows():
+        port = row["Port"]
+        channel = row["Channel"]
+        electrode = row["Electrode"]
 
-def get_unit_names(rec_dir, h5_file=None):
-    """Finds h5 file in dir, gets names of sorted units and returns
+        if file_type == "one file per signal type":
+            data = None
+        elif file_type == "one file per channel":
+            file_name = os.path.join(file_dir, "amp-%s-%03d.dat" % (port, channel))
+            println("Reading data from %s..." % os.path.basename(file_name))
+            data = 1
+            print("Done!")
 
-    Parameters
-    ----------
-    rec_dir : str, full path to recording dir
-
-    Returns
-    -------
-    list of str
-    """
-    if h5_file is None:
-        h5_file = get_h5_filename(rec_dir)
-
-    with tables.open_file(h5_file, "r") as hf5:
-        if "/sorted_units" in hf5:
-            units = hf5.list_nodes("/sorted_units")
-            unit_names = [x._v_name for x in units]
-        else:
-            unit_names = []
-
-    return unit_names
-
-
-def get_unit_table(rec_dir, h5_file=None):
-    """Returns pandas DataFrame with sorted unit info read from hdf5 store
-
-    Parameters
-    ----------
-    rec_dir : str, path to dir containing .h5 file
-
-    Returns
-    -------
-    pandas.DataFrame with columns:
-        - unit_name
-        - unit_num
-        - electrode
-        - single_unit
-        - regular_spiking
-        - fast_spiking
-    """
-    if h5_file is None:
-        h5_file = get_h5_filename(rec_dir)
-
-    units = get_unit_names(rec_dir, h5_file=h5_file)
-    unit_table = pd.DataFrame(units, columns=["unit_name"])
-    unit_table["unit_num"] = unit_table["unit_name"].apply(
-        lambda x: parse_unit_number(x)
-    )
-
-    def add_descrip(row):
-        descrip = get_unit_descriptor(rec_dir, row["unit_num"], h5_file=h5_file)
-        row["electrode"] = descrip["electrode_number"]
-        row["single_unit"] = bool(descrip["single_unit"])
-        row["regular_spiking"] = bool(descrip["regular_spiking"])
-        row["fast_spiking"] = bool(descrip["fast_spiking"])
-        return row
-
-    unit_table = unit_table.apply(add_descrip, axis=1)
-    return unit_table
-
-
-def get_next_unit_name(rec_dir, h5_file=None):
-    """returns node name for next sorted unit
-
-    Parameters
-    ----------
-    rec_dir : str, full path to recording directory
-
-    Returns
-    -------
-    str , name of next unit in sequence ex: "unit001"
-    """
-    units = get_unit_names(rec_dir, h5_file=h5_file)
-    unit_nums = sorted([parse_unit_number(i) for i in units])
-    if units == []:
-        out = "unit%03d" % 0
-    else:
-        out = "unit%03d" % int(max(unit_nums) + 1)
-
-    return out
-
-
-def get_spike_data(rec_dir, units=None, din=None, trials=None, h5_file=None):
-    """Opens hf5 file in rec_dir and returns a Trial x Time spike array and a
-    1D time vector
-    Parameters
-    ----------
-    rec_dir : str, path to recording directory
-    units : str or int or list of str/int, unit names or unit numbers
-    din : int, digital input channel
-    trials: int or list-like
-        if None (default), returns all trials, if int N returns first N-trials
-        for each din, if list-like then returns those indices for each taste
-
-    Returns
-    -------
-    time : numpy.array
-    spike_array : numpy.array
-    """
-    if h5_file is None:
-        h5_file = get_h5_filename(rec_dir)
-
-    if units is None:
-        units = get_unit_names(rec_dir)
-    elif not isinstance(units, list):
-        units = [units]
-
-    unit_nums = []
-    for u in units:
-        if isinstance(u, int):
-            unit_nums.append(u)
-        else:
-            unit_nums.append(parse_unit_number(u))
-
-    unit_nums = np.array(unit_nums)
-    if len(unit_nums) == 1:
-        unit_nums = unit_nums[0]
-
-    if not isinstance(din, list):
-        din = [din]
-
-    out = {}
-    time = None
-    with tables.open_file(h5_file, "r") as hf5:
-        if din[0] is None and len(din) == 1:
-            dins = [x._v_name for x in hf5.list_nodes("/spike_trains")]
-        else:
-            dins = ["dig_in_%i" % x for x in din if x is not None]
-
-        for dig_str in dins:
-            st = hf5.root.spike_trains[dig_str]
-            tmp_time = st["array_time"][:]
-            if time is None:
-                time = tmp_time
-            elif not np.array_equal(time, tmp_time):
-                raise ValueError("Misaligned time vectors encountered")
-
-            spike_array = st["spike_array"][:, unit_nums, :]
-            out[dig_str] = spike_array
-
-    if (
-            isinstance(trials, int)
-            or isinstance(trials, np.int32)
-            or isinstance(trials, np.int64)
-    ):
-        for k in out.keys():
-            out[k] = out[k][:trials]
-
-    elif trials is not None:
-        for k in out.keys():
-            out[k] = out[k][trials]
-
-    if len(out) == 1:
-        out = out.popitem()[1]
-
-    return time, out
-
-
-def get_raw_digital_signal(rec_dir, dig_type, channel, h5_file=None):
-    if h5_file is None:
-        h5_file = get_h5_filename(rec_dir)
-
-    with tables.open_file(h5_file, "r") as hf5:
-        if (
-                "/digital_%s" % dig_type in hf5
-                and "/digital_%s/dig_%s_%i" % (dig_type, dig_type, channel) in hf5
-        ):
-            out = hf5.root["digital_%s" % dig_type]["dig_%s_%i" % (dig_type, channel)][
-                  :
-                  ]
-            return out
-    return None
-
-
-def get_raw_trace(h5_file=None, rec_dir=None, chan_idx=None, chan_name=None, el_map=None):
-    """
-    Returns raw voltage trace for electrode from hdf5 store
-    If /raw is not in hdf5, this grabs the raw trace from the dat file if it is
-    present and electrode_mapping was provided
-
-    """
-
-    assert (h5_file is not None or rec_dir is not None)
-    if h5_file is not None:
-        assert (os.path.isfile(h5_file) and h5_file.endswith(".h5"))
-    elif rec_dir is not None:
-        assert (os.path.isdir(rec_dir))
-        h5_file = get_h5_filename(rec_dir)
-
-    with tables.open_file(h5_file, "r") as hf5:
-        if "/raw_unit" in hf5.root:
-            if f"{chan_name}" in hf5.root.raw_unit:
-                out = hf5.root.raw_unit[f"{chan_name}"][:] * 1.0
-                return out
-            elif chan_idx is not None:
-                out = hf5.root.raw_unit[f"electrode_{chan_idx}"][:] * 1.0
-                return out
-        else:
-            return None
-
-
-def get_referenced_trace(rec_dir, electrode, h5_file=None):
-    """Returns referenced voltage trace for electrode from hdf5 store
-    If /referenced is not in hdf5, return None
-
-    Parameters
-    ----------
-    rec_dir : str, recording directory
-    electrode : int
-
-    Returns
-    -------
-    np.array of the scaled referenced voltage trace or None if referenced trace
-    could not be obtained
-    """
-    if h5_file is None:
-        h5_file = get_h5_filename(rec_dir)
-
-    with tables.open_file(h5_file, "r") as hf5:
-        if "/referenced" in hf5 and "/referenced/electrode%i" % electrode in hf5:
-            out = hf5.root.referenced["electrode%i" % electrode][:] * 1.0
-        else:
-            out = None
-
-    return out
-
-
-def get_raw_unit_waveforms(
-        rec_dir,
-        unit_name,
-        electrode_mapping=None,
-        clustering_params=None,
-        shell=True,
-        required_descrip=None,
-        h5_file=None,
-):
-    """Returns the waveforms of a single unit extracting them directly from the
-    raw data files.
-
-    Parameters
-    ----------
-    rec_dir : str
-    unit_name : str or int
-    electrode_mapping : pd.DataFrame (optional)
-        if raw data is not in hf5 this is used to get the raw data from the
-        original dat files
-        if not provided program will try to grab this from the h5 file
-    clustering_params : dict (optional)
-        requires fields 'spike_snapshot' and 'bandpass_params'
-        if not provided these will be queried from the json file written in the
-        rec_dir or from the defaults if no params are in rec_dir
-    shell : bool (optional)
-        True to CLI (default in ssh). False for GUI. Only relevant if multiple
-        h5 files in rec_dir
-    required_descrip : tuple (optional)
-        required unit description. Returns None instead of raw trace if unit
-        does not match required_descrip
-
-    Returns
-    -------
-    raw_trace, unit_descriptor, sampling_rate
-    np.array, tuple, float
-    """
-    if isinstance(unit_name, int):
-        unit_num = unit_name
-        unit_name = "unit%03i" % unit_num
-    else:
-        unit_num = parse_unit_number(unit_name)
-
-    if electrode_mapping is None:
-        electrode_mapping = get_electrode_mapping(rec_dir)
-
-    if clustering_params is None:
-        clustering_params = cpl_params.load_params("clustering_params", rec_dir)
-
-    snapshot = clustering_params["spike_snapshot"]
-    snapshot = [snapshot["Time before spike (ms)"], snapshot["Time after spike (ms)"]]
-    bandpass = clustering_params["bandpass_params"]
-    bandpass = [bandpass["Lower freq cutoff"], bandpass["Upper freq cutoff"]]
-    fs = clustering_params["sampling_rate"]
-    if fs is None:
-        raise ValueError("clustering_params.json does not exist")
-
-    # Get spike times for unit
-    if h5_file is None:
-        h5_file = get_h5_filename(rec_dir, shell=shell)
-
-    with tables.open_file(h5_file, "r") as hf5:
-        spike_times = hf5.root.sorted_units[unit_name]["times"][:]
-        descriptor = hf5.root.unit_descriptor[unit_num]
-
-    if required_descrip is not None:
-        if descriptor != required_descrip:
-            return None, descriptor, fs
-
-    print("Getting raw waveforms for %s %s" % (os.path.basename(rec_dir), unit_name))
-    electrode = descriptor["electrode_number"]
-    raw_el = get_raw_trace(rec_dir, electrode, electrode_mapping)
-    if electrode_mapping is None and raw_el is None:
-        raise FileNotFoundError(
-            "Raw data not found in h5 file and" " electrode_mapping not found"
+        tmp_str = exec_str % ("raw", "electrode", electrode)
+        println(
+            "Writing data from port %s channel %i to electrode%i..."
+            % (port, channel, electrode)
         )
-
-    if raw_el is None:
-        raise FileNotFoundError("Raw data not found")
-
-    slices_dj, new_fs = clust.get_waveforms(
-        raw_el, spike_times, sampling_rate=fs, snapshot=snapshot, bandpass=bandpass
-    )
-    return slices_dj, descriptor, new_fs
-
-
-def get_unit_waveforms(file_dir, unit, required_descrip=None, h5_file=None):
-    if isinstance(unit, int):
-        un = "unit%03i" % unit
-    else:
-        un = unit
-        unit = parse_unit_number(un)
-
-    if h5_file is None:
-        h5_file = get_h5_filename(file_dir)
-
-    clustering_params = cpl_params.load_params("clustering_params", file_dir)
-    fs = clustering_params["sampling_rate"]
-    with tables.open_file(h5_file, "r") as hf5:
-        waveforms = hf5.root.sorted_units[un].waveforms[:]
-        descriptor = hf5.root.unit_descriptor[unit]
-
-    if required_descrip is not None:
-        if descriptor != required_descrip:
-            return None, descriptor, fs
-
-    return waveforms, descriptor, fs * 10
-
-
-def get_unit_spike_times(file_dir, unit, required_descrip=None, h5_file=None):
-    if isinstance(unit, int):
-        un = "unit%03i" % unit
-    else:
-        un = unit
-        unit = parse_unit_number(un)
-
-    if h5_file is None:
-        h5_file = get_h5_filename(file_dir)
-
-    clustering_params = cpl_params.load_params("clustering_params", file_dir)
-    fs = clustering_params["sampling_rate"]
-    with tables.open_file(h5_file, "r") as hf5:
-        times = hf5.root.sorted_units[un].times[:]
-        descriptor = hf5.root.unit_descriptor[unit]
-
-    if required_descrip is not None:
-        if descriptor != required_descrip:
-            return None, descriptor, fs
-
-    return times, descriptor, fs * 10
-
-
-def get_unit_as_cluster(file_dirs, unit, rec_key=None):
-    if isinstance(unit, int):
-        un = "unit%03i" % unit
-    else:
-        un = unit
-        unit = parse_unit_number(unit)
-
-    if isinstance(file_dirs, str):
-        file_dirs = [file_dirs]
-
-    if rec_key is None:
-        rec_key = {k: v for k, v in enumerate(file_dirs)}
-
-    waves = []
-    times = []
-    spike_map = []
-    fs = dict.fromkeys(rec_key.keys())
-    offsets = dict.fromkeys(rec_key.keys())
-    offset = 0
-    for k in sorted(rec_key.keys()):
-        v = rec_key[k]
-        tmp_waves, descriptor, tmp_fs = get_unit_waveforms(v, unit)
-        tmp_times, _, _ = get_unit_spike_times(v, unit)
-        waves.append(tmp_waves)
-        times.append(tmp_times)
-        tmp_map = np.ones(tmp_times.shape) * k
-        spike_map.append(tmp_map)
-        fs[k] = tmp_fs
-        em = get_electrode_mapping(v)
-        el = descriptor["electrode_number"]
-        offsets[k] = offset
-        offset += 3 * tmp_fs + em.query("Electrode==@el")["cutoff_time"].values[0]
-
-    spike_map = np.hstack(spike_map)
-    times = np.hstack(times)
-    waves = np.vstack(waves)
-    clusters = {
-        "Cluster_Name": un,
-        "solution_num": 0,
-        "cluster_num": unit,
-        "cluster_id": unit,
-        "spike_waveforms": waves,
-        "spike_times": times,
-        "spike_map": spike_map,
-        "rec_key": rec_key,
-        "fs": fs,
-        "offsets": offsets,
-        "manipulations": "",
-    }
-
-    return clusters
-
-
-def write_electrode_map_to_h5(h5_file, electrode_map):
-    """Writes electrode mapping DataFrame to table in hdf5 store"""
-    print("Writing electrode_map to %s..." % h5_file)
-    with tables.open_file(h5_file, "r+") as hf5:
-        if "/electrode_map" in hf5:
-            hf5.remove_node("/", "electrode_map")
-
-        table = hf5.create_table("/", "electrode_map", particles.electrode_map_particle, "Electrode Map")
-        new_row = table.row
-        for i, row in electrode_map.iterrows():
-            for k, v in row.items():
-                if pd.isna(v):
-                    if type(new_row[k]) == str:
-                        v = "None"
-                    else:
-                        v = -1
-                new_row[k] = v
-            new_row.append()
+        exec(tmp_str)
+        print("Done!")
         hf5.flush()
 
+    # Read in emg data if it exists
+    if not em_map.empty:
+        for idx, row in em_map.iterrows():
+            port = row["Port"]
+            channel = row["Channel"]
+            emg = row["EMG"]
 
-def write_digital_map_to_h5(h5_file, digital_map, dig_type):
-    """Write digital input/output mapping DataFrame to table in hdf5 store"""
-    dig_str = "digital_%sput_map" % dig_type
-    print("Writing %s to %s..." % (dig_str, h5_file))
-    with tables.open_file(h5_file, "r+") as hf5:
-        if ("/" + dig_str) in hf5:
-            hf5.remove_node("/%s" % dig_str)
+            if file_type == "one file per signal type":
+                data = None
+            elif file_type == "one file per channel":
+                file_name = os.path.join(file_dir, "amp-%s-%03d.dat" % (port, channel))
+                println("Reading data from %s..." % os.path.basename(file_name))
+                data = None
+                print("Done!")
 
-        table = hf5.create_table(
-            "/",
-            dig_str,
-            particles.digital_mapping_particle,
-            "Digital %sput Map" % dig_type,
-        )
-        new_row = table.row
-        for i, row in digital_map.iterrows():
-            for k, v in row.items():
-                new_row[k] = row[k]
-
-            new_row.append()
-
-        hf5.flush()
-
-
-def get_electrode_mapping(rec_dir, h5_file=None):
-    if h5_file is None:
-        h5_file = get_h5_filename(rec_dir)
-    with tables.open_file(h5_file, "r") as hf5:
-        if "/electrode_map" not in hf5:
-            return None
-        table = hf5.root.electrode_map[:]
-        el_map = read_table_into_DataFrame(table)
-    return el_map
-
-
-def get_digital_mapping(rec_dir, dig_type, h5_file=None):
-    if h5_file is None:
-        h5_file = get_h5_filename(rec_dir)
-
-    with tables.open_file(h5_file, "r") as hf5:
-        if ("/digital_%sput_map" % dig_type) not in hf5:
-            return None
-
-        table = hf5.root["digital_%sput_map" % dig_type][:]
-        dig_map = read_table_into_DataFrame(table)
-
-    return dig_map
-
-
-def read_table_into_DataFrame(table):
-    df = pd.DataFrame.from_records(table)
-    dt = df.dtypes
-    idx = np.where(dt == "object")[0]
-    for i in idx:
-        k = dt.keys()[i]
-        df[k] = df[k].apply(lambda x: x.decode("utf-8"))
-
-    return df
-
-
-def get_node_list(h5_file):
-    with tables.open_file(h5_file, "r") as hf5:
-
-        def list_nodes(node):
-            out = [node._v_name]
-            n = node._v_name
-            if not isinstance(node, tables.group.Group):
-                return out
-
-            nc = node._v_nchildren
-            if nc > 0:
-                nodes = hf5.list_nodes(node)
-                for child in nodes:
-                    out.extend(["%s.%s" % (n, x) for x in list_nodes(child)])
-
-            return out
-
-        nodes = hf5.list_nodes("/")
-        out = []
-        for node in nodes:
-            out.extend(list_nodes(node))
-
-        return out
-
-
-def read_unit_description(unit_description):
-    try:
-        rsu = bool(unit_description["regular_spiking"])
-        fsu = bool(unit_description["fast_spiking"])
-    except ValueError:
-        raise ValueError("Not a proper unit description")
-
-    if rsu and fsu:
-        return "Mislabelled"
-    elif rsu:
-        return "Regular-spiking"
-    elif fsu:
-        return "Fast-spiking"
-    else:
-        return "Unlabelled"
-
-
-def add_new_unit(
-        rec_dir, electrode, waves, times, single_unit, pyramidal, interneuron, h5_file=None
-):
-    """Adds new sorted unit to h5_file and returns the new unit name
-    Creates new row for unit description and add waveforms and times arrays
-
-    Parameters
-    ----------
-    rec_dir : str
-    electrode : int
-    waves : np.array
-    times : np.array
-    single_unit : bool or int
-    pyramidal : bool or int
-    interneuron : bool or int
-
-    Returns
-    -------
-    str : unit_name
-    """
-    if h5_file is None:
-        h5_file = get_h5_filename(rec_dir)
-
-    unit_name = get_next_unit_name(rec_dir)
-
-    with tables.open_file(h5_file, "r+") as hf5:
-        if "/sorted_units" not in hf5:
-            hf5.create_group("/", "sorted_units")
-
-        if "/unit_descriptor" not in hf5:
-            hf5.create_table(
-                "/", "unit_descriptor", description=particles.unit_descriptor
+            tmp_str = exec_str % ("raw_emg", "emg", emg)
+            println(
+                "Writing data from port %s channel %i to emg%i..."
+                % (port, channel, emg)
             )
-
-        table = hf5.root.unit_descriptor
-        unit_descrip = table.row
-        unit_descrip["electrode_number"] = int(electrode)
-        unit_descrip["single_unit"] = int(single_unit)
-        unit_descrip["regular_spiking"] = int(pyramidal)
-        unit_descrip["fast_spiking"] = int(interneuron)
-
-        hf5.create_group("/sorted_units", unit_name, title=unit_name)
-        waveforms = hf5.create_array("/sorted_units/%s" % unit_name, "waveforms", waves)
-        times = hf5.create_array("/sorted_units/%s" % unit_name, "times", times)
-        unit_descrip.append()
-        table.flush()
-        hf5.flush()
-
-    return unit_name
-
-
-def edit_unit_descriptor(
-        file_dir, unit_num, descriptor_key, descriptor_val, h5_file=None
-):
-    """
-    use this to edit unit table, i.e. if you made a mistake labeling a neuron in spike sorting
-    unit_num takes integers, corresponds to unit_num in get_unit_table()
-    descriptor_key takes string, can be "single_unit", "regular_spiking", or "fast_spiking"
-    descriptor_val takes boolean, can be True or False
-    """
-    if isinstance(unit_num, str):
-        unit_num = parse_unit_number(unit_num)
-
-    print("\n----------\n editing unit %i descriptor\n----------\n" % unit_num)
-    if h5_file is None:
-        h5_file = get_h5_filename(file_dir)
-
-    unit_names = get_unit_names(file_dir)
-    unit_numbers = [parse_unit_number(i) for i in unit_names]
-    if unit_num not in unit_numbers:
-        print("Unit %i not found in data. Cannot edit descriptor " % unit_num)
-        return False
-
-    with tables.open_file(h5_file, "r+") as hf5:
-        unit_descriptor = hf5.root.unit_descriptor[unit_num]
-        unit_descriptor[descriptor_key] = descriptor_val
-        hf5.root.unit_descriptor[[unit_num]] = unit_descriptor
-        hf5.flush()
-
-    return
-
-
-def delete_unit(file_dir, unit_num, h5_file=None):
-    """Delete a sorted unit and re-label all following units.
-
-    Parameters
-    ----------
-    file_dir : str, full path to recording directory
-    unit_num : int, number of unit to delete
-    """
-    if isinstance(unit_num, str):
-        unit_num = parse_unit_number(unit_num)
-
-    print("\n----------\nDeleting unit %i from dataset\n----------\n" % unit_num)
-    if h5_file is None:
-        h5_file = get_h5_filename(file_dir)
-
-    unit_names = get_unit_names(file_dir)
-    unit_numbers = [parse_unit_number(i) for i in unit_names]
-    if unit_num not in unit_numbers:
-        print("Unit %i not found in data. Nothing being deleted" % unit_num)
-        return False
-
-    metrics_dir = os.path.join(file_dir, "sorted_unit_metrics")
-    plot_dir = os.path.join(file_dir, "unit_waveforms_plots")
-
-    unit_name = "unit%03d" % unit_num
-    change_units = [x for x in unit_numbers if x > unit_num]
-    new_units = [x - 1 for x in change_units]
-    new_names = ["unit%03d" % x for x in new_units]
-    old_names = ["unit%03d" % x for x in change_units]
-    old_prefix = ["Unit%i" % x for x in change_units]
-    new_prefix = ["Unit%i" % x for x in new_units]
-
-    # Remove metrics
-    if os.path.exists(os.path.join(metrics_dir, unit_name)):
-        shutil.rmtree(os.path.join(metrics_dir, unit_name))
-
-    # remove unit from hdf5 store
-    with tables.open_file(h5_file, "r+") as hf5:
-        hf5.remove_node("/sorted_units", name=unit_name, recursive=True)
-        table = hf5.root.unit_descriptor
-        table.remove_row(unit_num)
-        # rename rest of units in hdf5 and metrics folders
-        print("Renaming following units...")
-        for x, y in zip(old_names, new_names):
-            print("Renaming %s to %s" % (x, y))
-            hf5.rename_node("/sorted_units", newname=y, name=x)
-            os.rename(os.path.join(metrics_dir, x), os.path.join(metrics_dir, y))
-
-        hf5.flush()
-
-    # delete and rename plot files
-    if os.path.exists(plot_dir):
-        swap_files = [
-            ("Unit%i.png" % x, "Unit%i.png" % y)
-            for x, y in zip(change_units, new_units)
-        ]
-        swap_files2 = [
-            ("Unit%i_mean_sd.png" % x, "Unit%i_mean_sd.png" % y)
-            for x, y in zip(change_units, new_units)
-        ]
-        swap_files.extend(swap_files2)
-        del_plots = ["Unit%i.png" % unit_num, "Unit%i_mean_sd.png" % unit_num]
-        print("Correcting names of plots and metrics...")
-        for x in del_plots:
-            if os.path.exists(os.path.join(plot_dir, x)):
-                os.remove(os.path.join(plot_dir, x))
-
-        for x in swap_files:
-            if os.path.exists(os.path.join(plot_dir, x[0])):
-                os.rename(os.path.join(plot_dir, x[0]), os.path.join(plot_dir, x[1]))
-
-    # compress_and_repack(h5_file)
-    print("Finished deleting unit\n----------")
-    return True
-
-
-def fix_unit_numbering(file_dir):
-    """checks all units in an h5 file and makes sure all numbers are
-    continuous. Corrects if not.
-
-    Parameters
-    ----------
-    file_dir : str, path to recording dir that contains h5 file
-    """
-    print("\n----------\nCorrecting unit names in dataset\n----------\n")
-
-    unit_table = get_unit_table(file_dir)
-    if all(unit_table.unit_num == unit_table.index):
-        print("No Unit Names Changed. All good!")
-        return True
-
-    change_map = {x: y for x, y in zip(unit_table.unit_num, unit_table.index)}
-    h5_file = get_h5_filename(file_dir)
-
-    metrics_dir = os.path.join(file_dir, "sorted_unit_metrics")
-    plot_dir = os.path.join(file_dir, "unit_waveforms_plots")
-
-    with tables.open_file(h5_file, "a") as hf5:
-        for x, y in change_map.items():
-            u1 = "unit%03d" % x
-            u2 = "unit%03d" % y
-            if x == y:
-                continue
-
-            print(f"Renaming {u1} to {u2}")
-            hf5.rename_node("/sorted_units", newname=u2, name=u1)
-            m1 = os.path.join(metrics_dir, u1)
-            m2 = os.path.join(metrics_dir, u2)
-            if os.path.isdir(m1):
-                os.rename(m1, m2)
-
-            p1 = os.path.join(plot_dir, f"Unit{x}.png")
-            p2 = os.path.join(plot_dir, f"Unit{y}.png")
-            q1 = os.path.join(plot_dir, f"Unit{x}_mean_sd.png")
-            q2 = os.path.join(plot_dir, f"Unit{y}_mean_sd.png")
-            if os.path.isfile(p1):
-                os.rename(p1, p2)
-            if os.path.isfile(q1):
-                os.rename(q1, q2)
-
-        hf5.flush()
-
-    print("Finished correcting unit names\n----------")
-    return True
+            exec(tmp_str)
+            print("Done!")
+            hf5.flush()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import itertools
 import os
 import shutil
+from collections.abc import Iterable
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +19,7 @@ from statsmodels.stats.diagnostic import lilliefors
 from scipy.interpolate import interp1d
 from scipy.signal import butter, filtfilt
 
+from cpl_extract import logger
 from cpl_extract.sort.plot_blechpy import (
     plot_waveforms,
     plot_ISIs,
@@ -52,6 +54,7 @@ def get_waveforms(
     sampling_rate=30000.0,
     bandpass=[300, 3000],
 ):
+
     # Filter and extract waveforms
     filt_el = get_filtered_electrode(
         el_trace, freq=bandpass, sampling_rate=sampling_rate
@@ -68,7 +71,7 @@ def get_waveforms(
     return slices_dj, sampling_rate * 10
 
 
-def detect_spikes(filt_el, spike_snapshot, fs, thresh=None):
+def detect_spikes(filt_el, spike_snapshot, fs, thresh=None, verbose=True):
     """
     Detects spikes in the filtered electrode trace and return the waveforms
     and spike_times
@@ -95,6 +98,8 @@ def detect_spikes(filt_el, spike_snapshot, fs, thresh=None):
         spike detection threshold
     """
     # get indices of spike snapshot, expand by .1 ms in each direction
+    if verbose:
+        logger.cpl_logger.info("Detecting spikes")
     snapshot = np.arange(
         -(spike_snapshot[0] + 0.1) * fs / 1000,
         1 + (spike_snapshot[1] + 0.1) * fs / 1000,
@@ -153,6 +158,7 @@ def filter_signal(
     signal,
     sampling_rate: int | float,
     freq,
+    verbose=True,
 ):
     """
     Apply a bandpass filter to the input electrode signal using a Butterworth digital and analog filter design.
@@ -172,6 +178,8 @@ def filter_signal(
         The filtered electrode signal as a 1-D array.
     """
 
+    if verbose:
+        logger.cpl_logger.info("Filtering electrode signal")
     # noinspection
     m, n = butter(
         2,
@@ -182,7 +190,7 @@ def filter_signal(
     return filt_el
 
 
-def get_detection_threshold(filt_el):
+def get_detection_threshold(filt_el, verbose=True):
     """
     Calculates the spike detection threshold as 5x the median absolute deviation
 
@@ -197,13 +205,15 @@ def get_detection_threshold(filt_el):
         spike detection threshold
 
     """
+    if verbose:
+        logger.cpl_logger.info("Calculating spike detection threshold")
     m = np.mean(filt_el)
     th = 5.0 * np.median(np.abs(filt_el) / 0.6745)
     return m - th
 
 
 def dejitter(
-    slices: list[np.ndarray] | np.ndarray, spike_times, spike_snapshot, sampling_rate
+    slices: list[np.ndarray] | np.ndarray, spike_times, spike_snapshot, sampling_rate, verbose=True,
 ):
     """
     Adjust the alignment of extracted spike waveforms to minimize jitter.
@@ -226,6 +236,8 @@ def dejitter(
     spike_times_dejittered : array-like
         The updated spike times as a 1-D array.
     """
+    if verbose:
+        logger.cpl_logger.info("Dejittering waveforms")
     x = np.arange(0, len(slices[0]), 1)
     xnew = np.arange(0, len(slices[0]) - 1, 0.1)
 
@@ -256,7 +268,10 @@ def dejitter(
     return np.array(slices_dejittered), np.array(spike_times_dejittered)
 
 
-def implement_wavelet_transform(waves, n_pc=10):
+def implement_wavelet_transform(waves, n_pc=10, verbose=True):
+
+    if verbose:
+        logger.cpl_logger.info("Implementing wavelet transform")
     coeffs = pywt.wavedec(waves, "haar", axis=1)
     all_coeffs = np.column_stack(coeffs)
     k_stats = np.zeros((all_coeffs.shape[1],))
@@ -279,22 +294,26 @@ def implement_umap(waves, n_pc=3, n_neighbors=30, min_dist=0.0):
     return reducer.fit_transform(waves)
 
 
-def get_waveform_energy(waves):
+def get_waveform_energy(waves: np.ndarray, verbose=True) -> np.ndarray:
     """
-    Returns array of waveform energies
+    Returns root-mean-square (RMS) energy of each spike waveform.
+
+    Input must be a 2-D array with a row for each spike waveform.
 
     Parameters
     ----------
-    waves : np.array, matrix of waveforms, with row for each spike
+    waves : 2D np.array, matrix of waveforms, with row for each spike
 
     Returns
     -------
     np.array
     """
+    if verbose:
+        logger.cpl_logger.info("Computing waveform energy")
     return np.sqrt(np.sum(waves**2, axis=1)) / waves.shape[1]
 
 
-def get_spike_slopes(waves):
+def get_spike_slopes(waves, verbose=True):
     """
     Returns array of spike slopes (initial downward slope of spike)
 
@@ -306,6 +325,8 @@ def get_spike_slopes(waves):
     -------
     np.array
     """
+    if verbose:
+        logger.cpl_logger.info("Computing spike slopes")
     slopes = np.zeros((waves.shape[0],))
     for i, wave in enumerate(waves):
         peaks = find_peaks(wave)[0]
@@ -323,6 +344,8 @@ def get_spike_slopes(waves):
 def get_ISI_and_violations(
     spike_times,
     fs,
+    rec_map=None,
+    verbose=True,
 ):
     """
     Returns array of inter-spike-intervals (ms) and corresponding number of 1ms and 2ms violations.
@@ -341,15 +364,34 @@ def get_ISI_and_violations(
     violations2 : int
         number of 2ms violations
     """
-    fs = float(fs / 1000.0)
-    isi = np.ediff1d(np.sort(spike_times)) / fs
-    violations1 = np.sum(isi < 1.0)
-    violations2 = np.sum(isi < 2.0)
 
-    return isi, violations1, violations2
+    if verbose:
+        logger.cpl_logger.info("Computing ISI and violations")
+
+    if rec_map is not None:
+        if not isinstance(fs, dict):
+            fs = dict.fromkeys(np.unique(rec_map), fs)
+
+        ISIs = np.array([])
+        violations1 = 0
+        violations2 = 0
+        for i in np.unique(rec_map):
+            idx = np.where(rec_map == i)[0]
+            tmp_isi, v1, v2 = get_ISI_and_violations(spike_times[idx], fs[i])
+            violations1 += v1
+            violations2 += v2
+            ISIs = np.concatenate((ISIs, tmp_isi))
+
+    else:
+        fs = float(fs / 1000.0)
+        ISIs = np.ediff1d(np.sort(spike_times)) / fs
+        violations1 = np.sum(ISIs < 1.0)
+        violations2 = np.sum(ISIs < 2.0)
+
+    return ISIs, violations1, violations2
 
 
-def scale_waveforms(waves, energy=None):
+def scale_waveforms(waves, energy=None, verbose=True):
     """
     Scale the extracted spike waveforms by their energy.
 
@@ -358,13 +400,15 @@ def scale_waveforms(waves, energy=None):
     waves : array-like
         The spike waveforms as a 2-D array.
     energy : array-like
-        The energy of each spike waveform as a 1-D array.
+        The root-mean-square (RMS) energy of each spike waveform as a 1-D array.
 
     Returns
     -------
     scaled_slices : array-like
         The scaled spike waveforms as a 2-D array.
     """
+    if verbose:
+        logger.cpl_logger.info("Scaling waveforms by energy")
     if energy is None:
         energy = get_waveform_energy(waves)
     elif len(energy) != waves.shape[0]:
@@ -382,7 +426,7 @@ def scale_waveforms(waves, energy=None):
     return scaled_slices
 
 
-def compute_waveform_metrics(waves, n_pc=3, use_umap=False):
+def compute_waveform_metrics(waves, n_pc=3, use_umap=False, verbose=True):
     """
 
     Make clustering data array with columns:
@@ -400,6 +444,10 @@ def compute_waveform_metrics(waves, n_pc=3, use_umap=False):
     -------
     np.array
     """
+
+    if verbose:
+        logger.cpl_logger.info("Computing waveform metrics")
+
     data = np.zeros((waves.shape[0], 3))
     for i, wave in enumerate(waves):
         data[i, 0] = np.min(wave)
@@ -468,7 +516,7 @@ def get_recording_cutoff(
     max_breach_rate,
     max_secs_above_cutoff,
     max_mean_breach_rate_persec,
-    **kwargs,
+    **kwargs,  #  need this even if not used
 ):
     """
     Determine the cutoff point for a recording based on the number of voltage violations.
@@ -539,11 +587,8 @@ class SpikeDetector:
     unless overwrite is specified as True.
     """
 
-    def __init__(self, file_dir, channel_name, params=None, overwrite=False, fs=None, ):
-        if params is not None:
-            params = params['noisy']
+    def __init__(self, file_dir, channel_name, params=None, overwrite=False,):
         # Setup paths to files and directories needed
-        self.fs = fs
         self._file_dir = Path(file_dir)
         if self._file_dir.suffix == ".h5":
             self._file_dir = self._file_dir.parent
@@ -596,7 +641,7 @@ class SpikeDetector:
         # Parameters passed as an argument will overshadow parameters saved in file
         # Input parameters should be formatted as dataset.clustering_parameters
         if params is None and os.path.isfile(self._files["params"]):
-            self.params = read_dict_from_json(self._files["params"])
+            self.params = read_dict_from_json(str(self._files["params"]))
         elif params is None:
             raise FileNotFoundError("params must be provided if spike_detection_params.json does not exist.")
         else:
@@ -619,8 +664,8 @@ class SpikeDetector:
             snapshot_pre = params["spike_snapshot"]["Time before spike (ms)"]
             snapshot_post = params["spike_snapshot"]["Time after spike (ms)"]
             self.params["spike_snapshot"] = [snapshot_pre, snapshot_post]
-            self.params["sampling_rate"] = self.fs
-            self._files["params"].parent.mkdir(parents=True, exist_ok=True)
+            self.params["sampling_rate"] = params['sampling_rate']
+
             # Write params to json file
             write_dict_to_json(self.params, self._files["params"])
             self._status["params"] = True
@@ -647,11 +692,11 @@ class SpikeDetector:
 
         print(f"Could not find referenced data for {self._channel_name}...running spike detection")
         self._referenced = False
-        ref_el = h5io.get_raw_trace(file_dir, electrode)
+        ref_el = h5io.get_raw_trace(rec_dir=file_dir, chan_idx=electrode)
 
         # Filter electrode trace
         filt_el = get_filtered_electrode(
-            ref_el, freq=params["bandpass"], sampling_rate=self.fs
+            ref_el, freq=params["bandpass"], sampling_rate=params['sampling_rate']
         )
         del ref_el
         # Get recording cutoff
@@ -664,14 +709,14 @@ class SpikeDetector:
 
             status["recording_cutoff"] = True
             fn = os.path.join(self._plot_dir, "cutoff_time.png")
-            plot_recording_cutoff(filt_el, self.fs, self.recording_cutoff, out_file=fn)
+            plot_recording_cutoff(filt_el, params['sampling_rate'], self.recording_cutoff, out_file=fn)
 
         # Truncate electrode trace, deal with early cutoff (<60s)
         if self.recording_cutoff < 60:
             print("Immediate Cutoff for electrode %i...exiting" % electrode)
             return electrode, 0, self.recording_cutoff
 
-        filt_el = filt_el[: int(self.recording_cutoff * self.fs)]
+        filt_el = filt_el[: int(self.recording_cutoff * params['sampling_rate'])]
 
         if not status["detection_threshold"]:
             threshold = get_detection_threshold(filt_el)
@@ -689,7 +734,7 @@ class SpikeDetector:
             # detect_spikes returns waveforms upsampled by 10x and times in units
             # of samples
             waves, times, threshold = detect_spikes(
-                filt_el, params["spike_snapshot"], self.fs, thresh=self.detection_threshold
+                filt_el, params["spike_snapshot"], params['sampling_rate'], thresh=self.detection_threshold
             )
             if waves is None:
                 print("No waveforms detected on electrode %i" % electrode)
@@ -841,23 +886,14 @@ class SpikeDetector:
 class ClusterGMM:
     def __init__(
         self,
-        config: SortConfig,
         n_iters: int = None,
         n_restarts: int = None,
         thresh: int | float = None,
     ):
-        self.cluster_params = config.get_section("cluster")
-        self.n_iters = (
-            n_iters if n_iters else int(self.cluster_params["max-iterations"])
-        )
-        self.n_restarts = (
-            n_restarts if n_restarts else int(self.cluster_params["random-restarts"])
-        )
-        self.thresh = (
-            thresh if thresh else float(self.cluster_params["convergence-criterion"])
-        )
 
-    def fit(self, data_features, n_clusters):
+        self.params = {"iterations": n_iters, "restarts": n_restarts, "thresh": thresh}
+
+    def fit(self, data, n_clusters):
         """
         Perform Gaussian Mixture Model (GMM) clustering on spike waveform data.
 
@@ -867,11 +903,12 @@ class ClusterGMM:
 
         Parameters
         ----------
-        data_features : array_like
+        data : array_like
             A 2D array where each row represents a waveform and each column is a feature of the waveform
             (e.g., amplitude, principal component, etc.) down each column.
         n_clusters : int
             The number of clusters to use in the GMM.
+            d
 
         Returns
         -------
@@ -883,29 +920,35 @@ class ClusterGMM:
             The minimum Bayesian information criterion (BIC) value achieved across all restarts. This value
             indicates the best-fitting model, lower number = better predictor.
 
+        Args:
+            data:
+
         """
+
         min_bic = None
         best_model = None
+        if n_clusters is not None:
+            self.params["clusters"] = n_clusters
 
-        for i in range(self.n_restarts):  # default: 10
+        for i in range(self.params["restarts"]):
             model = GaussianMixture(
-                n_components=n_clusters,
+                n_components=self.params["clusters"],
                 covariance_type="full",
-                tol=self.thresh,  # default: 0.001
+                tol=self.params["thresh"],
                 random_state=i,
-                max_iter=self.n_iters,  # default: 1000
+                max_iter=self.params["iterations"],
             )
-            model.fit(data_features)
+            model.fit(data)
             if model.converged_:
-                new_bic = model.bic(data_features)
+                new_bic = model.bic(data)
                 if min_bic is None:
-                    min_bic = model.bic(data_features)
+                    min_bic = model.bic(data)
                     best_model = model
                 elif new_bic < min_bic:
                     best_model = model
                     min_bic = new_bic
 
-        predictions = best_model.predict(data_features)
+        predictions = best_model.predict(data)
         self._model = best_model
         self._predictions = predictions
         self._bic = min_bic
@@ -925,10 +968,12 @@ class CplClust(object):
         data_transform=compute_waveform_metrics,
     ):
         """Recording directories should be ordered to make spike sorting easier later on"""
-        if isinstance(rec_dirs, str):
+        if not isinstance(rec_dirs, Iterable):
             rec_dirs = [rec_dirs]
+        self.clustered = False
 
-        rec_dirs = [x[:-1] if x.endswith(os.sep) else x for x in rec_dirs]
+        # rec_dirs = [x[:-1] if x.endswith(os.sep) else x for x in rec_dirs]
+        self._rec_key = None
         self.rec_dirs = rec_dirs
         self.electrode = channel_number
         self._data_transform = data_transform
@@ -968,6 +1013,7 @@ class CplClust(object):
             "clustering_results": results_file,
         }
         self.params = params
+        self._load_existing_data()
 
         if self._rec_key is None and not no_write:
             # Create new rec key
@@ -998,13 +1044,13 @@ class CplClust(object):
         )
 
         # Collect data from all recordings
-        waveforms, spike_times, spike_map, self.fs, offsets = self.get_spike_data()
+        waveforms, spike_times, spike_map, self.params['sampling_rate'], offsets = self.get_spike_data()
 
         # Save array to map spikes and predictions back to original recordings
         np.save(self._files["spike_map"], spike_map)
 
         data, data_columns = self._data_transform(waveforms, n_pc)
-        amplitudes = np.min(waveforms)
+        amplitudes = np.min(waveforms, axis=1)
 
         # Run GMM for each number of clusters from 2 to max_clusters
         tested_clusters = np.arange(2, self.params["max_clusters"] + 1)
@@ -1065,7 +1111,7 @@ class CplClust(object):
 
                 # Plot waveforms and ISIs of cluster
                 ISIs, violations_1ms, violations_2ms = get_ISI_and_violations(
-                    spike_times[idx], self.fs, spike_map[idx]
+                    spike_times[idx], self.params['sampling_rate'], spike_map[idx]
                 )
                 cluster_waves = waveforms[idx]
                 cluster_times = spike_times[idx]
@@ -1154,7 +1200,8 @@ class CplClust(object):
                 )
 
         return waveforms, spike_times, spike_map, fs, offsets
-    def _load_existsing_data(self):
+
+    def _load_existing_data(self):
         params = self.params
         file_check = self._check_existing_files()
 

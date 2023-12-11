@@ -26,8 +26,9 @@ import scipy.io as sio
 
 from cpl_extract.spk_io.cpl_params import load_params
 from cpl_extract.spk_io.h5io import get_h5_filename, write_electrode_map_to_h5, cleanup_clustering, \
-    write_digital_map_to_h5, write_array_to_hdf5, create_empty_data_h5, create_hdf_arrays, create_trial_data_table
-
+    write_digital_map_to_h5, write_array_to_hdf5, create_empty_data_h5, create_hdf_arrays, create_trial_data_table, \
+    check_node_exists
+from cpl_extract.spk_io.particles import electrode_map_particle
 
 
 class Dataset(objects.data_object):
@@ -80,8 +81,6 @@ class Dataset(objects.data_object):
 
         if root_dir.is_file() and root_dir.suffix == '.smr':
             data_dir = root_dir.parent
-            root_dir = root_dir.parent.parent
-            data_name = root_dir.stem
 
         h5_file = get_h5_filename(self.root_dir)
         if h5_file is None:
@@ -93,13 +92,11 @@ class Dataset(objects.data_object):
             print(f"Existing h5 file found. Using {h5_file}.")
 
         self.h5_file = h5_file
-        self.unit_mapping = None
-        self.lfp_mapping = None
         self.electrode_mapping = None
+        self.unit_mapping = None
 
         self.rec_info = {"file_type": file_type}
         self.data_dir = data_dir
-        self.data = None
 
         self.dataset_creation_date = dt.datetime.today()
         self.processing_steps = Dataset.PROCESSING_STEPS.copy()
@@ -166,24 +163,21 @@ class Dataset(objects.data_object):
             file = datafiles[0]
 
         logger.cpl_logger.info("Extracting information from Spike2 file")
-        self.data = Spike2Data(filepath=file, )
-        self.data.load()
-        print(self.data)
-        methods = self.data.call_sonfile_methods
+        tmp_data = Spike2Data(filepath=file,)
+        self.electrode_mapping = tmp_data.load_mapping()
+        print(self.electrode_mapping)
 
         # add the data dataframe to the rec_info dictionary
-        self.rec_info.update(self.data.data.to_dict())
-        self.lfp_mapping = self.data.lfps
-        self.unit_mapping = self.data.units
+        self.rec_info.update(self.electrode_mapping.to_dict())
 
-        self.electrode_mapping = self.unit_mapping.loc[:, ['electrode', 'port',]]
+        self.unit_mapping = self.electrode_mapping[self.electrode_mapping['unit'] == True]
 
         # Get default parameters from files
         clustering_params = load_params("clustering_params", file_dir, default_keyword=data_quality)
         spike_array_params = load_params("spike_array_params", file_dir)
         psth_params = load_params("psth_params", file_dir)
         pal_id_params = load_params("pal_id_params", file_dir)
-        unit_sampling_rates = self.unit_mapping['fs'].unique()
+        unit_sampling_rates = self.unit_mapping['sampling_rate'].unique()
         if len(unit_sampling_rates) > 1:
             raise ValueError("Multiple sampling rates found in units. "
                              "This is not yet supported.")
@@ -227,8 +221,6 @@ class Dataset(objects.data_object):
             True for command-line interface
             False (default) for GUI
         """
-        if not self.root_dir:
-            logger.log_exception("No root directory set. Cannot setup digital mapping.")
         df = pd.DataFrame()
         df["channel"] = self.rec_info.get("dig_%s" % dig_type)
         # Names
@@ -399,7 +391,7 @@ class Dataset(objects.data_object):
         out.append("")
 
         out.append("--------------------")
-        out.append("Electrodes")
+        out.append("electrodes")
         out.append("--------------------")
         out.append(pt.print_dataframe(self.electrode_mapping))
         out.append("")
@@ -451,6 +443,13 @@ class Dataset(objects.data_object):
 
         return "\n".join(out)
 
+    def __repr__(self):
+        if hasattr(self.h5_file, "isopen"):
+            return (f"Open H5 file with data: \n"
+                    f""
+                    f"{self.h5_file}")
+
+
     def _write_all_params_to_json(self):
         """
         Writes all parameters to json files in analysis_params folder in the
@@ -467,28 +466,6 @@ class Dataset(objects.data_object):
         wt.write_params_to_json("psth_params", rec_dir, psth_params)
         wt.write_params_to_json("pal_id_params", rec_dir, pal_id_params)
 
-    def process_data(self):
-
-        unit_idx = self.unit_mapping['idx'].unique()
-        start_time = 0
-        with tables.open_file(self.h5_file, "r+") as hf5:
-            _flag = False
-            for idx in unit_idx:
-                unit = self.unit_mapping[self.unit_mapping['idx'] == idx]
-                unit_name = unit['name'].unique()[0]
-                unit_fs = unit['fs'].unique()[0]
-
-                num_chunks = len(list(self.data.read_data_in_chunks(idx)))
-                for chunk in self.data.read_data_in_chunks(idx):
-
-                    exec(f'hf5.root.raw_unit.{unit_name}.append(chunk)')
-                    exec(f'hf5.root.raw_unit.{unit_name}.attrs.fs = unit_fs')
-
-                    if not _flag:
-                        time = np.arange(start_time, start_time + len(chunk) / unit_fs, 1 / unit_fs)
-                        exec(f'hf5.root.time.time_vector.append(time)')
-                _flag = True
-
     def extract_data(self, filename, shell=False):
         """
         Create hdf5 store for data and read in Intan .dat files. Also create
@@ -503,35 +480,60 @@ class Dataset(objects.data_object):
             checking if too many electrodes as cutoff too early
         """
 
+        filename = Path(filename)
         if Path(self.h5_file).is_file():
 
             # TODO: add options to continue extraction
             logger.cpl_logger.info(f"Found existing h5 file: {self.h5_file}")
 
             # prompt user to delete
-            q = prompt.ask_user("Delete the current h5 file and extract again?", ['No', 'Yes'], shell=shell)
+            q = prompt.ask_user("Delete the current h5 file and extract again?", ('No', 'Yes'), shell=shell)
             if q == 1:
                 logger.cpl_logger.info(f"Deleted existing h5 file: {self.h5_file}")
-                spk_io.create_empty_data_h5(self.h5_file, True)
+                os.remove(self.h5_file)
+                filename = spk_io.create_empty_data_h5(filename=self.h5_file, data_groups=None,)
                 spk_io.create_hdf_arrays(file_name=self.h5_file, rec_info=self.rec_info, unit_mapping=self.unit_mapping,
-                                         lfp_mapping=self.lfp_mapping,)
+                                         lfp_mapping=self.lfp_mapping, )
             else:
                 # TODO: add option to continue extraction
                 logger.cpl_logger.info(f"Using existing h5 file: {self.h5_file} \n ")
                 return
 
-        filename = Path(filename)
-        if filename.suffix == '.smr':
-            logger.cpl_logger.info("Extracting data from Spike2 file")
-            self.process_data()
-        else:
-            raise NotImplementedError("Unsupported recording type. Cannot extract yet.")
+        logger.cpl_logger.info("Extracting data from Spike2 file")
+        self._process_spike2data()
 
         # update status
-        self.h5_file = filename
         self.process_status["extract_data"] = True
         self.save()
         print("\nData Extraction Complete\n--------------------")
+
+    def _process_spike2data(self):
+        """ Called only when extracting data from Spike2 file and extract_data() is called """
+        # TODO: make con
+        electrodes = self.unit_mapping['electrode'].unique()
+        start_time = 0
+        with tables.open_file(self.h5_file, "r+") as hf5:
+            _flag = False
+            for electrode_idx in electrodes:
+                this_electrode = self.unit_mapping[self.unit_mapping['electrode'] == electrode_idx]
+                electrode = this_electrode['electrode'].iloc[0]
+                unit_name = this_electrode['name'].iloc[0]
+                unit_fs = this_electrode['sampling_rate'].iloc[0]
+
+                if not check_node_exists(hf5, f'/raw/', f'electrode{electrode}'):
+                    # TODO: add option to create group
+                    # hf5.create_group(f'/raw/electrode{electrode}', unit_name)
+                    raise ValueError(f'electrode {electrode} does not exist in h5 file. ')
+                for chunk in self.data.read_data_in_chunks(electrode_idx):
+
+                    exec(f'hf5.root.raw.electrode{electrode}.append(chunk)')
+                    exec(f'hf5.root.raw.electrode{electrode}.attrs.sampling_rate = unit_fs')
+
+                    if not _flag:
+                        time = np.arange(start_time, start_time + len(chunk) / unit_fs, 1 / unit_fs)
+                        exec(f'hf5.root.time.time_vector.append(time)')
+                _flag = True
+            write_electrode_map_to_h5(self.h5_file, self.data.data)
 
     @Logger("Creating Trial List")
     def create_trial_list(self):
@@ -560,7 +562,6 @@ class Dataset(objects.data_object):
         self.process_status["create_trial_list"] = True
         self.save()
 
-    @Logger("Marking Dead Channels")
     def mark_dead_channels(self, dead_channels=None, shell=False):
         """
         Plots small piece of raw traces and a metric to help identify dead
@@ -579,7 +580,7 @@ class Dataset(objects.data_object):
         em = self.unit_mapping.copy()
         if dead_channels is None:
             prompt.tell_user("Making traces figure for dead channel detection...", shell=True)
-            save_file = os.path.join(self.root_dir, "Electrode_Traces.png")
+            save_file = os.path.join(self.root_dir, "electrode_Traces.png")
             fig, ax = plot_traces_and_outliers(self.h5_file, save_file=save_file)
             if not shell:
                 # Better to open figure outside of python since it's a lot of
@@ -594,12 +595,12 @@ class Dataset(objects.data_object):
 
             choice = prompt.select_from_list(
                 "Select dead channels:",
-                em.Electrode.to_list(),
+                em.electrode.to_list(),
                 "Dead Channel Selection",
                 multi_select=True,
                 shell=shell,
             )
-            dead_channels = list(map(int, choice))
+            dead_channels = list(map(int, choice)) if choice else []
 
         print(f"Marking the following units/electrodes as dead: \n"
               f"{dead_channels}")
@@ -613,8 +614,7 @@ class Dataset(objects.data_object):
         self.save()
         return dead_channels
 
-    @Logger("Running Spike Detection")
-    def detect_spikes(self, data_quality=None, multi_process=True, n_cores=None):
+    def detect_spikes(self, data_quality=None, multi_process=False, n_cores=None):
         """Run spike detection on each electrode. Prepares for clustering with
         BlechClust. Works for both single recording clustering or
         multi-recording clustering
@@ -649,9 +649,9 @@ class Dataset(objects.data_object):
 
         em = self.electrode_mapping
         if "dead" in em.columns:
-            electrodes = em.Electrode[em["dead"] == False].tolist()
+            electrodes = em.electrode[em["dead"] == False].tolist()
         else:
-            electrodes = em.Electrode.tolist()
+            electrodes = em.electrode.tolist()
 
         if multi_process:
             spike_detectors = [
@@ -675,7 +675,7 @@ class Dataset(objects.data_object):
                 res = sd.run()
                 results[res[0]] = res
 
-        print("Electrode    Result    Cutoff (s)")
+        print("electrode    Result    Cutoff (s)")
         cutoffs = {}
         clust_res = {}
         clustered = []
@@ -691,8 +691,8 @@ class Dataset(objects.data_object):
         print("1 - Success\n0 - No data or no spikes\n-1 - Error")
 
         em = self.electrode_mapping.copy()
-        em["cutoff_time"] = em["Electrode"].map(cutoffs)
-        em["clustering_result"] = em["Electrode"].map(clust_res)
+        em["cutoff_time"] = em["electrode"].map(cutoffs)
+        em["clustering_result"] = em["electrode"].map(clust_res)
         self.electrode_mapping = em.copy()
         self.process_status["spike_detection"] = True
         write_electrode_map_to_h5(self.h5_file, em)
@@ -700,9 +700,8 @@ class Dataset(objects.data_object):
         print("Spike Detection Complete\n------------------")
         return results
 
-    @Logger("Running Blech Clust")
     def blech_clust_run(
-            self, data_quality=None, multi_process=True, n_cores=None, umap=True
+            self, data_quality=None, multi_process=False, n_cores=None, umap=True
     ):
         """Write clustering parameters to file and
         Run blech_process on each electrode using GNU parallel
@@ -739,9 +738,9 @@ class Dataset(objects.data_object):
         # Get electrodes, throw out 'dead' electrodes
         em = self.electrode_mapping
         if "dead" in em.columns:
-            electrodes = em.Electrode[em["dead"] == False].tolist()
+            electrodes = em.electrode[em["dead"] == False].tolist()
         else:
-            electrodes = em.Electrode.tolist()
+            electrodes = em.electrode.tolist()
 
         if not umap:
             clust_objs = [
@@ -798,7 +797,7 @@ class Dataset(objects.data_object):
 
     def sort_spikes(self, electrode=None, shell=False):
         if electrode is None:
-            electrode = prompt.get_user_input("Electrode #: ", shell=shell)
+            electrode = prompt.get_user_input("electrode #: ", shell=shell)
             if electrode is None or not electrode.isnumeric():
                 return
 
@@ -1201,7 +1200,7 @@ class Dataset(objects.data_object):
 
         unt_tbl = self.get_unit_table().copy()
         elec_tbl = self.electrode_mapping.copy()
-        elec_tbl = elec_tbl.rename(columns={"Electrode": "electrode"})
+        elec_tbl = elec_tbl.rename(columns={"electrode": "electrode"})
         elec_tbl = elec_tbl[["electrode", "area"]]
         unt_tbl = unt_tbl.merge(elec_tbl, how="left", on="electrode")
 
@@ -1303,7 +1302,7 @@ def port_in_dataset(rec_dir=None, shell=False):
     if status["spike_clustering"] and not status["sort_units"]:
         # Move files into correct structure to support spike sorting
         for i, row in dat.electrode_mapping.iterrows():
-            el = row["Electrode"]
+            el = row["electrode"]
             src = [
                 os.path.join(dat.root_dir, "clustering_results", f"electrode{el}"),
                 os.path.join(dat.root_dir, "Plots", f"{el}", "Plots"),

@@ -54,16 +54,16 @@ def make_unit_plots(file_dir, unit_name, save_dir=None):
     ax.set_xlabel("Samples (%s)" % fs_str)
     ax.set_ylabel("Voltage (microvolts)")
     unit_title = (
-        "Unit %i, total waveforms = %i\nElectrode: %i, "
-        "Single Unit: %i, RSU: %i, FSU: %i"
-    ) % (
-        unit_num,
-        waveforms.shape[0],
-        descriptor["electrode_number"],
-        descriptor["single_unit"],
-        descriptor["regular_spiking"],
-        descriptor["fast_spiking"],
-    )
+                     "Unit %i, total waveforms = %i\nElectrode: %i, "
+                     "Single Unit: %i, RSU: %i, FSU: %i"
+                 ) % (
+                     unit_num,
+                     waveforms.shape[0],
+                     descriptor["electrode_number"],
+                     descriptor["single_unit"],
+                     descriptor["regular_spiking"],
+                     descriptor["fast_spiking"],
+                 )
     ax.set_title(unit_title)
     fig.savefig(os.path.join(save_dir, "Unit%i.png" % unit_num))
     plt.close("all")
@@ -83,7 +83,7 @@ def make_unit_plots(file_dir, unit_name, save_dir=None):
     plt.close("all")
 
 
-def plot_traces_and_outliers(h5_file, window=60, save_file=None):
+def plot_traces_and_outliers(h5_file: str, window=2, save_file=None):
     """
     plot first 30 sec of raw data traces as well as a subplot with a metric
     to help identify dead channels (max(abs(trace)) * std(trace))
@@ -92,25 +92,29 @@ def plot_traces_and_outliers(h5_file, window=60, save_file=None):
     ----------
     h5_file : str, full path to h5_file with raw data
     """
-    if not os.path.isfile(h5_file):
+
+    if not hasattr(h5_file, "endswith"):
+        raise TypeError("h5_file must be a string")
+    elif not os.path.isfile(h5_file):
         raise FileNotFoundError("%s not found." % h5_file)
 
     with tables.open_file(h5_file, "r") as hf5:
-        if "/raw" not in hf5:
-            raise ValueError("No raw data in %s" % h5_file)
 
         electrodes = hf5.list_nodes("/raw")
-        t_idx = np.where(lambda x: x.v_name == "time_vector")[0]
-        time = electrodes.pop(t_idx[0])[:]
+        num_samples = electrodes[0].shape[0]
+        sampling_rate = electrodes[0]._v_attrs["sampling_rate"]
+        duration = num_samples / sampling_rate
+        time_vector = np.linspace(0, duration, num_samples, endpoint=False)
+
         n_electrodes = len(electrodes)
         max_amp = np.zeros(n_electrodes)
         max_amp_idx = np.zeros(n_electrodes)
         std_amp = np.zeros(n_electrodes)
         range_amp = np.zeros(n_electrodes)
 
-        for node in electrodes:
-            i = int(node._v_name.replace("electrode", ""))
-            trace = node[:] * dio.rawIO.voltage_scaling
+        # make each electrode on the same scale
+        for i, node in enumerate(electrodes):
+            trace = node[:] * 0.195  # some sort of voltage scalinghere
             max_amp[i] = np.max(np.abs(trace))
             max_amp_idx[i] = int(np.argmax(np.abs(trace)))
             std_amp[i] = np.std(trace)
@@ -119,23 +123,22 @@ def plot_traces_and_outliers(h5_file, window=60, save_file=None):
         max_v = np.max(max_amp)
         max_idx = int(max_amp_idx[np.argmax(max_amp)])
         metric = max_amp * std_amp
-        idx = np.where(
-            (time >= time[max_idx] - window / 2) & (time <= time[max_idx] + window / 2)
-        )[0]
+
+        idx = np.where((time_vector >= time_vector[max_idx] - window) & (time_vector <= time_vector[max_idx] + window))[0]
 
         fig, ax = plt.subplots(nrows=2, figsize=(30, 30))
-        for node in electrodes:
-            i = int(node._v_name.replace("electrode", ""))
-            trace = node[:] * dio.rawIO.voltage_scaling / max_v
-            ax[0].plot(time[idx], trace[idx] + i, linewidth=0.5)
+        for i, node in enumerate(electrodes):
+            trace = node[:] / max_v
+            ax[0].plot(time_vector[idx], trace[idx] + i, linewidth=0.5)
+
             ax[1].plot([i, i], [0, metric[i]], color="black", linewidth=0.5)
+
+        ax[0].set_ylim([0, n_electrodes])
 
         ax[1].scatter(np.arange(n_electrodes), metric)
         med = np.median(metric)
         sd = np.std(metric)
-        ax[1].plot(
-            [0, n_electrodes - 1], [med, med], color="blue", linewidth=0.5, alpha=0.5
-        )
+        ax[1].plot([0, n_electrodes - 1], [med, med], color="blue", linewidth=0.5, alpha=0.5)
         ax[1].plot(
             [0, n_electrodes - 1],
             [med + 1.5 * sd, med + 1.5 * sd],
@@ -161,16 +164,16 @@ def plot_traces_and_outliers(h5_file, window=60, save_file=None):
 
 
 def plot_overlay_psth(
-    rec_dir,
-    unit,
-    din_map,
-    plot_window=[-1500, 2500],
-    bin_size=250,
-    bin_step=25,
-    sd=True,
-    dig_ins=None,
-    smoothing_width=3,
-    save_file=None,
+        rec_dir,
+        unit,
+        din_map,
+        plot_window=[-1500, 2500],
+        bin_size=250,
+        bin_step=25,
+        sd=True,
+        dig_ins=None,
+        smoothing_width=3,
+        save_file=None,
 ):
     """
     Plots overlayed PSTHs for all tastants or a specified subset
@@ -444,7 +447,7 @@ def plot_cluster_raster(clusters):
 
 
 def plot_waveforms(waveforms, title=None, save_file=None, threshold=None):
-    fig, ax = waveforms_datashader(waveforms, threshold=threshold)
+    fig, ax = waveforms_datashader(waveforms,)
     ax.set_xlabel("Samples", fontsize=12)
     ax.set_ylabel("Voltage (microvolts)", fontsize=12)
     ax.set_title(title, fontsize=12)
@@ -487,16 +490,16 @@ def plot_ISIs(ISIs, total_spikes=None, save_file=None):
     ax.hist(ISIs, bins=bins)
     ax.set_xlim((0.0, 10.0))
     title_str = (
-        "2ms violations = %0.1f %% (%i/%i)\n"
-        "1ms violations = %0.1f %% (%i/%i)"
-        % (
-            100 * viol_2ms / total_spikes,
-            viol_2ms,
-            total_spikes,
-            100 * viol_1ms / total_spikes,
-            viol_1ms,
-            total_spikes,
-        )
+            "2ms violations = %0.1f %% (%i/%i)\n"
+            "1ms violations = %0.1f %% (%i/%i)"
+            % (
+                100 * viol_2ms / total_spikes,
+                viol_2ms,
+                total_spikes,
+                100 * viol_1ms / total_spikes,
+                viol_1ms,
+                total_spikes,
+            )
     )
     ax.set_ylim((0.0, np.max(histogram) + 5))
     ax.set_title(title_str)
@@ -557,7 +560,7 @@ def plot_raster(spikes, time=None, ax=None, y_min=0.05, y_max=0.95):
 
 
 def plot_trial_raster(
-    spikes, time=None, save_file=None
+        spikes, time=None, save_file=None
 ):  # TODO 11/10/23--test this function
     """Create figure of spikes rasters with each trial on a seperate axis
     TODO: convert this from blechpy.plotting.hmm_plot to blechpy.plotting.data_plot
@@ -775,12 +778,12 @@ def plot_waveforms_pca(waveforms, cluster_ids=None, save_file=None):
 
 
 def plot_waveforms_umap(
-    waveforms,
-    cluster_ids=None,
-    save_file=None,
-    n_neighbors=30,
-    min_dist=0.0,
-    embedding=None,
+        waveforms,
+        cluster_ids=None,
+        save_file=None,
+        n_neighbors=30,
+        min_dist=0.0,
+        embedding=None,
 ):
     """Plot UMAP view of clusters from spike_sorting
 
@@ -830,7 +833,7 @@ def plot_waveforms_umap(
 
 
 def plot_waveforms_wavelet_tranform(
-    waveforms, cluster_ids=None, save_file=None, n_pc=4
+        waveforms, cluster_ids=None, save_file=None, n_pc=4
 ):
     all_waves = np.vstack(waveforms)
     coeffs = pywt.wavedec(all_waves, "haar", axis=1)
@@ -853,7 +856,7 @@ def plot_waveforms_wavelet_tranform(
     data = []
     for i, w in enumerate(waveforms):
         tmp = best_coeffs[: w.shape[0]]
-        best_coeffs = best_coeffs[w.shape[0] :]
+        best_coeffs = best_coeffs[w.shape[0]:]
         data.append(tmp)
 
     if cluster_ids is None:

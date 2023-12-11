@@ -49,7 +49,6 @@ class data_object:
                 log_file = Path().home() / "cpl_extract" / "logs" / f"{data_name}_{data_type}.log"
                 logger.cpl_logger.info(f"Using default logfile {log_file}.")
                 globals()[str(log_file)] = log_file
-                logger.log_exception("info")
             if not os.path.isfile(log_file):
                 # create log file
                 log_file.parent.mkdir(parents=True, exist_ok=True)

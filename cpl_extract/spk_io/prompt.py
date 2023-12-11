@@ -113,7 +113,7 @@ def fill_dict(data, prompt=None, shell=False):
     return out
 
 
-def ask_user(msg, choices=["No", "Yes"], shell=False):
+def ask_user(msg, choices=("No", "Yes"), shell=False):
     """Ask the user a question with certain choices
 
     Parameters

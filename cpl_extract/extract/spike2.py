@@ -33,7 +33,7 @@ EVENTS = [
     sp.DataType.RealMark,
 ]
 
-ADC = [sp.DataType.Adc]
+SIGNALS = [sp.DataType.Adc]
 
 
 class SonfileException(BaseException):
@@ -193,78 +193,6 @@ class Spike2Data:
                     f"Double check the file contains valid data."
                 )
 
-    def _flush_sonfile(self):
-        """
-        Flush the sonfile object from memory.
-        """
-        self._sonfile.FlushSystemBuffers()
-        self._loaded = False
-
-    def _load_sonfile_in_memory(self):
-        """
-        Initialize the sonfile object.
-        """
-        self._sonfile = sp.SonFile(str(self.filename), True)
-        self._loaded = True
-
-    def load(self):
-        """
-        Load the sonfile object into memory.
-        """
-        self._load_sonfile_in_memory()
-        self._extract_df()
-
-    def _extract_df(self):
-        if not self._loaded:
-            self._load_sonfile_in_memory()
-
-        self.data["electrode"] = range(self._max_channels())  # the index stored by sonpy
-        self.data["name"] = [self.sonfile.GetChannelTitle(idx) for idx in range(self._max_channels())]
-        self.data['port'] = [self.sonfile.PhysicalChannel(idx) for idx in range(self._max_channels())]
-        self.data["units"] = [self.sonfile.GetChannelUnits(idx) for idx in range(self._max_channels())]
-
-        self.data["type"] = [self.sonfile.ChannelType(idx) for idx in range(self._max_channels())]
-        self.data["sampling_rate"] = [
-            np.round(1 / (self.sonfile.ChannelDivide(idx) * self._time_base()), 2)
-            for idx in range(self._max_channels())
-        ]
-
-        # filter out any types = DataType.Off
-        self.rec_length = self._max_time()
-        self.bitrate = 32 if self.sonfile.is32file() else 64
-
-        self.data = self.data[self.data["type"] != sp.DataType.Off]
-        self.events = self.data[self.data["type"].isin(EVENTS)]
-        self.waves = self.data[self.data["type"].isin(ADC)]
-
-        self.data = self.data.drop(columns=["type"])
-
-        # separate out waves by the name containing "u" or "L" (for unit or LFP) using where check_substring_content(self.waves["name"], "u")
-        self.units = self.waves[self.waves["name"].apply(lambda x: check_substring_content(x, "u"))]
-        self.lfps = self.waves[self.waves["name"].apply(lambda x: check_substring_content(x, "lfp"))]
-
-        self.data_loaded = True
-        self._flush_sonfile()
-
-    @property
-    def sonfile(self):
-        """
-        The SonFile object from the sonpy library.
-        """
-        if self._loaded:
-            return self._sonfile
-        else:
-            self._load_sonfile_in_memory()
-            self._loaded = True
-            return self._sonfile
-
-    @property
-    def call_sonfile_methods(self):
-        """
-        Return a list of all the sonfile methods. Helpful for debugging.
-        """
-        return [method for method in dir(self.sonfile) if callable(getattr(self.sonfile, method))]
-    
     def __getstate__(self):
         state = self.__dict__.copy()
         # Remove the unpickleable entries.
@@ -276,7 +204,7 @@ class Spike2Data:
         self._load_sonfile_in_memory()
 
     def __repr__(self):
-        return self._formatted_info()
+        return f"{self.filename.stem}"
 
     def __str__(self):
         # Helper function to format channel details
@@ -298,7 +226,6 @@ class Spike2Data:
         if not self.waves.empty:
             info.append(f"{'#Waveform Channels:':<35} {len(self.waves)}")
             info.append("-" * 35)
-
         if not self.units.empty:
             info.append(f"{'#Unit Channels:':<35} {len(self.units)}")
             info.append(f"{'Unit Channels:':<35} {format_channel_details(self.units)}")
@@ -308,27 +235,81 @@ class Spike2Data:
 
         return "\n".join(info)
 
-    def _formatted_info(self):
-        nchan = len(self.waves)
-        nevents = len(self.events)
+    @property
+    def sonfile(self):
+        """
+        The SonFile object from the sonpy library.
+        """
+        if self._loaded:
+            return self._sonfile
+        else:
+            self._load_sonfile_in_memory()
+            self._loaded = True
+            return self._sonfile
 
-        waves_info = self.waves.to_string(index=False)
-        events_info = self.events.to_string(
-            index=False
+    def load_mapping(self):
+        """
+        Load the sonfile object into memory.
+        """
+        self._load_sonfile_in_memory()
+        self._extract_df()
+        self._flush_sonfile()
+        return self.data
+
+    def read_data_in_chunks(self, channel_index, chunk_size=None):
+        chunk_size = chunk_size if chunk_size else 64 * 1024
+        item_size = self.sonfile.ItemSize(channel_index)
+        total_bytes = self.sonfile.ChannelBytes(channel_index)
+        total_items = total_bytes // item_size
+
+        start_idx = 0
+
+        while start_idx < total_items:
+            end_idx = min(start_idx + chunk_size, total_items)
+            num_items = end_idx - start_idx
+            chunk_data = self.sonfile.ReadFloats(channel_index, num_items, start_idx)
+            yield chunk_data
+            start_idx = end_idx
+
+    def _extract_df(self):
+        if not self._loaded:
+            self._load_sonfile_in_memory()
+
+        channel_indices = range(self._max_channels())
+
+        self.data = pd.DataFrame({
+            "electrode": channel_indices,
+            "name": [self.sonfile.GetChannelTitle(idx) for idx in channel_indices],
+            "port": [self.sonfile.PhysicalChannel(idx) for idx in channel_indices],
+            "units": [self.sonfile.GetChannelUnits(idx) for idx in channel_indices],
+            "sampling_rate": [
+                np.round(1 / (self.sonfile.ChannelDivide(idx) * self._time_base()), 2)
+                for idx in channel_indices
+            ],
+            "SonpyType": [self.sonfile.ChannelType(idx) for idx in channel_indices]
+        })
+
+        self.rec_length = self._max_time()
+        self.bitrate = 32 if self.sonfile.is32file() else 64
+
+        # Filter out channels with type DataType.Off
+        self.data = self.data[self.data["SonpyType"] != sp.DataType.Off]
+
+        # if data type is a signal, and the channel name contains "u", then it is a unit
+        self.data["unit"] = self.data.apply(
+            lambda row: row["SonpyType"] in SIGNALS and check_substring_content(row["name"], "u"), axis=1
         )
 
-        info = (
-            f"{self.filename} | nchan = {nchan} | nevents = {nevents}\n"
-            "-----\n"
-            "waves\n"
-            "-----\n"
-            f"{waves_info}\n"
-            "------\n"
-            "events\n"
-            "------\n"
-            f"{events_info}"
+        self.data["lfp"] = self.data.apply(
+            lambda row: row["SonpyType"] in SIGNALS and check_substring_content(row["name"], "lfp"), axis=1
         )
-        return info
+
+        self.data["event"] = self.data.apply(
+            lambda row: row["SonpyType"] in EVENTS, axis=1
+        )
+
+        self.data_loaded = True
+        self._flush_sonfile()
 
     def _process_event(self, row):
         """
@@ -367,45 +348,6 @@ class Spike2Data:
             self.errors[f"{idx}_{name}_{chantype}"] = e
             self.logger.warning(f"Error reading marker:{name},{chantype}, {e}")
             return [], []
-
-    def read_data_in_chunks(self, channel_index, chunk_size=None):
-        chunk_size = chunk_size if chunk_size else 64 * 1024
-        item_size = self.sonfile.ItemSize(channel_index)
-        total_bytes = self.sonfile.ChannelBytes(channel_index)
-        total_items = total_bytes // item_size
-
-        start_idx = 0
-
-        while start_idx < total_items:
-            end_idx = min(start_idx + chunk_size, total_items)
-            num_items = end_idx - start_idx
-            chunk_data = self.sonfile.ReadFloats(channel_index, num_items, start_idx)
-            yield chunk_data
-            start_idx = end_idx
-
-    def _process_signal(self, row, hf5, do_time):
-        chans = [node._v_name for node in hf5.root.raw_unit._f_list_nodes()]
-        if row["name"] not in chans:
-            return False
-        try:
-            idx, channel_name, chantype, fs, units = row
-
-            start_time = 0
-            for chunk in self.read_data_in_chunks(idx):
-                # turn chunk into hf5 array
-                hf5.root.raw_unit[channel_name].append(np.array(chunk))
-                hf5.root.raw_unit[channel_name]._v_attrs.fs = fs
-                if do_time:
-                    time_vector = np.arange(start_time, start_time + len(chunk) / fs, 1 / fs)
-                    hf5.root.raw_time.time_vector.append(time_vector)
-                    start_time += len(chunk) / fs
-            hf5.flush()
-            return True
-
-        except SonfileException as e:
-            self.errors["ReadFloats"] = e
-            self.logger.error(f"Error reading floats: {e}")
-            return False
 
     # wrappers for sonfile methods with additional information
     def _channel_interval(self, channel: int):
@@ -511,6 +453,20 @@ class Spike2Data:
         The number of channels in the file.
         """
         return self.sonfile.MaxChannels()
+
+    def _flush_sonfile(self):
+        """
+        Flush the sonfile object from memory.
+        """
+        self._sonfile.FlushSystemBuffers()
+        self._loaded = False
+
+    def _load_sonfile_in_memory(self):
+        """
+        Initialize the sonfile object.
+        """
+        self._sonfile = sp.SonFile(str(self.filename), True)
+        self._loaded = True
 
 
 if __name__ == "__main__":

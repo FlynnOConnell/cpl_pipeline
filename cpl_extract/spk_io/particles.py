@@ -25,9 +25,14 @@ class unit_descriptor(tables.IsDescription):
 class electrode_map_particle(tables.IsDescription):
     """PyTables particle for storing electrode mapping"""
 
-    Electrode = tables.Int16Col()
-    Port = tables.Int16Col()
-    Channel = tables.StringCol(20)
+    electrode = tables.Int16Col()
+    name = tables.StringCol(20)
+    port = tables.Int16Col()
+    units = tables.StringCol(5)
+    sampling_rate = tables.Float32Col()
+    lfp = tables.BoolCol()
+    unit = tables.BoolCol()
+    event = tables.BoolCol()
     # area = tables.StringCol(20)
     # CAR_group = tables.Int16Col()
     dead = tables.BoolCol()
@@ -38,7 +43,7 @@ class electrode_map_particle(tables.IsDescription):
 class digital_mapping_particle(tables.IsDescription):
     """Pytables particle for storing digital input/output mappings"""
 
-    channel = tables.Int16Col()
+    electrode = tables.Int16Col()
     name = tables.StringCol(20)
     palatability_rank = tables.Int16Col()
     laser = tables.BoolCol()

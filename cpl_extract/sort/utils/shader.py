@@ -6,15 +6,7 @@ and generates a Datashader image for visualization. It performs downsampling,
 DataFrame creation, Datashader canvas setup, aggregation, and image export.
 The resulting Datashader image is displayed using Matplotlib.
 
-.. note::
-    This function is intended for use with the module.
-    It is not intended for general use.
-    It relies on the ``datashader`` and ``matplotlib`` packages.
-
 """
-import shutil
-from functools import partial
-
 import datashader as ds
 import datashader.transfer_functions as tf
 from datashader.utils import export_image
@@ -24,9 +16,7 @@ import numpy as np
 import pandas as pd
 
 
-def waveforms_datashader(
-    waveforms: np.ndarray, x_values: np.ndarray, dir_name="datashader_temp"
-):
+def waveforms_datashader(waveforms, threshold=None):
     """
     Create a Datashader image from an array of waveforms.
 
@@ -39,11 +29,8 @@ def waveforms_datashader(
     ----------
     waveforms : numpy.ndarray
         Numpy array containing waveform data.
-    x_values : numpy.ndarray
-        Numpy array of x-axis values corresponding to the waveform data.
-    dir_name : str, optional
-        The directory where temporary files and images are stored.
-        Default is "datashader_temp".
+    threshold : float, optional
+        Threshold value for plotting a horizontal line on the image.
 
     Returns
     -------
@@ -52,14 +39,18 @@ def waveforms_datashader(
     ax : matplotlib.axes.Axes
         The Matplotlib axes used for plotting.
 
-    .. note::
-        This function is intended for use with the ``spk2py.clustersort`` module.
-        It is not intended for general use.
-        It relies on the ``datashader`` and ``matplotlib`` packages.
-
     """
 
+    if waveforms.shape[0] == 0:
+        return None
+    # Make a pandas dataframe with two columns, x and y, holding all the data.
+    # The individual waveforms are separated by a row of NaNs.
+
+    # First downsample the waveforms 10 times (to remove the effects of 10 times upsampling during de-jittering)
     waveforms = waveforms[:, ::10]
+    x_values = np.arange(len(waveforms[0])) + 1
+
+    # Then make a new array of waveforms - the last element of each waveform is a NaN
     new_waveforms = np.zeros((waveforms.shape[0], waveforms.shape[1] + 1))
     new_waveforms[:, -1] = np.nan
     new_waveforms[:, :-1] = waveforms
@@ -74,32 +65,40 @@ def waveforms_datashader(
         {"x": np.tile(x, new_waveforms.shape[0]), "y": new_waveforms.flatten()}
     )
 
-    # Datashader function for exporting the temporary image with the waveforms
-    export = partial(export_image, background="white", export_path=dir_name)
-
-    # Use the 5th and 95th percentiles for the y-axis range
-    y_min = np.percentile(df["y"], 5)
-    y_max = np.percentile(df["y"], 95)
-
+    # Produce a datashader canvas
     canvas = ds.Canvas(
         x_range=(np.min(x_values), np.max(x_values)),
-        y_range=(y_min, y_max),
+        y_range=(df["y"].min() - 10, df["y"].max() + 10),
         plot_height=1200,
         plot_width=1600,
     )
+
+    # Aggregate the data
     agg = canvas.line(df, "x", "y", ds.count())
-    export(tf.shade(agg, how="eq_hist"), "tempfile")
+    # Transfer the aggregated data to image using log transform and export the temporary image file
+    img = tf.shade(agg, how="eq_hist")
+    img = tf.set_background(img, "white")
 
-    img = imageio.v2.imread(dir_name + "/tempfile.png")
+    # Figure sizes chosen so that the resolution is 100 dpi
+    fig, ax = plt.subplots(1, 1, figsize=(12, 8), dpi=200)
 
-    fig, ax = plt.subplots(1, 1, figsize=(8, 6), dpi=200)
-    ax.imshow(img)
+    # Start plotting
+    ax.imshow(img.to_pil())
+    # Set ticks/labels - 10 on each axis
     ax.set_xticks(np.linspace(0, 1600, 10))
     ax.set_xticklabels(np.floor(np.linspace(np.min(x_values), np.max(x_values), 10)))
     ax.set_yticks(np.linspace(0, 1200, 10))
-    ax.set_yticklabels(
-        np.floor(np.linspace(df["y"].max() + 10, df["y"].min() - 10, 10))
-    )
+    yticklabels = np.floor(np.linspace(df["y"].max() + 10, df["y"].min() - 10, 10))
+    ax.set_yticklabels(yticklabels)
+
+    if threshold is not None:
+        scaled_thresh = (threshold - np.max(yticklabels)) * (
+                1200 / (np.min(yticklabels) - np.max(yticklabels))
+        )
+        ax.axhline(scaled_thresh, linestyle="--", color="r", alpha=0.3)
+
+    # Delete the dataframe
     del df, waveforms, new_waveforms
-    shutil.rmtree(dir_name, ignore_errors=True)
+
+    # Return and figure and axis for adding axis labels, title and saving the file
     return fig, ax

@@ -164,7 +164,7 @@ def make_spike_arrays(h5_file, params):
     print("Done with spike array creation!\n----------\n")
 
 
-@jit(nopython=False, nogil=True)
+@jit(nogil=True)
 def count_similar_spikes(unit1_times, unit2_times):
     """Compiled function to compute the number of spikes in unit1 that are
     within 1ms of a spike in unit2
