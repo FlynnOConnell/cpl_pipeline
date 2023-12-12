@@ -539,8 +539,9 @@ class Dataset(objects.data_object):
             time = []
 
             for chunk in self.data.read_data_in_chunks(electrode_idx):
-                data.append(chunk)
+                data.append(np.round(chunk), 8)
                 if _time_flag:
+
                     x = np.arange(start_time, start_time + len(chunk) / unit_fs, 1 / unit_fs)
                     print(f"chunk: {len(chunk)}")
                     print(f"time: {len(x)}")
