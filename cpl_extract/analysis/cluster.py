@@ -367,9 +367,6 @@ def get_ISI_and_violations(
         number of 2ms violations
     """
 
-    if verbose:
-        print("Computing ISI and violations")
-
     if rec_map is not None:
         if not isinstance(fs, dict):
             fs = dict.fromkeys(np.unique(rec_map), fs)
@@ -572,6 +569,7 @@ def get_recording_cutoff(
         # cutoff is still in seconds since 1 sec bins
 
     return recording_cutoff
+
 
 def UMAP_METRICS(waves, n_pc):
     return compute_waveform_metrics(waves, n_pc, use_umap=True)
@@ -1034,8 +1032,12 @@ class CplClust:
             raise ValueError("Spike detection has not been run on:\n\t%s" % error_str)
 
     def run(self, n_pc=None, overwrite=False):
-        if self.clustered and not overwrite:
-            return True
+
+        try:
+            if self.clustered and not overwrite:
+                return True
+        except AttributeError:
+            self.clustered = False
 
         if n_pc is None:
             n_pc = self._n_pc

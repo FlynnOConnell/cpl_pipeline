@@ -454,11 +454,12 @@ def plot_cluster_raster(clusters):
 
 
 def plot_waveforms(waveforms, title=None, save_file=None, threshold=None):
-    fig, ax = shader.waveforms_datashader(
-        waveforms,
-    )
+
+
+
+    fig, ax = shader.waveforms_datashader(waveforms,)
     ax.set_xlabel("Samples", fontsize=12)
-    ax.set_ylabel("Voltage (microvolts)", fontsize=12)
+    ax.set_ylabel("Voltage (Volts)", fontsize=12)
     ax.set_title(title, fontsize=12)
     plt.xticks(fontsize=10)
     plt.yticks(fontsize=10)
@@ -795,6 +796,9 @@ def plot_waveforms_umap(
     embedding=None,
 ):
     """Plot UMAP view of clusters from spike_sorting
+
+    takes forever
+    start your engines
 
     Parameters
     ----------

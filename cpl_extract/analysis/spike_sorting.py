@@ -3,13 +3,17 @@ import tables
 import numpy as np
 from cpl_extract.spk_io import h5io
 from numba import jit, NumbaDeprecationWarning
-import warnings
 import itertools
 
-warnings.filterwarnings("ignore", category=NumbaDeprecationWarning, module="numba")
+from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
+import warnings
+
+warnings.simplefilter('ignore', category=NumbaDeprecationWarning)
+warnings.simplefilter('ignore', category=NumbaPendingDeprecationWarning)
 
 def make_spike_arrays(h5_file, params):
-    """Makes stimulus triggered spike array for all sorted units
+    """
+    Makes stimulus triggered spike array for all sorted units
 
     Parameters
     ----------
@@ -164,10 +168,10 @@ def make_spike_arrays(h5_file, params):
                 hf5.flush()
     print("Done with spike array creation!\n----------\n")
 
-
 @jit(nogil=True)
 def count_similar_spikes(unit1_times, unit2_times):
-    """Compiled function to compute the number of spikes in unit1 that are
+    """
+    Compiled function to compute the number of spikes in unit1 that are
     within 1ms of a spike in unit2
 
     Parameters
@@ -187,9 +191,10 @@ def count_similar_spikes(unit1_times, unit2_times):
 
     return unit_counter
 
-
 def calc_units_similarity(h5_file, fs, similarity_cutoff=50, violation_file=None):
-    """Creates an ixj similarity matrix with values being the percentage of
+    """
+
+    Creates an ixj similarity matrix with values being the percentage of
     spike in unit i within 1ms of spikes in unit j, and add it to the HDF5
     store
     Additionally, if this percentage is greater than the similarity cutoff then

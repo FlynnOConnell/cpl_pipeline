@@ -22,10 +22,38 @@ support_rec_types = {
     "plexon": ".pl2",
 }
 
+def eval_h5_data(h5_file=None, rec_dir=None):
+    """
+    Given the node containing the array, get a list of each array with True/False if the array has had data written to it,
+    i.e. the sum of each item in the array != 0
+
+    Parameters
+    ----------
+    h5_file : str, path to h5 file
+    electrode_node : str, path to node containing array
+
+    Returns
+    -------
+    dict
+    """
+
+    if h5_file is None and rec_dir is None:
+        raise ValueError("Must provide either h5_file or rec_dir")
+
+    if h5_file is None:
+        h5_file = get_h5_filename(rec_dir)
+
+    with tables.open_file(h5_file, "r") as hf5:
+        data = node[:]
+        out = {}
+        for i in range(data.shape[1]):
+            out[i] = np.sum(data[:, i]) != 0
+        return out
 
 
 def get_h5_filename(file_dir, shell=True):
-    """Return the name of the h5 file found in file_dir.
+    """
+    Return the name of the h5 file found in file_dir.
     Asks for selection if multiple found
 
     Parameters
@@ -393,21 +421,25 @@ def write_time_vector_to_h5(h5_file, electrode, fs):
             arr = hf5.root.raw["electrode%i" % electrode][:]
             time = np.arange(0, arr.shape[0] / fs, 1 / fs)
             hf5.root.time.time_vector.append(time)
+            hf5.root.time._v_attrs["from_electrode"] = True
             return True
         else:
             return False
 
-
-def write_spike2_array_to_h5(h5_file, electrode, waves=None,):
+def write_spike2_array_to_h5(h5_file, electrode, waves):
 
     if not Path(h5_file).exists():
         h5_file = get_h5_filename(h5_file)
+
+    if len(waves) == 0:
+        return False
 
     println("Writing electrode%i to %s..." % (electrode, h5_file))
     with tables.open_file(h5_file, "r+") as hf5:
         if "/raw" in hf5 and "/raw/electrode%i" % electrode in hf5:
             #apepdn array
             node = hf5.root.raw["electrode%i" % electrode]
+            node._v_attrs["has_data"] = True
             node.append(waves)
             return True
 
@@ -1176,6 +1208,8 @@ def cleanup_clustering(file_dir, h5_file=None):
 
     # Repack if any big changes were made to h5 store
     if changes:
+        if not hasattr(h5_file, "endswith"):
+            h5_file = str(h5_file)
         if h5_file.endswith("_repacked.h5"):
             new_fn = h5_file
             new_h5 = compress_and_repack(h5_file, new_fn)

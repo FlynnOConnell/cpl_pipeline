@@ -2,12 +2,19 @@ import os
 
 import numpy as np
 
-from pathlib import Path
 from . import spk_io, utils, analysis
 from .base import *
+from .base.objects import load_project, load_experiment
+from .base.experiment import experiment
+from .base.project import project
+
+
 
 __name__ = "cpl_extract"
 __author__ = "Flynn OConnell"
+
+
+
 __all__ = [
     "spk_io",
     "utils",
@@ -17,8 +24,14 @@ __all__ = [
     "validate_data_integrity",
     "load_dataset",
     "load_pickled_object",
-    "load_data"
+    "load_data",
+    "load_project",
+    "load_experiment",
+    "detect_number_of_cores",
+    "experiment",
+    "project"
 ]
+
 
 # Version
 version = "0.0.2"

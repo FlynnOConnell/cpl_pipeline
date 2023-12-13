@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 import os
 from pathlib import Path
 
@@ -112,6 +113,9 @@ class data_object:
         out.append("Log File : %s" % self.log_file)
         return "\n".join(out)
 
+    def __repr__(self):
+        return self.data_name
+
     def export_to_txt(self):
         sf = self.save_file.replace(".p", ".txt")
         with open(sf, "w") as f:
@@ -188,6 +192,8 @@ def load_experiment(file_dir=None, shell=False):
     cpl_extract.experiment or None if no file found
     """
     return load_data("experiment", file_dir, shell=shell)
+
+
 
 
 def load_dataset(file_dir=None, shell=False):

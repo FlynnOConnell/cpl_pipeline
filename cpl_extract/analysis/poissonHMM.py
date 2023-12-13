@@ -9,18 +9,19 @@ import time as sys_time
 import seaborn as sns
 from numba import njit
 from copy import deepcopy
+
 from scipy.ndimage.filters import gaussian_filter1d
+
 from cpl_extract.utils.particles import HMMInfoParticle
 from cpl_extract import load_dataset
-from cpl_extract.spk_io import h5io, hmmIO
-from cpl_extract.spk_io import hmm_plot as hmmplt
+from cpl_extract.spk_io import h5io
 from cpl_extract.utils import math_tools as mt
 from joblib import Parallel, delayed, Memory, cpu_count
-from appdirs import user_cache_dir
 from scipy.spatial.distance import pdist, squareform
+from pathlib import Path
 
-
-cachedir = user_cache_dir("cpl_extract")
+cachedir = Path().home() / '.cache'
+cachedir.mkdir(exist_ok=True)
 memory = Memory(cachedir, verbose=0)
 
 TEST_PARAMS = {
@@ -811,7 +812,7 @@ def fit_hmm_mp(rec_dir, params, h5_file=None, constraint_func=None):
 
             if old_hmm is None:
                 print("%s: No existing HMM %s. Writing ..." % (pid, hmm_id))
-                hmmIO.write_hmm_to_hdf5(h5_file, hmm, params)
+                write_hmm_to_hdf5(h5_file, hmm, params)
                 written = True
             else:
                 print(
@@ -824,7 +825,7 @@ def fit_hmm_mp(rec_dir, params, h5_file=None, constraint_func=None):
                         "%s: Replacing HMM %s due to higher log likelihood"
                         % (pid, hmm_id)
                     )
-                    hmmIO.write_hmm_to_hdf5(h5_file, hmm, params)
+                    write_hmm_to_hdf5(h5_file, hmm, params)
                     written = True
 
         except Exception as e:
@@ -841,7 +842,7 @@ def fit_hmm_mp(rec_dir, params, h5_file=None, constraint_func=None):
 def load_hmm_from_hdf5(h5_file, hmm_id):
     hmm_id = int(hmm_id)
     try:
-        existing_hmm = hmmIO.read_hmm_from_hdf5(h5_file, hmm_id)
+        existing_hmm = read_hmm_from_hdf5(h5_file, hmm_id)
     except:
         existing_hmm = None
 
@@ -1301,6 +1302,14 @@ class PoissonHMM(object):
         self.stat_arrays["gamma_sequences"] = gamma_sequences
 
 
+def setup_hmm_hdf5(h5_file):
+    pass
+
+
+def get_hmm_overview_from_hdf5(h5_file):
+    pass
+
+
 class HmmHandler(object):
     def __init__(self, dat, save_dir=None):
         """Takes a cpl_extract dataset object and fits HMMs for each tastant
@@ -1344,7 +1353,8 @@ class HmmHandler(object):
         if not os.path.isdir(self.plot_dir):
             os.makedirs(self.plot_dir)
 
-        hmmIO.setup_hmm_hdf5(self.h5_file)
+        setup_hmm_hdf5(self.h5_file)
+
         # this function can be edited to account for parameters added in the
         # future
         # hmmIO.fix_hmm_overview(self.h5_file)
@@ -1361,7 +1371,7 @@ class HmmHandler(object):
             return
 
         for i in overview.hmm_id:
-            _, _, _, stat_arrays, p = hmmIO.read_hmm_from_hdf5(h5_file, i)
+            _, _, _, stat_arrays, p = read_hmm_from_hdf5(h5_file, i)
             for k in list(p.keys()):
                 if k not in HMM_PARAMS.keys():
                     _ = p.pop(k)
@@ -1376,7 +1386,7 @@ class HmmHandler(object):
         return df
 
     def get_data_overview(self):
-        return hmmIO.get_hmm_overview_from_hdf5(self.h5_file)
+        return get_hmm_overview_from_hdf5(self.h5_file)
 
     def get_overview_w_AIC(self):
         ov = self.get_data_overview().copy()
@@ -1409,7 +1419,7 @@ class HmmHandler(object):
         _ = self._data_params.pop(index)
 
         self._fit_params = [
-            x for x in self._fit_params if not hmmIO.compare_hmm_params(params, x)
+            x for x in self._fit_params if not compare_hmm_params(params, x)
         ]
         return
 
@@ -1487,7 +1497,7 @@ class HmmHandler(object):
 
             save_file = os.path.join(plot_dir, "trial_raster")
             print("Plotting HMM %s..." % i)
-            hmmplt.make_hmm_raster(spikes, time, save_file)
+            make_hmm_raster(spikes, time, save_file)
 
     def plot_saved_models(self, dinlabels=True):
         print("Plotting saved models")
@@ -1521,7 +1531,7 @@ class HmmHandler(object):
             else:
                 hmm_id = None
 
-            hmmplt.plot_hmm_figures(
+            plot_hmm_figures(
                 hmm, spikes, dt, time, hmm_id=hmm_id, save_dir=plot_dir
             )
 
@@ -1650,7 +1660,7 @@ class HmmHandler(object):
                     p["n_trials"] = len(p["trial_nums"])
 
                 # Skip if parameter is already in parameter set
-                if any([hmmIO.compare_hmm_params(p, dp) for dp in data_params]):
+                if any([compare_hmm_params(p, dp) for dp in data_params]):
                     print(
                         "Parameter set already in data_params, "
                         "to re-fit run with overwrite=True"
@@ -1685,7 +1695,7 @@ class HmmHandler(object):
             if p.get("trial_nums") is not None:
                 p["n_trials"] = len(tastes) * len(p["trial_nums"])
 
-            if any([hmmIO.compare_hmm_params(p, dp) for dp in data_params]):
+            if any([compare_hmm_params(p, dp) for dp in data_params]):
                 print(
                     "Parameter set already in data_params, "
                     "to re-fit run with overwrite=True"
@@ -1724,7 +1734,7 @@ class HmmHandler(object):
         also reload parameters from hdf5, so any added but un-fit params will
         be lost
         """
-        hmmIO.delete_hmm_from_hdf5(self.h5_file, **kwargs)
+        delete_hmm_from_hdf5(self.h5_file, **kwargs)
         self.load_params()
 
 
@@ -1951,8 +1961,8 @@ def package_project_data(hmm_df, save_file, **kwargs):
             data_name = dat.data_name
             din = dat.dig_in_mapping.set_index("channel").loc[channel, "name"]
             din = din.replace(" ", "_")
-            hmm_h5 = hmmIO.get_hmm_h5(rd)
-            PI, A, B, stat_arrays, params = hmmIO.read_hmm_from_hdf5(hmm_h5, hmm_id)
+            hmm_h5 = get_hmm_h5(rd)
+            PI, A, B, stat_arrays, params = read_hmm_from_hdf5(hmm_h5, hmm_id)
 
             path_str = "/"
             if exp_name not in hf5.root:

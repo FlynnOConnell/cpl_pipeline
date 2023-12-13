@@ -12,6 +12,7 @@ from cpl_extract.analysis.cluster import SpikeSorter
 
 
 class SpikeSorterGUI(ttk.Frame):
+
     def __init__(self, parent, spike_sorter, *args, **kwargs):
         tk.Frame.__init__(self, parent, *args, **kwargs)
         self.root = parent
@@ -291,6 +292,11 @@ class SpikeSorterGUI(ttk.Frame):
 
         self.disable_all()
         self.sorter.plot_clusters_umap(chosen)
+
+
+
+
+
         self.enable_all()
 
     def view_wavelets(self, *args):
@@ -358,6 +364,12 @@ class SpikeSorterGUI(ttk.Frame):
 
     def disable_all(self):
         self.cstate("disabled")
+
+    def close(self):
+        if self.root.is_alive():
+            pass
+        self.root.destroy()
+
 
 
 class CheckBar(ttk.Frame):

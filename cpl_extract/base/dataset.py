@@ -77,7 +77,6 @@ class Dataset(objects.data_object):
     def __init__(
         self,
         root_dir=None,
-        data_dir=None,
         data_name=None,
         shell=False,
         file_type=".smr",
@@ -91,17 +90,10 @@ class Dataset(objects.data_object):
         root_dir : str (optional), file directory for intan recording data
 
         """
-        super().__init__(
-            data_type=None, root_dir=root_dir, data_name=data_name, shell=shell
-        )
+        super().__init__(data_type=None, root_dir=root_dir, data_name=data_name, shell=shell)
 
         # TODO: add check for file type + additional file types
         self.emg_mapping = None
-        if file_type != ".smr":
-            raise NotImplementedError("Unsupported recording type. Cannot extract yet.")
-
-        if root_dir.is_file() and root_dir.suffix == ".smr":
-            data_dir = root_dir.parent
 
         h5_file = get_h5_filename(self.root_dir)
         if h5_file is None:
@@ -116,7 +108,6 @@ class Dataset(objects.data_object):
         self.h5_file = h5_file
 
         self.rec_info = {"file_type": file_type}
-        self.data_dir = data_dir
 
         self.dataset_creation_date = dt.datetime.today()
         self.processing_steps = Dataset.PROCESSING_STEPS.copy()
@@ -131,6 +122,10 @@ class Dataset(objects.data_object):
     def initParams(
         self,
         data_quality="hp",
+        emg_port=None,
+        emg_channels=None,
+        dig_in_names=None,
+        dig_out_names=None,
         shell=False,
         accept_params=False,
     ):
@@ -169,20 +164,18 @@ class Dataset(objects.data_object):
         """
 
         file_dir = Path(self.root_dir)
-        datafiles = [x for x in self.data_dir.glob("*.smr")]
+        data_files = [f for f in file_dir.iterdir() if f.suffix == ".smr"]
 
-        if len(datafiles) == 0:
-            raise FileNotFoundError(f"No Spike2 files found in {file_dir}")
-        if len(datafiles) > 1:
+        if len(data_files) > 1:
             print(
                 f"Multiple Spike2 files found in {file_dir}. \n"
                 f"Select the one you want to load."
             )
             file = prompt.select_from_list(
-                "Select Spike2 file", datafiles, "Spike2 File Selection", shell=shell
+                "Select Spike2 file", data_files, "Spike2 File Selection", shell=shell
             )
         else:
-            file = datafiles[0]
+            file = data_files[0]
 
         print("Extracting information from Spike2 file")
         self.data = Spike2Data(filepath=file,)
@@ -193,7 +186,15 @@ class Dataset(objects.data_object):
 
         # add the data dataframe to the rec_info dictionary
         self.rec_info.update(self.electrode_mapping.to_dict())
-        self.rec_info.update({"rec_length": self.data.rec_length})
+        self.rec_info.update(
+            {
+                "rec_length": self.data.rec_length,
+                "num_electrodes": len(self.electrode_mapping),
+                "idx_electrodes": self.electrode_mapping['electrode'].values,
+                "name_electrodes": self.electrode_mapping['name'].values,
+            }
+        )
+        self.rec_df = pd.DataFrame.from_dict(self.rec_info, orient='index').T
 
         # Get default parameters from files
         clustering_params = load_params(
@@ -396,7 +397,7 @@ class Dataset(objects.data_object):
         if hasattr(self, "raw_h5_file"):
             out.append("Deleted Raw h5 file: " + self.raw_h5_file)
 
-        out.append("h5 File: " + self.h5_file)
+        out.append("h5 File: " + str(self.h5_file))
         out.append("")
 
         out.append("--------------------")
@@ -409,18 +410,6 @@ class Dataset(objects.data_object):
             return "\n".join(out)
 
         info = self.rec_info
-
-        out.append("--------------------")
-        out.append("Recording Info")
-        out.append("--------------------")
-        out.append(pt.print_dict(self.rec_info))
-        out.append("")
-
-        out.append("--------------------")
-        out.append("electrodes")
-        out.append("--------------------")
-        out.append(pt.print_dataframe(self.electrode_mapping))
-        out.append("")
 
         if self.emg_mapping:
             out.append("--------------------")
@@ -626,7 +615,8 @@ class Dataset(objects.data_object):
         return dead_channels
 
     def detect_spikes(self, data_quality=None, multi_process=False, n_cores=None):
-        """Run spike detection on each electrode. Prepares for clustering with
+        """
+        Run spike detection on each electrode. Prepares for clustering with
         BlechClust. Works for both single recording clustering or
         multi-recording clustering
 
@@ -679,6 +669,7 @@ class Dataset(objects.data_object):
             results = [(None, None, None)] * (max(electrodes) + 1)
             spike_detectors = [
                 clust.SpikeDetection(data_dir, x, self.clustering_params) for x in electrodes
+
             ]
             for sd in tqdm(spike_detectors):
                 res = sd.run()
@@ -709,9 +700,7 @@ class Dataset(objects.data_object):
         print("Spike Detection Complete\n------------------")
         return results
 
-    def blech_clust_run(
-        self, data_quality=None, multi_process=False, n_cores=None, umap=True, accept_params=False
-    ):
+    def blech_clust_run(self, data_quality=None, multi_process=False, n_cores=None, umap=True, accept_params=False):
         """
         Write clustering parameters to file and
         Run blech_process on each electrode using GNU parallel
@@ -790,8 +779,9 @@ class Dataset(objects.data_object):
         print("Clustering Complete\n------------------")
 
     def cleanup_clustering(self):
-        """Consolidates memory monitor files, removes raw and referenced data
-        and setups up hdf5 store for sorted units data
+        """
+        Consolidates memory monitor files, removes raw and referenced data
+        and sets up the h5 data store for spike-sorting.
         """
         if self.process_status["cleanup_clustering"]:
             return
@@ -806,8 +796,10 @@ class Dataset(objects.data_object):
             electrode = prompt.get_user_input("electrode #: ", shell=shell)
             if electrode is None or not electrode.isnumeric():
                 return
-
             electrode = int(electrode)
+
+        if electrode == 'all':
+            electrodes = self.electrode_mapping['electrode'].tolist()
 
         if not self.process_status["spike_clustering"]:
             raise ValueError("Must run spike clustering first.")
@@ -1208,6 +1200,12 @@ class Dataset(objects.data_object):
         tbl = tbl.explode(cols)
 
         return tbl
+
+
+
+    def print_status(self):
+        print("Process Status")
+        print(pt.print_dict(self.process_status))
 
 def run_joblib_process(process):
     res = process.run()
