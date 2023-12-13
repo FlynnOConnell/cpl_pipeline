@@ -140,7 +140,8 @@ def get_unit_table(rec_dir, h5_file=None):
 
 
 def get_next_unit_name(rec_dir, h5_file=None):
-    """returns node name for next sorted unit
+    """
+    returns node name for next sorted unit
 
     Parameters
     ----------
@@ -152,7 +153,7 @@ def get_next_unit_name(rec_dir, h5_file=None):
     """
     units = get_unit_names(rec_dir, h5_file=h5_file)
     unit_nums = sorted([parse_unit_number(i) for i in units])
-    if units == []:
+    if not units:
         out = "unit%03d" % 0
     else:
         out = "unit%03d" % int(max(unit_nums) + 1)
@@ -383,23 +384,32 @@ def get_raw_unit_waveforms(
     )
     return slices_dj, descriptor, new_fs
 
+def write_time_vector_to_h5(h5_file, electrode, fs):
+    # get unit, make vector the ams elength as the unit
+    with tables.open_file(h5_file, "r+") as hf5:
 
-def write_spike2_array_to_h5(h5_file, electrode, waves=None, times=None,):
+        if "/raw/electrode%i" % electrode in hf5:
+            # mae time vector
+            arr = hf5.root.raw["electrode%i" % electrode][:]
+            time = np.arange(0, arr.shape[0] / fs, 1 / fs)
+            hf5.root.time.time_vector.append(time)
+            return True
+        else:
+            return False
+
+
+def write_spike2_array_to_h5(h5_file, electrode, waves=None,):
 
     if not Path(h5_file).exists():
         h5_file = get_h5_filename(h5_file)
 
-    if waves is not None and times is not None:
-        assert waves.shape[0] == times.shape[0]
-
     println("Writing electrode%i to %s..." % (electrode, h5_file))
     with tables.open_file(h5_file, "r+") as hf5:
-        electrode_str = "electrode%i" % electrode
-        hf5.root.raw.electrode_str.append(waves[:])
-        if times is not None:
-            hf5.root.raw.time_vector.append(times[:])
-        print("Done!")
-
+        if "/raw" in hf5 and "/raw/electrode%i" % electrode in hf5:
+            #apepdn array
+            node = hf5.root.raw["electrode%i" % electrode]
+            node.append(waves)
+            return True
 
 def get_unit_waveforms(file_dir, unit, required_descrip=None, h5_file=None):
     if isinstance(unit, int):
@@ -651,9 +661,10 @@ def read_unit_description(unit_description):
         return "Unlabelled"
 
 def add_new_unit(
-    rec_dir, electrode, waves, times, single_unit, pyramidal, interneuron, h5_file=None
+    rec_dir, electrode, waves, times, single_unit, multi_unit, h5_file=None
 ):
-    """Adds new sorted unit to h5_file and returns the new unit name
+    """
+    Adds new sorted unit to h5_file and returns the new unit name
     Creates new row for unit description and add waveforms and times arrays
 
     Parameters
@@ -663,13 +674,14 @@ def add_new_unit(
     waves : np.array
     times : np.array
     single_unit : bool or int
-    pyramidal : bool or int
-    interneuron : bool or int
+    multi_unit : bool or int
+    h5_file : str (optional)
 
     Returns
     -------
     str : unit_name
     """
+
     if h5_file is None:
         h5_file = get_h5_filename(rec_dir)
 
@@ -677,19 +689,29 @@ def add_new_unit(
 
     with tables.open_file(h5_file, "r+") as hf5:
         if "/sorted_units" not in hf5:
+            print("Creating sorted_units group")
             hf5.create_group("/", "sorted_units")
 
         if "/unit_descriptor" not in hf5:
-            hf5.create_table(
-                "/", "unit_descriptor", description=particles.unit_descriptor
-            )
+            print("Creating unit_descriptor table")
+            hf5.create_table("/", "unit_descriptor", description=particles.unit_descriptor)
 
         table = hf5.root.unit_descriptor
         unit_descrip = table.row
+
+        for x in unit_descrip:
+            print(x)
+
+        sys.stdout.flush()
+
         unit_descrip["electrode_number"] = int(electrode)
         unit_descrip["single_unit"] = int(single_unit)
-        unit_descrip["regular_spiking"] = int(pyramidal)
-        unit_descrip["fast_spiking"] = int(interneuron)
+        try:
+            unit_descrip["multi_unit"] = int(multi_unit)
+        except KeyError:
+            # add the multi_unit column if it doesn't exist
+            table.row.append()
+            unit_descrip["multi_unit"] = int(multi_unit)
 
         hf5.create_group("/sorted_units", unit_name, title=unit_name)
         waveforms = hf5.create_array("/sorted_units/%s" % unit_name, "waveforms", waves)
@@ -788,7 +810,6 @@ def create_hdf_arrays(
         file_name = file_name.with_suffix(".h5")
 
     println("Creating empty arrays in hdf5 store for raw data...")
-    sys.stdout.flush()
     atom = tables.IntAtom()
     f_atom = tables.Float64Atom()
 

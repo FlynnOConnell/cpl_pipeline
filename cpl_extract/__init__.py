@@ -1,20 +1,10 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 import os
 
 import numpy as np
-import psutil
 
-try:
-    from platformdirs import user_cache_dir, user_config_dir, user_log_dir
-except ImportError:
-    user_cache_dir = None
-    user_config_dir = None
-    user_log_dir = None
-    pass
 from pathlib import Path
 from . import spk_io, utils, analysis
-
+from .base import *
 
 __name__ = "cpl_extract"
 __author__ = "Flynn OConnell"
@@ -22,6 +12,12 @@ __all__ = [
     "spk_io",
     "utils",
     "analysis",
+    "Dataset",
+    "load_params",
+    "validate_data_integrity",
+    "load_dataset",
+    "load_pickled_object",
+    "load_data"
 ]
 
 # Version
@@ -64,12 +60,6 @@ def detect_number_of_cores():
             return ncpus
     return 1  # Default
 
-def calculate_optimal_chunk_size(item_size_bytes, memory_usage_fraction=0.5):
-    """Calculates the optimal chunk size for a given item size."""
-    return int(
-        (psutil.virtual_memory().available * memory_usage_fraction) / item_size_bytes
-    )
-
 def _test():
     """Run ``doctest``"""
     import doctest
@@ -108,28 +98,3 @@ def pad_arrays_to_same_length(arr_list, max_diff=100):
 def extract_common_key(filepath):
     parts = filepath.stem.split("_")
     return "_".join(parts[:-1])
-
-# Platform-dependent directories
-def _init_directories():
-    cpe_dir = Path().home() / "cpl_extract"
-    cpe_dir.mkdir(exist_ok=True)
-
-    # use pre-existing dirs if possible
-    if user_cache_dir and user_config_dir and user_log_dir:
-        return {
-            "cache_dir": user_cache_dir(__name__),
-            "config_dir": user_config_dir(__name__),
-            "log_dir": user_log_dir(__name__),
-            "cpe_dir": cpe_dir,
-        }
-    else:
-        return {
-            "cpe_dir": cpe_dir,
-            "cache_dir": cpe_dir / "cache",
-            "config_dir": cpe_dir / "config",
-            "log_dir": cpe_dir / "logs",
-        }
-
-directories = _init_directories()
-__all__.extend(list(directories.keys()))
-globals().update(directories)

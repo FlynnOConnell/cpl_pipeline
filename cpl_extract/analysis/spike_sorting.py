@@ -2,9 +2,11 @@ import os
 import tables
 import numpy as np
 from cpl_extract.spk_io import h5io
-from numba import jit
+from numba import jit, NumbaDeprecationWarning
+import warnings
 import itertools
 
+warnings.filterwarnings("ignore", category=NumbaDeprecationWarning, module="numba")
 
 def make_spike_arrays(h5_file, params):
     """Makes stimulus triggered spike array for all sorted units

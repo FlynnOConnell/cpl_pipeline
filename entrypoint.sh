@@ -4,10 +4,14 @@
 
 # Enable strict mode.
 set -euo pipefail
-# ... Run whatever commands ...
+IFS=$'\n\t' # Set IFS to newline and tab.
+
+# Activate the conda environment.
+#eval "$(conda shell.bash hook)"  # not working
 
 # Temporarily disable strict mode and activate conda:
 set +euo pipefail
+conda update conda
 conda activate spk2extract
 
 # Re-enable strict mode:

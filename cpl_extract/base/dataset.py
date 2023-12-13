@@ -1,9 +1,11 @@
 import datetime as dt
+import itertools
 import os
 import shutil
 import subprocess
 from copy import deepcopy
 from pathlib import Path
+from tkinter import Tk
 
 import numpy as np
 import pandas as pd
@@ -35,9 +37,9 @@ from cpl_extract.spk_io.h5io import (
     cleanup_clustering,
     write_digital_map_to_h5,
     write_array_to_hdf5,
-    create_trial_data_table, write_spike2_array_to_h5,
+    create_trial_data_table, write_spike2_array_to_h5, write_time_vector_to_h5,
 )
-from cpl_extract.utils.spike_sorting_GUI import launch_sorter_GUI
+from cpl_extract.utils.spike_sorting_GUI import launch_sorter_GUI, SpikeSorterGUI
 from cpl_extract.utils.userIO import get_filedirs
 
 
@@ -487,7 +489,7 @@ class Dataset(objects.data_object):
         wt.write_params_to_json("psth_params", rec_dir, psth_params)
         wt.write_params_to_json("pal_id_params", rec_dir, pal_id_params)
 
-    def extract_data(self, filename=None, shell=False):
+    def extract_data(self, filename=None,):
         """
         Create hdf5 store for data and read in Intan .dat files. Also create
         subfolders for processing outputs
@@ -500,9 +502,6 @@ class Dataset(objects.data_object):
             parameters and then try noisy after running blech_clust and
             checking if too many electrodes as cutoff too early
         """
-
-        if "SHH_CONNECTION" in os.environ:
-            shell = True
 
         file = filename if filename else self.h5_file
         tmp = spk_io.create_empty_data_h5(
@@ -530,26 +529,23 @@ class Dataset(objects.data_object):
         """Called only when extracting data from Spike2 file and extract_data() is called"""
         electrodes = self.electrode_mapping["electrode"].unique()
         start_time = 0
-        _time_flag = True
+        _time_flag = False
         for electrode_idx in electrodes:
             this_electrode = self.electrode_mapping[self.electrode_mapping["electrode"] == electrode_idx]
             electrode = this_electrode["electrode"].iloc[0]
             unit_fs = this_electrode["sampling_rate"].iloc[0]
             data = []
-            time = []
 
             for chunk in self.data.read_data_in_chunks(electrode_idx):
-                data.append(np.round(chunk), 8)
-                if _time_flag:
+                data.append(np.round(chunk, 7))
+            data = list(itertools.chain(*data))
 
-                    x = np.arange(start_time, start_time + len(chunk) / unit_fs, 1 / unit_fs)
-                    print(f"chunk: {len(chunk)}")
-                    print(f"time: {len(x)}")
-                    time.append(np.arange(start_time, start_time + len(chunk) / unit_fs, 1 / unit_fs))
-                    start_time += len(chunk)
-            _time_flag = False
-            write_spike2_array_to_h5(self.h5_file, electrode, waves=np.concatenate(data), times=np.concatenate(time),)
+            write_spike2_array_to_h5(self.h5_file, electrode, waves=data,)
             write_electrode_map_to_h5(self.h5_file, self.electrode_mapping)
+            if _time_flag is False:
+                saved = write_time_vector_to_h5(self.h5_file, electrode, unit_fs)
+                if saved:
+                    _time_flag = True
 
     def create_trial_list(self):
         """
@@ -805,7 +801,7 @@ class Dataset(objects.data_object):
         self.process_status["cleanup_clustering"] = True
         self.save()
 
-    def sort_spikes(self, electrode=None, shell=False):
+    def sort_spikes(self, electrode=None, shell=False) -> (Tk, SpikeSorterGUI):
         if electrode is None:
             electrode = prompt.get_user_input("electrode #: ", shell=shell)
             if electrode is None or not electrode.isnumeric():
@@ -823,12 +819,6 @@ class Dataset(objects.data_object):
         if not shell:
             root, sorting_GUI = launch_sorter_GUI(sorter)
             return root, sorting_GUI
-        else:
-            # TODO: Make shell UI
-            # TODO: Make sort by table
-            print("No shell UI yet")
-            return
-
         self.process_status["sort_units"] = True
 
     def units_similarity(self, similarity_cutoff=50, shell=False):
@@ -1318,14 +1308,10 @@ def port_in_dataset(rec_dir=None, shell=False):
                     dat.root_dir, "Plots", f"{el}", "Plots", "pca_variance.png"
                 ),
                 os.path.join(dat.root_dir, "spike_waveforms", f"electrode{el}"),
-                os.path.join(
-                    dat.root_dir, "spike_times", f"electrode{el}", "spike_times.npy"
-                ),
+                os.path.join(dat.root_dir, "spike_times", f"electrode{el}", "spike_times.npy"),
             ]
             clust_dir = os.path.join(dat.root_dir, "BlechClust", f"electrode_{el}")
-            detect_dir = os.path.join(
-                dat.root_dir, "spike_detection", f"electrode_{el}"
-            )
+            detect_dir = os.path.join(dat.root_dir, "spike_detection", f"electrode_{el}")
             dest = [
                 os.path.join(clust_dir, "clustering_results"),
                 os.path.join(clust_dir, "plots"),
@@ -1346,9 +1332,7 @@ def port_in_dataset(rec_dir=None, shell=False):
             # Make params files
             params = dat.clustering_params.copy()
 
-            sd_fn = os.path.join(
-                dat.root_dir, "analysis_params", "spike_detection_params.json"
-            )
+            sd_fn = os.path.join(dat.root_dir, "analysis_params", "spike_detection_params.json")
             if not os.path.isfile(sd_fn):
                 sd_params = {}
                 sd_params["voltage_cutoff"] = params["data_params"][

@@ -18,8 +18,7 @@ class unit_descriptor(tables.IsDescription):
 
     electrode_number = tables.Int32Col()
     single_unit = tables.Int32Col()
-    regular_spiking = tables.Int32Col()
-    fast_spiking = tables.Int32Col()
+    multi_unit = tables.Int32Col()
 
 
 class electrode_map_particle(tables.IsDescription):

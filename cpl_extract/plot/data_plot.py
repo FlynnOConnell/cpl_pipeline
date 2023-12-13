@@ -307,9 +307,9 @@ def plot_held_units(rec_dirs, held_df, save_dir, rec_names=None):
 
         single_unit = row["single_unit"]
         if single_unit:
-            single_str = "single-unit"
+            single_str = "single_unit"
         else:
-            single_str = "multi-unit"
+            single_str = "multi_unit"
 
         unit_type = row["unit_type"]
         unit_name = row["unit"]

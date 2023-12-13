@@ -43,6 +43,9 @@ from cpl_extract.spk_io.writer import (
     read_dict_from_json,
     read_pandas_from_table,
 )
+from cpl_extract.logger import setUpLogging
+
+logger = setUpLogging(__name__)
 
 def get_filtered_electrode(data, freq=(300.0, 3000.0), sampling_rate=30000.0):
     el = data
@@ -985,6 +988,7 @@ class CplClust:
                 out_dir = os.path.join(rec_dirs[0], "cpl_extract", f"electrode_{channel_number}")
 
         if overwrite:
+            logger.info("Overwriting existing data")
             shutil.rmtree(out_dir)
 
         # Make directories
@@ -1349,13 +1353,9 @@ class SpikeSorter:
         if clustering_dir is None:
             if len(rec_dirs) > 1:
                 top = os.path.dirname(rec_dirs[0])
-                clustering_dir = os.path.join(
-                    top, "cpl_extract", "electrode_%i" % electrode
-                )
+                clustering_dir = os.path.join(top, "cpl_extract", "electrode_%i" % electrode)
             else:
-                clustering_dir = os.path.join(
-                    rec_dirs[0], "cpl_extract", "electrode_%i" % electrode
-                )
+                clustering_dir = os.path.join(rec_dirs[0], "cpl_extract", "electrode_%i" % electrode)
 
         self.clustering_dir = clustering_dir
         try:
@@ -1422,7 +1422,7 @@ class SpikeSorter:
         self._last_popped = None
         self._last_added = None
 
-    def save_clusters(self, target_clusters, single_unit, pyramidal, interneuron):
+    def save_clusters(self, target_clusters, single_unit, multi_unit):
         """Saves active clusters as cells, write them to the h5_files in the
         appropriate recording directories
 
@@ -1444,8 +1444,7 @@ class SpikeSorter:
         n_clusters = len(target_clusters)
         if (
             len(single_unit) != n_clusters
-            or len(pyramidal) != n_clusters
-            or len(interneuron) != n_clusters
+            or len(multi_unit) != n_clusters
         ):
             raise ValueError(
                 "Length of input lists must match number of "
@@ -1459,8 +1458,8 @@ class SpikeSorter:
         rec_key = self.clustering._rec_key
         self._last_saved = dict.fromkeys(rec_key.keys(), None)
 
-        for clust, single, pyr, intr in zip(
-            clusters, single_unit, pyramidal, interneuron
+        for clust, single, multi in zip(
+            clusters, single_unit, multi_unit
         ):
             for i, rec in rec_key.items():
                 idx = np.where(clust["spike_map"] == i)[0]
@@ -1470,7 +1469,7 @@ class SpikeSorter:
                 waves = clust["spike_waveforms"][idx]
                 times = clust["spike_times"][idx]
                 unit_name = h5io.add_new_unit(
-                    rec, self.electrode, waves, times, single, pyr, intr
+                    rec, self.electrode, waves, times, single, multi
                 )
                 if self._last_saved[i] is None:
                     self._last_saved[i] = [unit_name]

@@ -9,8 +9,8 @@ The resulting Datashader image is displayed using Matplotlib.
 """
 import datashader as ds
 import datashader.transfer_functions as tf
-from datashader.utils import export_image
-import imageio
+# from datashader.utils import export_image
+# import imageio
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd

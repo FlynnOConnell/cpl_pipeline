@@ -1,4 +1,4 @@
-from cpl_extract.analysis.blech_clustering import SpikeCluster
+from cpl_extract.analysis.cluster import SpikeCluster
 import numpy as np
 
 

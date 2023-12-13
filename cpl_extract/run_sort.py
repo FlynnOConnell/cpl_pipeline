@@ -2,31 +2,52 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
-from cpl_extract import logger
+from cpl_extract import load_dataset
 from cpl_extract.base.dataset import Dataset
-from cpl_extract.base.objects import load_dataset
 
-def main():
-    logger.use_log_level("INFO")
-    print("Starting main_dataset")
+log_file = Path().home() / "cpl_extract"/ "logs" / "base.log"
+log_file.parent.mkdir(exist_ok=True)
+log_file.touch(exist_ok=True)
+
+logging.basicConfig(filename=log_file, level=logging.INFO,
+                    format='%(asctime)s:%(levelname)s:%(message)s')
+
+
+def _init_data():
+    logging.info("Initializing CPL Extract")
 
     root_dir = Path().home() / "cpl_extract"
     data_dir = Path("/media/thom/hub/data/serotonin/raw/")
 
-    animal = list(data_dir.glob("*.smr"))[0]
+    data = Dataset(root_dir, data_dir)
+    data.initParams(shell=True, accept_params=True)
+    return data
 
-    data = Dataset(root_dir=root_dir, data_dir=data_dir, data_name=animal.stem,)
-    data.initParams(accept_params=True)
+def _extract_data(data):
     data.extract_data()
-    # data.mark_dead_channels()
-    # data = load_dataset(root_dir, data_dir,)
-    # print(data)
+    return data
 
+def _detect_spikes(data):
     data.detect_spikes()
-    # data.blech_clust_run(multi_process=True, n_cores=16, umap=False, accept_params=True)
-    # data.sort_spikes(3)
+    return data
+
+def _blech_clust_run(data):
+    data.blech_clust_run()
+    return data
+
+def _sort_spikes(data):
+    data.sort_spikes(3)
+    return data
+
+def main():
+    data = load_dataset(Path().home() / "cpl_extract")
+    _, ss_gui = data.sort_spikes()
+    ss_gui.mainloop()
 
 if __name__ == "__main__":
     main()
+
+

@@ -3,19 +3,12 @@ import sys
 from tkinter import ttk
 import numpy as np
 import matplotlib
-
-from cpl_extract.utils.tk_widgets import ScrollFrame
+from cpl_extract.utils import userIO, tk_widgets as tkw
 
 matplotlib.use("TKAgg")
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from cpl_extract.utils import userIO
-from cpl_extract.utils import tk_widgets as tkw
-from cpl_extract.utils import math_tools as mt
-from cpl_extract.utils import write_tools as wt
-from cpl_extract.utils import print_tools as pt
-from cpl_extract.utils import data_reset as dr
-from cpl_extract.utils import decorators as dec
+from cpl_extract.analysis.cluster import SpikeSorter
 
 
 class SpikeSorterGUI(ttk.Frame):
@@ -93,14 +86,10 @@ class SpikeSorterGUI(ttk.Frame):
         viewWaves = ttk.Button(buttons, text="View Waves", command=self.view_waves)
         # viewRecWaves = ttk.Button(buttons, text='View Waves by Rec',
         #                           command=self.view_waves_by_rec)
-        viewTimeWaves = ttk.Button(
-            buttons, text="View Waves over Time", command=self.view_waves_over_time
-        )
+        viewTimeWaves = ttk.Button(buttons, text="View Waves over Time", command=self.view_waves_over_time)
         viewPCA = ttk.Button(buttons, text="View PCA", command=self.view_pca)
         viewUMAP = ttk.Button(buttons, text="View UMAP", command=self.view_umap)
-        viewWAVELET = ttk.Button(
-            buttons, text="View Wavelets", command=self.view_wavelets
-        )
+        viewWAVELET = ttk.Button(buttons, text="View Wavelets", command=self.view_wavelets)
         viewRaster = ttk.Button(buttons, text="View Raster", command=self.view_raster)
         viewISI = ttk.Button(buttons, text="View ISI", command=self.view_ISI)
         viewXCORR = ttk.Button(buttons, text="View XCorr", command=self.view_xcorr)
@@ -136,9 +125,7 @@ class SpikeSorterGUI(ttk.Frame):
 
     def update(self):
         if self.sorter._last_action is not None:
-            self._undo_button.config(
-                text="Undo " + self.sorter._last_action, state="normal"
-            )
+            self._undo_button.config(text="Undo " + self.sorter._last_action, state="normal")
         else:
             self._undo_button.config(text="Undo", state="disabled")
 
@@ -234,8 +221,7 @@ class SpikeSorterGUI(ttk.Frame):
         for i in chosen:
             cell_types[i] = {
                 "single_unit": False,
-                "pyramidal": False,
-                "interneuron": False,
+                "multi_unit": False,
             }
 
         popup = userIO.fill_dict_popup(cell_types, master=self.root)
@@ -247,9 +233,8 @@ class SpikeSorterGUI(ttk.Frame):
             return
 
         single = [cell_types[i]["single_unit"] for i in sorted(cell_types.keys())]
-        pyramidal = [cell_types[i]["pyramidal"] for i in sorted(cell_types.keys())]
-        interneuron = [cell_types[i]["interneuron"] for i in sorted(cell_types.keys())]
-        self.sorter.save_clusters(chosen, single, pyramidal, interneuron)
+        multi = [cell_types[i]["multi_unit"] for i in sorted(cell_types.keys())]
+        self.sorter.save_clusters(chosen, single, multi)
         self.update()
 
     def view_waves(self, *args):
@@ -384,7 +369,10 @@ class CheckBar(ttk.Frame):
         self.choice_vars = []
         self.updateChoices()
 
-    def updateChoices(self, new_choices=[]):
+    def updateChoices(self, new_choices=None):
+        if new_choices is None:
+            new_choices = []
+
         if len(new_choices) > 0:
             self.choices = new_choices
 
@@ -435,7 +423,7 @@ def make_waveform_plot(wave, wave_std, n_waves=None, index=None):
             str(index),
             fontweight="bold",
             fontsize=14,
-        )
+            )
 
     return fig
 
@@ -451,7 +439,7 @@ class WaveformPane(ttk.Frame):
         self.initUI()
 
     def initUI(self):
-        self.scrollpane = ScrollFrame(self)
+        self.scrollpane = tkw.ScrollFrame(self)
         self.scrollpane.pack(fill="both", expand=True, padx=10, pady=10)
         self.update()
 
@@ -519,8 +507,9 @@ class DummySorter(object):
         clusters = [i for i in range(solution_num)]
         self._active = clusters
 
-    def save_clusters(self, target_clusters, single_unit, pyramidal, interneuron):
-        """Saves active clusters as cells, write them to the h5_files in the
+    def save_clusters(self, target_clusters, single_unit):
+        """
+        Saves active clusters as cells, write them to the h5_files in the
         appropriate recording directories
 
         Parameters
@@ -529,26 +518,17 @@ class DummySorter(object):
             indicies of active clusters to save
         single_unit : list of bool
             elements in list must correspond to elements in active clusters
-        pyramidal : list of bool
-        interneuron : list of bool
         """
         if self._active is None:
             return
 
         clusters = [self._active[i] for i in target_clusters]
-        for clust, single, pyr, intr in zip(
-            clusters, single_unit, pyramidal, interneuron
-        ):
+        for clust, single in zip(clusters, single_unit):
             out_str = ["Saved cluster %i." % clust]
-            if pyr:
-                out_str.append("Pyramidal")
-
-            if intr:
-                out_str.append("Interneuron")
-
             if single:
                 out_str.append("Single-Unit")
-
+            else:
+                out_str.append("Multi-Unit")
             print(" ".join(out_str))
 
         self._active = [
@@ -584,10 +564,11 @@ class DummySorter(object):
             print("Reset to before split")
             self._active.insert(target_clust, cluster)
         else:
-            self._waves.pop(ans)
-            keepers = [new_clusts[int(i)] for i in ans]
-            self._active.extend(keepers)
+            print("Split cluster %i into %i clusters" % (cluster, len(ans)))
             raise NotImplementedError("Splitting not implemented yet")
+            # self._waves.pop(clusters)
+            # keepers = [new_clusts[int(i)] for i in ans]
+            # self._active.extend(keepers)
 
     def merge_clusters(self, target_clusters):
         if any([i >= len(self._active) for i in target_clusters]):
