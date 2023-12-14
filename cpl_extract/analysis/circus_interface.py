@@ -6,8 +6,7 @@ import shutil
 import subprocess
 import pylab as plt
 from cpl_extract.plot import data_plot as dplt
-from cpl_extract.analysis import clustering as clust, spike_sorting as ss
-from cpl_extract.analysis.cluster import get_ISI_and_violations
+from cpl_extract.analysis.cluster import get_ISI_and_violations, get_waveforms
 from cpl_extract.spk_io import h5io
 import pandas as pd
 
@@ -296,7 +295,7 @@ class circus_clust(object):
                 cluster_name = "E%i_cluster%i" % (electrode_num, c)
                 idx = np.where(clusters == c)[0]
                 spike_times = all_times[idx]
-                spike_waveforms, new_fs = clust.get_waveforms(ref_el, spike_times)
+                spike_waveforms, new_fs = get_waveforms(ref_el, spike_times)
                 ISI, violations1, violations2 = get_ISI_and_violations(spike_times, fs)
                 # TODO: Actually make cluster data matrix
                 data = None
