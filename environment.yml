@@ -58,3 +58,5 @@ dependencies:
 #    - sonpy
     - termcolor
     - psutil
+    - easygui
+    - prompt_toolkit

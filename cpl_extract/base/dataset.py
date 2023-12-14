@@ -45,10 +45,6 @@ from cpl_extract.utils.userIO import get_filedirs
 
 class Dataset(objects.data_object):
     """
-    Stores information related to an intan recording directory, allows
-    executing basic processing and analysis scripts, and stores parameters data
-    for those analyses
-
     Parameters
     ----------
     root_dir : str (optional)
@@ -162,6 +158,9 @@ class Dataset(objects.data_object):
             clustering, spike array and psth creation and palatability/identity
             calculations
         """
+
+        # intan files are stored as in .dat format readable from a text parser,
+        # but spike2 datafiles require the SonPy library to extract.
 
         file_dir = Path(self.root_dir)
         data_files = [f for f in file_dir.iterdir() if f.suffix == ".smr"]

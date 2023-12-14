@@ -7,7 +7,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from cpl_extract.spk_io import printer as pt, prompt
 
 SCRIPT_DIR = os.path.dirname(__file__)
 PARAM_DIR = os.path.join(SCRIPT_DIR, "defaults")

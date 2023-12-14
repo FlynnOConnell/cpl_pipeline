@@ -1,6 +1,3 @@
-"""
-Spike data extract utility, the main workhorse of this package.
-"""
 from __future__ import annotations
 
 import string
@@ -19,7 +16,6 @@ except ImportError:
         import sonpy as sp
     except:
         pass
-
 
 # any type that contains "Mark" or "mark" is an event channel:
 # - Marker
@@ -486,7 +482,7 @@ class Spike2Data:
 
 
 if __name__ == "__main__":
-    path_test = Path("/media/thom/hub/data/serotonin/raw/")
+    path_test = Path().home() / 'data' / 'r35'
     animal = list(path_test.glob("*.smr"))[0]
     save_spike2_path = Path().home() / "cpl_extract"
     data = Spike2Data(animal, savepath=save_spike2_path)

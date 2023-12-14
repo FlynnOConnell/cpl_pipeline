@@ -1,7 +1,5 @@
 import numpy as np
-import pyBAKS
 import tables
-import pyBAKS
 from scipy.ndimage.filters import gaussian_filter1d
 from scipy.interpolate import interp1d
 from scipy.stats import mannwhitneyu, sem
@@ -117,14 +115,15 @@ def make_rate_arrays(h5_file, dig_in_ch, mode="BAKS"):
             spike_data = hf5.root.spike_trains[dig_str]
             spike_array = spike_data.spike_array[:]
             time = spike_data.array_time[:]
+            results = None
 
             # make array "rates" with the same shape as spike_array
-            results = Parallel(n_jobs=-1)(
-                delayed(pyBAKS.optimize_alpha_MLE)(
-                    spike_array[:, i, :], time, output_df=False
-                )
-                for i in range(spike_array.shape[1])
-            )
+            # results = Parallel(n_jobs=-1)(
+            #     delayed(pyBAKS.optimize_alpha_MLE)(
+            #         spike_array[:, i, :], time, output_df=False
+            #     )
+            #     for i in range(spike_array.shape[1])
+            # )
 
             rates = np.zeros(spike_array.shape)
             i = 0
