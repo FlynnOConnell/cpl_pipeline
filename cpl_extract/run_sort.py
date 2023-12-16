@@ -13,8 +13,8 @@ from cpl_extract.base.objects import *
 from cpl_extract import load_project, load_experiment, experiment
 
 
-log_file = Path().home() / "cpl_extract"/ "logs" / "base.log"
-log_file.parent.mkdir(exist_ok=True)
+log_file = Path().home() / ".logs"/ "cpl_extract.log"
+log_file.parent.mkdir(exist_ok=True, parents=True)
 log_file.touch(exist_ok=True)
 
 logging.basicConfig(filename=log_file, level=logging.INFO,
@@ -41,10 +41,12 @@ def iter_dirs(data_dir):
             yield d
 
 def main():
-    filepath = Path().home() / "data" / "serotonin" / "5"
-    data = load_dataset(filepath)
-    _, ss_gui = data.sort_spikes()
-    ss_gui.mainloop()
+    filepath = Path().home() / "data" / 'r35'
+    file = [f for f in filepath.iterdir() if f.suffix == '.smr'][0]
+    data = Dataset(filepath, file.stem)
+    data.initParams(shell=True, accept_params=True)
+    data.extract_data()
+    data.detect_spikes()
 
 def setup_proj():
     root = Path().home() / "data" / "serotonin"

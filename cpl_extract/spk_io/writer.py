@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from cpl_extract.spk_io import prompt
+from cpl_extract.spk_io import userio
 import pandas as pd
 import json
 import os

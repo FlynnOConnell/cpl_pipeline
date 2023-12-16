@@ -35,8 +35,8 @@ from cpl_extract.plot.data_plot import (
     plot_waveforms_wavelet_tranform,
     plot_spike_raster,
 )
-from cpl_extract.spk_io import print_dict, h5io, prompt
-from cpl_extract.spk_io.prompt import select_from_list, tell_user
+from cpl_extract.spk_io import print_dict, h5io, userio
+from cpl_extract.spk_io.userio import select_from_list, tell_user
 from cpl_extract.spk_io.writer import (
     write_dict_to_json,
     write_pandas_to_table,

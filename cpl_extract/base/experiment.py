@@ -11,7 +11,7 @@ from cpl_extract.analysis.held_unit_analysis import find_held_units
 from cpl_extract.base.objects import data_object, load_dataset
 from cpl_extract.plot.data_plot import plot_held_units, plot_J3s
 from cpl_extract.spk_io import h5io, print_dict, print_dataframe
-from cpl_extract.spk_io.cpl_params import write_params_to_json
+from cpl_extract.spk_io.param_io import write_params_to_json
 from cpl_extract.utils import userIO
 from cpl_extract.utils.spike_sorting_GUI import launch_sorter_GUI
 

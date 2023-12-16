@@ -14,7 +14,7 @@ import numpy as np
 from cpl_extract.utils import userIO
 from cpl_extract.utils.decorators import Timer
 from cpl_extract.analysis import cluster as clust
-from cpl_extract.spk_io import prompt, println, particles, cpl_params
+from cpl_extract.spk_io import userio, println, particles, param_io
 
 support_rec_types = {
     "spike230bit": ".smr",

@@ -29,8 +29,8 @@ from cpl_extract.plot.data_plot import (
     plot_spike_raster,
     plot_ensemble_raster,
 )
-from cpl_extract.spk_io import printer as pt, writer as wt, prompt, h5io
-from cpl_extract.spk_io.cpl_params import load_params
+from cpl_extract.spk_io import printer as pt, writer as wt, userio, h5io
+from cpl_extract.spk_io.param_io import load_params
 from cpl_extract.spk_io.h5io import (
     get_h5_filename,
     write_electrode_map_to_h5,

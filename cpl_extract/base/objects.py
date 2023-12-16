@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 from cpl_extract import logger
-from cpl_extract.spk_io import prompt
+from cpl_extract.spk_io import userio
 import pickle
 
 
