@@ -30,7 +30,7 @@ from cpl_extract.plot.data_plot import (
     plot_ensemble_raster,
 )
 from cpl_extract.spk_io import printer as pt, writer as wt, userio, h5io
-from cpl_extract.spk_io.param_io import load_params
+from cpl_extract.spk_io.paramio import load_params
 from cpl_extract.spk_io.h5io import (
     get_h5_filename,
     write_electrode_map_to_h5,
@@ -40,7 +40,6 @@ from cpl_extract.spk_io.h5io import (
     create_trial_data_table, write_spike2_array_to_h5, write_time_vector_to_h5,
 )
 from cpl_extract.utils.spike_sorting_GUI import launch_sorter_GUI, SpikeSorterGUI
-from cpl_extract.utils.userIO import get_filedirs
 
 
 class Dataset(objects.data_object):
@@ -170,7 +169,7 @@ class Dataset(objects.data_object):
                 f"Multiple Spike2 files found in {file_dir}. \n"
                 f"Select the one you want to load."
             )
-            file = prompt.select_from_list(
+            file = userio.select_from_list(
                 "Select Spike2 file", data_files, "Spike2 File Selection", shell=shell
             )
         else:
@@ -216,7 +215,7 @@ class Dataset(objects.data_object):
 
         # Confirm parameters
         if not accept_params:
-            conf = prompt.confirm_parameter_dict
+            conf = userio.confirm_parameter_dict
             clustering_params = conf(
                 clustering_params, "Clustering Parameters", shell=shell
             )
@@ -265,7 +264,7 @@ class Dataset(objects.data_object):
         usrprompt = (
             f"Digital {dig_str} Parameters\nSet palatability ranks from 1 to {len(df)}"
         )
-        tmp = prompt.fill_dict(df.to_dict(), prompt=usrprompt, shell=shell)
+        tmp = userio.fill_dict(df.to_dict(), prompt=usrprompt, shell=shell)
 
         # Reformat for storage
         df2 = pd.DataFrame.from_dict(tmp)
@@ -303,7 +302,7 @@ class Dataset(objects.data_object):
             return
 
         sa = deepcopy(self.spike_array_params)
-        tmp = prompt.fill_dict(sa, "Spike Array Parameters\n(Times in ms)", shell=shell)
+        tmp = userio.fill_dict(sa, "Spike Array Parameters\n(Times in ms)", shell=shell)
         if tmp is None:
             return
 
@@ -335,7 +334,7 @@ class Dataset(objects.data_object):
         shell : bool (optional)
             True if you want command-line interface, False for GUI (default)
         """
-        tmp = prompt.fill_dict(
+        tmp = userio.fill_dict(
             self.clustering_params, "Clustering Parameters\n(Times in ms)", shell=shell
         )
         if tmp:
@@ -352,7 +351,7 @@ class Dataset(objects.data_object):
         shell : bool (optional)
             True if you want command-line interface, False for GUI (default)
         """
-        tmp = prompt.fill_dict(
+        tmp = userio.fill_dict(
             self.psth_params, "PSTH Parameters\n(Times in ms)", shell=shell
         )
         if tmp:
@@ -369,7 +368,7 @@ class Dataset(objects.data_object):
         shell : bool (optional)
             True if you want command-line interface, False for GUI (default)
         """
-        tmp = prompt.fill_dict(
+        tmp = userio.fill_dict(
             self.pal_id_params,
             "Palatability/Identity Parameters\n(Times in ms)",
             shell=shell,
@@ -578,7 +577,7 @@ class Dataset(objects.data_object):
         # em = self.electrode_mapping.copy()
         em = self.unit_mapping.copy()
         if dead_channels is None:
-            prompt.tell_user("Making traces figure for dead channel detection...", shell=True)
+            userio.tell_user("Making traces figure for dead channel detection...", shell=True)
 
             save_file = os.path.join(self.root_dir, "electrode_Traces.png")
             fig, ax = plot_traces_and_outliers(self.h5_file, save_file=save_file)
@@ -588,12 +587,12 @@ class Dataset(objects.data_object):
                 # xd-open is a linux command to open file with default program, change for other OS
                 subprocess.call(["xdg-open", save_file])
             else:
-                prompt.tell_user(
+                userio.tell_user(
                     "Saved figure of traces to %s for reference" % save_file,
                     shell=shell,
                 )
 
-            choice = prompt.select_from_list(
+            choice = userio.select_from_list(
                 "Select dead channels:",
                 em.electrode.to_list(),
                 "Dead Channel Selection",
@@ -792,7 +791,7 @@ class Dataset(objects.data_object):
 
     def sort_spikes(self, electrode=None, shell=False) -> (Tk, SpikeSorterGUI):
         if electrode is None:
-            electrode = prompt.get_user_input("electrode #: ", shell=shell)
+            electrode = userio.get_user_input("electrode #: ", shell=shell)
             if electrode is None or not electrode.isnumeric():
                 return
             electrode = int(electrode)
@@ -827,7 +826,7 @@ class Dataset(objects.data_object):
             self.h5_file, self.sampling_rate, similarity_cutoff, violation_file
         )
         if len(violations) == 0:
-            prompt.tell_user("No similarity violations found!", shell=shell)
+            userio.tell_user("No similarity violations found!", shell=shell)
             self.process_status["units_similarity"] = True
             return violations, sim
 
@@ -840,7 +839,7 @@ class Dataset(objects.data_object):
 
         out_str.append("Delete units with dataset.delete_unit(N)")
         out_str = "\n".join(out_str)
-        prompt.tell_user(out_str, shell=shell)
+        userio.tell_user(out_str, shell=shell)
         self.process_status["units_similarity"] = True
         self.save()
         return violations, sim
@@ -854,7 +853,7 @@ class Dataset(objects.data_object):
             return
 
         if not confirm:
-            q = prompt.ask_user(
+            q = userio.ask_user(
                 "Are you sure you want to delete unit%03i?" % unit_num,
                 choices=["No", "Yes"],
                 shell=shell,
@@ -868,12 +867,12 @@ class Dataset(objects.data_object):
         else:
             tmp = h5io.delete_unit(self.root_dir, unit_num, h5_file=self.h5_file)
             if tmp is False:
-                prompt.tell_user(
+                userio.tell_user(
                     "Unit %i not found in dataset. No unit deleted" % unit_num,
                     shell=shell,
                 )
             else:
-                prompt.tell_user("Unit %i sucessfully deleted." % unit_num, shell=shell)
+                userio.tell_user("Unit %i sucessfully deleted." % unit_num, shell=shell)
 
         self.save()
 
@@ -1023,12 +1022,12 @@ class Dataset(objects.data_object):
 
         for unit, count in zip(reversed(remove), reversed(spike_count)):
             print("Removing unit %i. Only %i spikes." % (unit, count))
-            prompt.tell_user(
+            userio.tell_user(
                 "Removing unit %i. Only %i spikes." % (unit, count), shell=True
             )
             self.delete_unit(unit, confirm=True, shell=True)
 
-        prompt.tell_user(
+        userio.tell_user(
             "Removed %i units for having less than %i spikes."
             % (len(remove), min_spikes),
             shell=True,
@@ -1213,7 +1212,7 @@ def run_joblib_process(process):
 def port_in_dataset(rec_dir=None, shell=False):
     """Import an existing dataset into this framework"""
     if rec_dir is None:
-        rec_dir = get_filedirs("Select recording directory", shell=shell)
+        rec_dir = userio.get_filedirs("Select recording directory", shell=shell)
         if rec_dir is None:
             return None
 
@@ -1224,7 +1223,7 @@ def port_in_dataset(rec_dir=None, shell=False):
             "%s already exists. Continuing will overwrite this. Continue?"
             % dat.save_file
         )
-        q = prompt.ask_user(prompt, shell=shell)
+        q = userio.ask_user(prompt, shell=shell)
         if q == 0:
             print("Aborted")
             return None
@@ -1234,7 +1233,7 @@ def port_in_dataset(rec_dir=None, shell=False):
             "%s already exists. Continuing will append to this. Continue?"
             % dat.log_file
         )
-        q = prompt.ask_user(prompt, shell=shell)
+        q = userio.ask_user(prompt, shell=shell)
         if q == 0:
             print("Aborted")
             return None
@@ -1256,7 +1255,7 @@ def port_in_dataset(rec_dir=None, shell=False):
     status = dat.process_status
 
     user_status = status.copy()
-    user_status = prompt.fill_dict(
+    user_status = userio.fill_dict(
         user_status,
         "Which processes have already been " "done to the data?",
         shell=shell,
@@ -1396,146 +1395,3 @@ def port_in_dataset(rec_dir=None, shell=False):
         dat.save()
 
     return dat
-
-def validate_data_integrity(rec_dir, verbose=False):
-    """incomplete"""
-    # TODO: Finish this
-    print("Raw Data Validation\n" + "-" * 19)
-    test_names = [
-        "file_type",
-        "recording_info",
-        "files",
-        "dropped_packets",
-        "data_length",
-    ]
-    number_names = [
-        "sample_rate",
-        "dropped_packets",
-        "missing_files",
-        "recording_length",
-    ]
-    tests = dict.fromkeys(test_names, "NOT TESTED")
-    numbers = dict.fromkeys(number_names, -1)
-    file_type = h5io.get_recording_filetype(rec_dir)
-    if file_type is None:
-        file_type_check = "UNSUPPORTED"
-    else:
-        tests["file_type"] = "PASS"
-
-    # Check info.rhd integrity
-    info_file = os.path.join(rec_dir, "info.rhd")
-    return None
-    # try:
-    #     rec_info = read_rec_info(rec_dir, shell=True)
-    #     with open(info_file, "rb") as f:
-    #         info = load_intan_rhd_format.read_header(f)
-    #
-    #     tests["recording_info"] = "PASS"
-    # except FileNotFoundError:
-    #     tests["recording_info"] = "MISSING"
-    # except Exception as e:
-    #     info_size = os.path.getsize(os.path.join(rec_dir, "info.rhd"))
-    #     if info_size == 0:
-    #         tests["recording_info"] = "EMPTY"
-    #     else:
-    #         tests["recording_info"] = "FAIL"
-    #
-    #     print(pt.print_dict(tests, tabs=1))
-    #     return tests, numbers
-
-    counts = {x: info(x) for x in info.keys() if "num" in x}
-    numbers.update(counts)
-    fs = info["sample_rate"]
-    # Check all files needed are present
-    files_expected = ["time.dat"]
-    if file_type == "one file per signal type":
-        files_expected.append("amplifier.dat")
-        if rec_info.get("dig_in") is not None:
-            files_expected.append("digitalin.dat")
-
-        if rec_info.get("dig_out") is not None:
-            files_expected.append("digitalout.dat")
-
-        if info["num_auxilary_input_channels"] > 0:
-            files_expected.append("auxiliary.dat")
-
-    elif file_type == "one file per channel":
-        for x in info["amplifier_channels"]:
-            files_expected.append("amp-" + x["native_channel_name"] + ".dat")
-
-        for x in info["board_dig_in_channels"]:
-            files_expected.append("board-%s.dat" % x["native_channel_name"])
-
-        for x in info["board_dig_out_channels"]:
-            files_expected.append("board-%s.dat" % x["native_channel_name"])
-
-        for x in info["aux_input_channels"]:
-            files_expected.append("aux-%s.dat" % x["native_channel_name"])
-
-    missing_files = []
-    file_list = os.listdir(rec_dir)
-    for x in files_expected:
-        if x not in file_list:
-            missing_files.append(x)
-
-    if len(missing_files) == 0:
-        tests["files"] = "PASS"
-    else:
-        tests["files"] = "MISSING"
-        numbers["missing_files"] = missing_files
-
-    # Check time data for dropped packets
-    time = spk_io.h5io.read_time_dat(rec_dir, sampling_rate=1)  # get raw timestamps
-    numbers["n_samples"] = len(time)
-    numbers["recording_length"] = float(time[-1]) / fs
-    expected_time = np.arange(time[0], time[-1] + 1, 1)
-    missing_timestamps = np.setdiff1d(expected_time, time)
-    missing_times = np.array([float(x) / fs for x in missing_timestamps])
-    if len(missing_timestamps) == 0:
-        tests["dropped_packets"] = "PASS"
-    else:
-        tests["dropped_packets"] = "%i" % len(missing_timestamps)
-        numbers["dropped_packets"] = missing_times
-
-    # Check recording length of each trace
-    tests["data_traces"] = "FAIL"
-    if file_type == "one file per signal type":
-        try:
-            data = spk_io.rawIO.read_amplifier_dat(rec_dir)
-            if data is None:
-                tests["data_traces"] = "UNREADABLE"
-            elif data.shape[0] == numbers["n_samples"]:
-                tests["data_traces"] = "PASS"
-            else:
-                tests["data_traces"] = "CUTOFF"
-                numbers["data_trace_length (s)"] = data.shape[0] / fs
-
-        except:
-            tests["data_traces"] = "UNREADABLE"
-
-    elif file_type == "one file per channel":
-        chan_info = pd.DataFrame(columns=["port", "channel", "n_samples"])
-        lengths = []
-        min_samples = numbers["n_samples"]
-        max_samples = numbers["n_samples"]
-        for x in info["amplifier_channels"]:
-            fn = os.path.join(rec_dir, "amp-%s.dat" % x["native_channel_name"])
-            if os.path.basename(fn) in missing_files:
-                continue
-
-            data = rawIO.read_one_channel_file(fn)
-            lengths.append((x["native_channel_name"], data.shape[0]))
-            if data.shape[0] < min_samples:
-                min_samples = data.shape[0]
-
-            if data.shape[0] > max_samples:
-                max_samples = data.shape[0]
-
-        if min_samples == max_samples:
-            tests["data_traces"] = "PASS"
-
-        else:
-            tests["data_traces"] = "CUTOFF"
-
-        numbers["max_recording_length (s)"] = max_samples / fs
-        numbers["min_recording_length (s)"] = min_samples / fs

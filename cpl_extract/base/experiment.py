@@ -11,8 +11,8 @@ from cpl_extract.analysis.held_unit_analysis import find_held_units
 from cpl_extract.base.objects import data_object, load_dataset
 from cpl_extract.plot.data_plot import plot_held_units, plot_J3s
 from cpl_extract.spk_io import h5io, print_dict, print_dataframe
-from cpl_extract.spk_io.param_io import write_params_to_json
-from cpl_extract.utils import userIO
+from cpl_extract.spk_io.paramio import write_params_to_json
+from cpl_extract.spk_io import userio
 from cpl_extract.utils.spike_sorting_GUI import launch_sorter_GUI
 
 
@@ -47,7 +47,7 @@ class experiment(data_object):
             if (os.path.isdir(x) and h5io.get_h5_filename(x) is not None)
         ]
         if len(file_dirs) == 0:
-            q = userIO.ask_user(
+            q = userio.ask_user(
                 "No recording directories with h5 files found "
                 "in experiment directory\nContinue creating"
                 "empty experiment?",
@@ -129,8 +129,8 @@ class experiment(data_object):
             }
             file_dirs = list(top_dirs.keys())
             order_dict = dict.fromkeys(file_dirs, 0)
-            tmp = userIO.dictIO(order_dict, shell=shell)
-            order_dict = userIO.fill_dict(
+            tmp = userio.dictIO(order_dict, shell=shell)
+            order_dict = userio.fill_dict(
                 order_dict,
                 (
                     "Set order of recordings (1-%i)\n"
@@ -195,7 +195,7 @@ class experiment(data_object):
             shell = False
 
         if new_dir is None:
-            new_dir = userIO.get_filedirs(
+            new_dir = userio.get_filedirs(
                 "Select recoring directory", root=self.root_dir, shell=shell
             )
 
@@ -211,7 +211,7 @@ class experiment(data_object):
         if new_dir.endswith("/"):
             new_dir = new_dir[:-1]
 
-        label = userIO.get_user_input(
+        label = userio.get_user_input(
             "Enter label for recording %s" % os.path.basename(new_dir), shell=shell
         )
 
@@ -240,7 +240,7 @@ class experiment(data_object):
             shell = False
 
         if rec_dir is None:
-            rec_dir = userIO.select_from_list(
+            rec_dir = userio.select_from_list(
                 "Choose recording to remove\n" "Leave blank to cancel",
                 list(self.rec_labels.keys(())),
                 shell=shell,
@@ -481,7 +481,7 @@ class experiment(data_object):
 
     def sort_spikes(self, electrode=None, shell=False):
         if electrode is None:
-            electrode = userIO.get_user_input("Electrode #: ", shell=shell)
+            electrode = userio.get_user_input("Electrode #: ", shell=shell)
             if electrode is None or not electrode.isnumeric():
                 return
 

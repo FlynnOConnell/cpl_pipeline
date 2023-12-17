@@ -1,14 +1,13 @@
 import tkinter as tk
-import sys
 from tkinter import ttk
 import numpy as np
 import matplotlib
-from cpl_extract.utils import userIO, tk_widgets as tkw
+from cpl_extract.spk_io import userio
+from cpl_extract.utils import tk_widgets as tkw
 
 matplotlib.use("TKAgg")
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from cpl_extract.analysis.cluster import SpikeSorter
 
 
 class SpikeSorterGUI(ttk.Frame):
@@ -178,7 +177,7 @@ class SpikeSorterGUI(ttk.Frame):
             "n_clusters": int,
         }
 
-        popup = userIO.fill_dict_popup(
+        popup = userio.fill_dict_popup(
             params, master=self.root, prompt="Input parameters for splitting"
         )
         self.disable_all()
@@ -225,7 +224,7 @@ class SpikeSorterGUI(ttk.Frame):
                 "multi_unit": False,
             }
 
-        popup = userIO.fill_dict_popup(cell_types, master=self.root)
+        popup = userio.fill_dict_popup(cell_types, master=self.root)
         self.disable_all()
         self.root.wait_window(popup.root)
         self.enable_all()
@@ -264,7 +263,7 @@ class SpikeSorterGUI(ttk.Frame):
             chosen = chosen[0]
 
         params = {"interval": int}
-        popup = userIO.fill_dict_popup(
+        popup = userio.fill_dict_popup(
             params,
             master=self.root,
             prompt="Input time interval for segments (in seconds)",
@@ -569,7 +568,7 @@ class DummySorter(object):
         new_clusts = [cluster * 10 + i for i in range(n_clust)]
         selection_list = ["all"] + ["%i" % i for i in range(len(new_clusts))]
         prompt = "Select split clusters to keep"
-        ans = userIO.select_from_list(
+        ans = userio.select_from_list(
             prompt, selection_list, multi_select=True, shell=self._shell
         )
         if ans is None or "all" in ans:

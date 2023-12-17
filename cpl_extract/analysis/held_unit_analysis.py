@@ -2,10 +2,12 @@ import pandas as pd
 import numpy as np
 from scipy.spatial.distance import cdist
 from sklearn.decomposition import PCA
+
+from cpl_extract import spk_io
 from cpl_extract.analysis import spike_analysis as sas
 from cpl_extract.base.objects import load_dataset
 from cpl_extract.spk_io import h5io
-from cpl_extract.utils import print_tools as pt, userIO
+from cpl_extract.spk_io import printer as pt, writer, userio
 import os
 
 
@@ -94,7 +96,7 @@ def find_held_units(rec_dirs, percent_criterion=95, rec_names=None, raw_waves=Fa
     # TODO: if any rec is 'one file per signal type' create tmp_raw.hdf5 and
     # delete after detection is finished
 
-    userIO.tell_user("Computing intra recording J3 values...", shell=True)
+    userio.tell_user("Computing intra recording J3 values...", shell=True)
     intra_J3 = get_intra_J3(rec_dirs)
     if rec_names is None:
         rec_names = [os.path.basename(x) for x in rec_dirs]
@@ -147,7 +149,7 @@ def find_held_units(rec_dirs, percent_criterion=95, rec_names=None, raw_waves=Fa
 
                     if descrip1 == descrip2 and wf2 is not None:
                         print("Comparing %s %s vs %s %s" % (rec1, unit1, rec2, unit2))
-                        userIO.tell_user(
+                        userio.tell_user(
                             "Comparing %s %s vs %s %s" % (rec1, unit1, rec2, unit2),
                             shell=True,
                         )
@@ -170,7 +172,7 @@ def find_held_units(rec_dirs, percent_criterion=95, rec_names=None, raw_waves=Fa
                                 "Detected held unit:\n    %s %s and %s %s"
                                 % (rec1, unit1, rec2, unit2)
                             )
-                            userIO.tell_user(
+                            userio.tell_user(
                                 "Detected held unit:\n    %s %s and %s %s"
                                 % (rec1, unit1, rec2, unit2),
                                 shell=True,
@@ -186,11 +188,11 @@ def find_held_units(rec_dirs, percent_criterion=95, rec_names=None, raw_waves=Fa
                             )
 
         found_cells = np.array(found_cells)
-        userIO.tell_user("\n-----\n%s vs %s\n-----" % (rec1, rec2), shell=True)
-        userIO.tell_user(str(found_cells) + "\n", shell=True)
-        userIO.tell_user("Resolving duplicates...", shell=True)
+        userio.tell_user("\n-----\n%s vs %s\n-----" % (rec1, rec2), shell=True)
+        userio.tell_user(str(found_cells) + "\n", shell=True)
+        userio.tell_user("Resolving duplicates...", shell=True)
         found_cells = resolve_duplicate_matches(found_cells)
-        userIO.tell_user("Results:\n%s\n" % str(found_cells), shell=True)
+        userio.tell_user("Results:\n%s\n" % str(found_cells), shell=True)
         for i, row in enumerate(found_cells):
             if held_df.empty:
                 uL = "A"
@@ -219,7 +221,7 @@ def find_held_units(rec_dirs, percent_criterion=95, rec_names=None, raw_waves=Fa
                 }
                 held_df = held_df.append(tmp, ignore_index=True)
             elif idx1.size != 0 and idx2.size != 0:
-                userIO.tell_user("WTF...", shell=True)
+                userio.tell_user("WTF...", shell=True)
                 continue
             elif idx1.size != 0:
                 held_df[rec2].iloc[idx1[0]] = unit2
@@ -354,7 +356,7 @@ def get_response_change(
 
     # Get Firing Rates
     bin_time1, fr1 = sas.get_binned_firing_rate(time1, spikes1, bin_size, bin_step)
-    bin_time2, fr2 = sas.get_binned_firing_rate(time2, spike2, bin_size, bin_step)
+    bin_time2, fr2 = sas.get_binned_firing_rate(time2, spikes2, bin_size, bin_step)
 
     if not np.array_equal(bin_time1, bin_time2):
         raise ValueError("Time of spike trains is not aligned")

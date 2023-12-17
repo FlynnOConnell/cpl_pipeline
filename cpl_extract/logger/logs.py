@@ -1,14 +1,6 @@
-import base64
 import logging
 import warnings
-import sys
-import inspect
-import re
-import traceback
-import json
-from functools import partial
-
-import numpy as np
+from pathlib import Path
 
 logging.getLogger("matplotlib").setLevel(logging.WARNING)
 logging.getLogger("numba").setLevel(logging.CRITICAL)
@@ -16,27 +8,6 @@ logging.getLogger("tables").setLevel(logging.WARNING)
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="numba")
 warnings.filterwarnings("ignore", category=FutureWarning, module="numpy")
 
-
-def setUpLogging(loggerName, level=logging.INFO):
-    """
-    loggerName: __name__
-    """
-    logger = logging.getLogger(loggerName)
-    logger.setLevel(level)
-    formatter = logging.Formatter('%(levelname)s : %(name)s : %(message)s')
-
-    # Sets up file handler
-    fileHandler = logging.FileHandler(loggerName + ".log")
-    fileHandler.setFormatter(formatter)
-
-    # Sets up handler to std out
-    streamHandler = logging.StreamHandler()
-    streamHandler.setFormatter(formatter)
-    streamHandler.setLevel(logging.DEBUG)
-
-    logger.addHandler(fileHandler)
-    logger.addHandler(streamHandler)
-    return logger
 
 # def _get_spk_caller():
 #     """Helper to get spk calling function from the stack"""

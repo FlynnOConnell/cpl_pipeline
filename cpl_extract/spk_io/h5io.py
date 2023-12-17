@@ -10,11 +10,12 @@ import shutil
 import subprocess
 import pandas as pd
 import numpy as np
+from tables import node
 
-from cpl_extract.utils import userIO
-from cpl_extract.utils.decorators import Timer
+from cpl_extract.spk_io import userio
 from cpl_extract.analysis import cluster as clust
-from cpl_extract.spk_io import userio, println, particles, param_io
+from cpl_extract.spk_io import userio, println, paramio
+from cpl_extract.utils import particles
 
 support_rec_types = {
     "spike230bit": ".smr",
@@ -74,7 +75,7 @@ def get_h5_filename(file_dir, shell=True):
     file_list = os.listdir(file_dir)
     h5_files = [f for f in file_list if f.endswith(".h5")]
     if len(h5_files) > 1:
-        choice = prompt.select_from_list(
+        choice = userio.select_from_list(
             "Choose which h5 file to load",
             h5_files,
             "Multiple h5 stores found",
@@ -374,7 +375,7 @@ def get_raw_unit_waveforms(
         electrode_mapping = get_electrode_mapping(rec_dir)
 
     if clustering_params is None:
-        clustering_params = cpl_params.load_params("clustering_params", rec_dir)
+        clustering_params = param_io.load_params("clustering_params", rec_dir)
 
     snapshot = clustering_params["spike_snapshot"]
     snapshot = [snapshot["Time before spike (ms)"], snapshot["Time after spike (ms)"]]
@@ -453,7 +454,7 @@ def get_unit_waveforms(file_dir, unit, required_descrip=None, h5_file=None):
     if h5_file is None:
         h5_file = get_h5_filename(file_dir)
 
-    clustering_params = cpl_params.load_params("clustering_params", file_dir)
+    clustering_params = param_io.load_params("clustering_params", file_dir)
     fs = clustering_params["sampling_rate"]
     with tables.open_file(h5_file, "r") as hf5:
         waveforms = hf5.root.sorted_units[un].waveforms[:]
@@ -475,7 +476,7 @@ def get_unit_spike_times(file_dir, unit, required_descrip=None, h5_file=None):
     if h5_file is None:
         h5_file = get_h5_filename(file_dir)
 
-    clustering_params = cpl_params.load_params("clustering_params", file_dir)
+    clustering_params = param_io.load_params("clustering_params", file_dir)
     fs = clustering_params["sampling_rate"]
     with tables.open_file(h5_file, "r") as hf5:
         times = hf5.root.sorted_units[un].times[:]
@@ -806,7 +807,7 @@ def create_empty_data_h5(filename, overwrite=False, shell=False):
         if overwrite:
             q = 1
         else:
-            q = userIO.ask_user(
+            q = userio.ask_user(
                 "%s already exists. Would you like to delete?" % filename,
                 choices=["No", "Yes"],
                 shell=shell,
@@ -880,7 +881,6 @@ def create_hdf_arrays(
 
     print("Done!")
 
-
 def write_array_to_hdf5(hf5, loc, name, arr):
     try:
         hf5.create_array(loc, name, arr)
@@ -889,7 +889,6 @@ def write_array_to_hdf5(hf5, loc, name, arr):
         hf5.remove_node(loc, name)
         hf5.create_array(loc, name, arr)
         hf5.flush()
-
 
 def delete_unit(file_dir, unit_num, h5_file=None):
     """Delete a sorted unit and re-label all following units.
@@ -966,7 +965,6 @@ def delete_unit(file_dir, unit_num, h5_file=None):
     print("Finished deleting unit\n----------")
     return True
 
-
 def parse_unit_number(unit_name):
     """number of unit extracted from unit_name
 
@@ -982,7 +980,6 @@ def parse_unit_number(unit_name):
     parser = re.compile(pattern)
     out = int(parser.match(unit_name)[1])
     return out
-
 
 def fix_unit_numbering(file_dir):
     """checks all units in an h5 file and makes sure all numbers are
@@ -1033,8 +1030,6 @@ def fix_unit_numbering(file_dir):
     print("Finished correcting unit names\n----------")
     return True
 
-
-@Timer("Common Average Referencing")
 def common_avg_reference(h5_file, electrodes, group_num):
     """Computes and subtracts the common average for a group of electrodes
 
@@ -1116,8 +1111,6 @@ def common_avg_reference(h5_file, electrodes, group_num):
 
         print("Done!")
 
-
-@Timer("Compressing and repacking h5 file")
 def compress_and_repack(h5_file, new_file=None):
     """Compress and repack the h5 file with ptrepack either to same name or new
     name
@@ -1165,8 +1158,6 @@ def compress_and_repack(h5_file, new_file=None):
 
     return new_file
 
-
-@Timer("Clustering Cleanup")
 def cleanup_clustering(file_dir, h5_file=None):
     """
     Consolidate memory monitor files from clustering, remove raw and
@@ -1222,8 +1213,6 @@ def cleanup_clustering(file_dir, h5_file=None):
     else:
         return h5_file
 
-
-@Timer("Gathering Trial Data and Creating Table")
 def create_trial_data_table(h5_file, digital_map, fs, dig_type="in"):
     """
     Returns trial data: trial num, spk_io #, spk_io name, on times, off times
@@ -1348,8 +1337,6 @@ def create_trial_data_table(h5_file, digital_map, fs, dig_type="in"):
 
     return trial_df
 
-
-@Timer("Reading Trial Data Table From Store")
 def read_trial_data_table(h5_file, dig_type="in", channels=None):
     """Opens the h5 file and returns the digital_in or digital_out trial info
     as a pandas DataFrame. Can specify specific digital channels if desired.
@@ -1392,8 +1379,6 @@ def read_trial_data_table(h5_file, dig_type="in", channels=None):
 
     return df
 
-
-@Timer("Extracting Amplifier Signal Data")
 def read_in_amplifier_signal(hf5, file_dir, file_type, num_channels, el_map, em_map):
     """Read intan amplifier files into hf5 array.
     For electrode and emg signals.

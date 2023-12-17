@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from cpl_extract.spk_io.merge import check_substring_content
+from cpl_extract.utils import check_substring_content
 
 try:
     from sonpy import lib as sp

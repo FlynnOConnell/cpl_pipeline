@@ -9,7 +9,7 @@ from tkinter import filedialog
 from cpl_extract.analysis.poissonHMM import HmmHandler
 from cpl_extract.base.objects import data_object, load_experiment, load_dataset
 from cpl_extract.spk_io.writer import read_dict_from_json, write_dict_to_json
-from cpl_extract.utils import userIO
+from cpl_extract.spk_io import userio
 
 
 
@@ -30,7 +30,7 @@ class project(data_object):
         super().__init__("project", data_name=proj_name, root_dir=proj_dir, shell=shell)
 
         if exp_dirs is None:
-            exp_dirs = userIO.get_filedirs(
+            exp_dirs = userio.get_filedirs(
                 "Select experiment directories", multi=True, shell=shell
             )
 
@@ -45,7 +45,7 @@ class project(data_object):
 
         # Get experiment groups
         if exp_groups is None:
-            exp_groups = userIO.get_labels(exp_names, "Label Experiment Groups")
+            exp_groups = userio.get_labels(exp_names, "Label Experiment Groups")
 
         self._exp_info = pd.DataFrame(
             {"exp_name": exp_names, "exp_group": exp_groups, "exp_dir": exp_dirs}
@@ -125,7 +125,7 @@ class project(data_object):
                 exp_name,
                 opts_str,
             )
-            exp_group = userIO.get_user_input(q_str, shell=shell)
+            exp_group = userio.get_user_input(q_str, shell=shell)
 
         self._exp_info = self._exp_info.append(
             {"exp_name": exp_name, "exp_group": exp_group, "exp_dir": exp_dir},

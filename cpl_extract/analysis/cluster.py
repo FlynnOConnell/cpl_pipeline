@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+import logging
 import os
 import shutil
 from collections.abc import Iterable
@@ -43,9 +44,8 @@ from cpl_extract.spk_io.writer import (
     read_dict_from_json,
     read_pandas_from_table,
 )
-from cpl_extract.logger import setUpLogging
 
-logger = setUpLogging(__name__)
+logger = logging.getLogger(__name__)
 
 def get_filtered_electrode(data, freq=(300.0, 3000.0), sampling_rate=30000.0):
     el = data
@@ -1502,7 +1502,7 @@ class SpikeSorter:
                     print("Saved metrics to %s" % metrics_dir, file=log)
                     print("--------------\n", file=log)
 
-        prompt.tell_user(
+        tell_user(
             "Target clusters successfully saved to recording " "directories.",
             shell=True,
         )

@@ -1,4 +1,4 @@
-from .dataset import Dataset, load_params, validate_data_integrity
+from .dataset import Dataset, load_params
 from .objects import (
     load_dataset,
     load_pickled_object,
@@ -8,9 +8,7 @@ from .objects import (
 __all__ = [
     "Dataset",
     "load_params",
-    "validate_data_integrity",
     "load_dataset",
     "load_pickled_object",
     "load_data"
-
 ]

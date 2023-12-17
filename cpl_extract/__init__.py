@@ -9,11 +9,38 @@ from .base.experiment import experiment
 from .base.project import project
 
 
+def pad_arrays_to_same_length(arr_list, max_diff=100):
+    """
+    Pads numpy arrays to the same length.
+
+    Parameters:
+    - arr_list (list of np.array): The list of arrays to pad
+    - max_diff (int): Maximum allowed difference in lengths
+
+    Returns:
+    - list of np.array: List of padded arrays
+    """
+    lengths = [len(arr) for arr in arr_list]
+    max_length = max(lengths)
+    min_length = min(lengths)
+
+    if max_length - min_length > max_diff:
+        raise ValueError("Arrays differ by more than the allowed maximum difference")
+
+    padded_list = []
+    for arr in arr_list:
+        pad_length = max_length - len(arr)
+        padded_arr = np.pad(arr, (0, pad_length), "constant", constant_values=0)
+        padded_list.append(padded_arr)
+
+    return padded_list
+
+def extract_common_key(filepath):
+    parts = filepath.stem.split("_")
+    return "_".join(parts[:-1])
 
 __name__ = "cpl_extract"
 __author__ = "Flynn OConnell"
-
-
 
 __all__ = [
     "spk_io",
@@ -21,7 +48,6 @@ __all__ = [
     "analysis",
     "Dataset",
     "load_params",
-    "validate_data_integrity",
     "load_dataset",
     "load_pickled_object",
     "load_data",
@@ -29,9 +55,8 @@ __all__ = [
     "load_experiment",
     "detect_number_of_cores",
     "experiment",
-    "project"
+    "project",
 ]
-
 
 # Version
 version = "0.0.2"
@@ -77,37 +102,3 @@ def _test():
     """Run ``doctest``"""
     import doctest
     doctest.testmod()
-
-def check_substring_content(main_string, substring) -> bool:
-    """Checks if any combination of the substring is in the main string."""
-    return substring.lower() in main_string.lower()
-
-def pad_arrays_to_same_length(arr_list, max_diff=100):
-    """
-    Pads numpy arrays to the same length.
-
-    Parameters:
-    - arr_list (list of np.array): The list of arrays to pad
-    - max_diff (int): Maximum allowed difference in lengths
-
-    Returns:
-    - list of np.array: List of padded arrays
-    """
-    lengths = [len(arr) for arr in arr_list]
-    max_length = max(lengths)
-    min_length = min(lengths)
-
-    if max_length - min_length > max_diff:
-        raise ValueError("Arrays differ by more than the allowed maximum difference")
-
-    padded_list = []
-    for arr in arr_list:
-        pad_length = max_length - len(arr)
-        padded_arr = np.pad(arr, (0, pad_length), "constant", constant_values=0)
-        padded_list.append(padded_arr)
-
-    return padded_list
-
-def extract_common_key(filepath):
-    parts = filepath.stem.split("_")
-    return "_".join(parts[:-1])
