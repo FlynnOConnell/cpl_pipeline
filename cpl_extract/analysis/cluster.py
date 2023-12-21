@@ -8,6 +8,7 @@ from collections.abc import Iterable
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
+from icecream import ic
 
 import numpy as np
 import pandas as pd
@@ -354,6 +355,7 @@ def get_ISI_and_violations(
 
     Parameters
     ----------
+    verbose
     spike_times : numpy.array
     fs : float, sampling rate in Hz
 
@@ -970,6 +972,7 @@ class CplClust:
         no_write=False,
         n_pc=3,
         data_transform=compute_waveform_metrics,
+        verbose = True
     ):
         """Recording directories should be ordered to make spike sorting easier later on"""
         if not isinstance(rec_dirs, Iterable):
@@ -1031,12 +1034,14 @@ class CplClust:
             error_str = "\n\t".join(invalid)
             raise ValueError("Spike detection has not been run on:\n\t%s" % error_str)
 
-    def run(self, n_pc=None, overwrite=False):
+    def run(self, n_pc=None, overwrite=False, verbose=True):
 
         try:
             if self.clustered and not overwrite:
+                ic("Clustering has already been run, skipping...") if verbose else None
                 return True
         except AttributeError:
+            ic("Clustering has not been run yet") if verbose else None
             self.clustered = False
 
         if n_pc is None:
@@ -1173,6 +1178,7 @@ class CplClust:
         return True
 
     def get_spike_data(self):
+        ic()
         # Collect data from all recordings
         tmp_waves = []
         tmp_times = []

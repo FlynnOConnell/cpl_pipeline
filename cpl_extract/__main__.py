@@ -1,6 +1,5 @@
 import argparse
 
-import logger
 from cpl_extract.defaults import defaults
 from cpl_extract import run_sort
 
@@ -9,12 +8,8 @@ def main():
     parser = argparse.ArgumentParser(description="Run spike sorting.")
     parser.add_argument("-p", "--path", type=str, help="Path to data files")
     parser.add_argument("-c", "--config", type=str, help="Path to config ini")
-    parser.add_argument(
-        "-o", "--overwrite", action="store_true", help="Overwrite existing files"
-    )
-    parser.add_argument(
-        "-l", "--loglevel", action="store_true", help="Overwrite existing files"
-    )
+    parser.add_argument("-o", "--overwrite", action="store_true", help="Overwrite existing files")
+    parser.add_argument("-l", "--loglevel", action="store_true", help="Overwrite existing files")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     parser.add_argument("--parallel", action="store_true", help="Run in parallel")
     parser.add_argument("--sort", action="store_true", help="Run sorting")
@@ -34,8 +29,6 @@ def main():
     if args.verbose is None:
         args.verbose = ops["verbose"]
 
-    logger.set_log_level(verbose=args.loglevel)
-    pass
 
 def main_test():
     run_sort.main()

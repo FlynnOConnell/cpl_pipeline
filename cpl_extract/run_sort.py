@@ -43,10 +43,13 @@ def iter_dirs(data_dir):
 def main():
     filepath = Path().home() / "data" / 'r35'
     file = [f for f in filepath.iterdir() if f.suffix == '.smr'][0]
-    data = Dataset(filepath, file.stem)
-    data.initParams(shell=True, accept_params=True)
-    data.extract_data()
-    data.detect_spikes()
+    data = load_dataset(filepath, shell=True,)
+    # data = Dataset(filepath, file.stem)
+    # data.initParams(shell=True, accept_params=True)
+    # data.extract_data()
+    # data.detect_spikes()
+    # data.blech_clust_run(umap=False)
+    data.sort_spikes()
 
 def setup_proj():
     root = Path().home() / "data" / "serotonin"

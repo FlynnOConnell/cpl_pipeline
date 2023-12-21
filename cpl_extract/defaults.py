@@ -18,3 +18,14 @@ def defaults():
         "log_file": "cp_sort.log",  # name of log file
         "log_file_level": "INFO",  # level of logging to file
     }
+
+def secondary():
+    """
+    Test method
+    """
+    pass
+
+
+if __name__ == "__main__":
+    secondary()
+

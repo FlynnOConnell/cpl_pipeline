@@ -364,7 +364,7 @@ def get_response_change(
     # Normalize firing rates
     if norm_func:
         fr1 = norm_func(bin_time1, fr1)
-        fr2 = norm_fun(bin_time2, fr2)
+        fr2 = norm_func(bin_time2, fr2)
 
     difference_of_mean, SEM = sas.get_mean_difference(fr1, fr2, axis=0)
 
