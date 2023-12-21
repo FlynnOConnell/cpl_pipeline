@@ -2,29 +2,27 @@
 
 from __future__ import annotations
 
+import os
 import logging
 from pathlib import Path
+from cpl_extract import *
 
-from cpl_extract import load_dataset, detect_number_of_cores
+# from cpl_extract import load_dataset, detect_number_of_cores
+#
+# from cpl_extract.base.dataset import Dataset
+# from cpl_extract.base.objects import *
+#
+# from cpl_extract import load_project, load_experiment, experiment
 
-from cpl_extract.base.dataset import Dataset
-from cpl_extract.base.objects import *
-
-from cpl_extract import load_project, load_experiment, experiment
-
-
-log_file = Path().home() / ".logs"/ "cpl_extract.log"
-log_file.parent.mkdir(exist_ok=True, parents=True)
-log_file.touch(exist_ok=True)
-
-logging.basicConfig(filename=log_file, level=logging.INFO,
-                    format='%(asctime)s:%(levelname)s:%(message)s')
+if "CACHE_PATH" in os.environ:
+    cache_path = Path(os.environ["CPL_CACHE_PATH"])
+else:
+    cache_path = Path().home() / ".cache"
 
 N_CORES = detect_number_of_cores()
 
 def _sort():
     logging.info("Initializing CPL Extract")
-    home = Path().home()
     root_dir = Path().home() / 'data' / 'serotonin'
 
     datasets = []
@@ -41,7 +39,7 @@ def iter_dirs(data_dir):
             yield d
 
 def main():
-    filepath = Path().home() / "data" / 'r35'
+    filepath = Path().home() / "data" / '1'
     file = [f for f in filepath.iterdir() if f.suffix == '.smr'][0]
     data = load_dataset(filepath, shell=True,)
     # data = Dataset(filepath, file.stem)
@@ -53,11 +51,14 @@ def main():
 
 def setup_proj():
     root = Path().home() / "data" / "serotonin"
-    project = experiment(root)
-    return project
+    proj = experiment(root)
+    return proj
 
+def debug():
+
+
+    x = 2
 
 if __name__ == "__main__":
-    main()
-
-    x = 5
+    # main()
+    debug()

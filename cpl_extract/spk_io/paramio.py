@@ -1,12 +1,8 @@
 import logging
 import os
-import time
-import json
-from json import JSONDecodeError
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
+from cpl_extract.spk_io.writer import read_dict_from_json, write_dict_to_json
 
 SCRIPT_DIR = os.path.dirname(__file__)
 PARAM_DIR = os.path.join(SCRIPT_DIR, "defaults")
@@ -19,37 +15,6 @@ PARAM_NAMES = [
     "spike_snapshot",
     "psth_params",
 ]
-
-def write_dict_to_json(dat, save_file):
-    """writes a dict to a json file
-
-    Parameters
-    ----------
-    dat : dict
-    save_file : str
-    """
-    with open(save_file, "w") as f:
-        json.dump(dat, f, indent=True)
-
-def read_dict_from_json(save_file):
-    """reads dict from json file
-
-    Parameters
-    ----------
-    save_file : str
-    """
-    # TODO: add better error handling for issues that could arise tyring to read a json file
-    try:
-        with open(save_file, "r") as f:
-            out = json.load(f)
-        return out
-    except (FileNotFoundError, JSONDecodeError) as error:
-        if "logger" in globals():
-            logger = globals()["logger"]
-            logger.warn(error)
-        else:
-            print(error)
-        return None
 
 def load_params(param_name, rec_dir=None, default_keyword=None):
     param_name = param_name if param_name.endswith(".json") else param_name + ".json"

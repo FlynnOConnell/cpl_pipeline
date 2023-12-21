@@ -2,8 +2,12 @@ import os
 
 import numpy as np
 
-from . import spk_io, utils, analysis
+from . import utils, analysis
+from .spk_io import *
+from .utils import *
+from .analysis import *
 from .base import *
+
 from .base.objects import load_project, load_experiment
 from .base.experiment import experiment
 from .base.project import project

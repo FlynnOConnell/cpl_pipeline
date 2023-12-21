@@ -335,7 +335,8 @@ def get_labels(items, prompt="", shell=False):
 
 
 def get_filedirs(prompt="", root=None, multi=False, shell=False):
-    """Queries user for directory or multiple directories
+    """
+    Queries user for directory or multiple directories
 
     Parameters
     ----------
@@ -403,7 +404,8 @@ def get_filedirs(prompt="", root=None, multi=False, shell=False):
 
 
 def get_files(prompt="", root=None, filetypes=None, multi=False, shell=False):
-    """Queries user for file or multiple files
+    """
+    Queries user for file or multiple files
 
     Parameters
     ----------

@@ -478,7 +478,7 @@ class Dataset(objects.data_object):
 
     def extract_data(self, filename=None,):
         """
-        Create hdf5 store for data and read in Intan .dat files. Also create
+        Create hdf5 store for data and read in data files. Also create
         subfolders for processing outputs
 
         Parameters
@@ -515,19 +515,15 @@ class Dataset(objects.data_object):
     def _process_spike2data(self):
         """Called only when extracting data from Spike2 file and extract_data() is called"""
         electrodes = self.electrode_mapping["electrode"].unique()
-        start_time = 0
         _time_flag = False
         for electrode_idx in electrodes:
             this_electrode = self.electrode_mapping[self.electrode_mapping["electrode"] == electrode_idx]
             electrode = this_electrode["electrode"].iloc[0]
             unit_fs = this_electrode["sampling_rate"].iloc[0]
-            data = []
-
-            for chunk in self.data.read_data_in_chunks(electrode_idx):
-                data.append(np.round(chunk, 7))
+            data = [chunk for chunk in self.data.read_data_in_chunks(electrode_idx)]
             data = list(itertools.chain(*data))
 
-            write_spike2_array_to_h5(self.h5_file, electrode, waves=data,)
+            write_spike2_array_to_h5(self.h5_file, electrode, waves=data, fs=unit_fs)
             write_electrode_map_to_h5(self.h5_file, self.electrode_mapping)
             if _time_flag is False:
                 saved = write_time_vector_to_h5(self.h5_file, electrode, unit_fs)
@@ -1198,8 +1194,6 @@ class Dataset(objects.data_object):
         tbl = tbl.explode(cols)
 
         return tbl
-
-
 
     def print_status(self):
         print("Process Status")

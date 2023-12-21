@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import pandas as pd
 import numpy as np
-from tables import node
+from icecream import ic
 
 from cpl_extract.spk_io import userio
 from cpl_extract.analysis import cluster as clust
@@ -23,33 +23,53 @@ support_rec_types = {
     "plexon": ".pl2",
 }
 
-def eval_h5_data(h5_file=None, rec_dir=None):
+
+def merge_h5_files(file_list: list[str | Path]):
     """
-    Given the node containing the array, get a list of each array with True/False if the array has had data written to it,
-    i.e. the sum of each item in the array != 0
-
-    Parameters
-    ----------
-    h5_file : str, path to h5 file
-    electrode_node : str, path to node containing array
-
-    Returns
-    -------
-    dict
+    Merges HDF5 files created by create_hdf_arrays function.
+    If the process fails, the created file is deleted.
     """
 
-    if h5_file is None and rec_dir is None:
-        raise ValueError("Must provide either h5_file or rec_dir")
+    file_list = [str(f) for f in file_list]
+    new_h5_path = Path(file_list[0]).parent / "merged_file.h5"
 
-    if h5_file is None:
-        h5_file = get_h5_filename(rec_dir)
+    try:
+        with tables.open_file(file_list[0], 'r') as h_1, tables.open_file(file_list[1], 'r') as h_2:
+            with tables.open_file(new_h5_path, 'w') as new_h5:
+                # Merge groups /raw, /raw_lfp, /digital_in, /digital_out
+                for group_name in ['/raw', '/raw_lfp', '/digital_in', '/digital_out']:
+                    if group_name in h_1.root and group_name in h_2.root:
+                        h1_group = getattr(h_1.root, group_name.strip('/'))
+                        h2_group = getattr(h_2.root, group_name.strip('/'))
 
-    with tables.open_file(h5_file, "r") as hf5:
-        data = node[:]
-        out = {}
-        for i in range(data.shape[1]):
-            out[i] = np.sum(data[:, i]) != 0
-        return out
+                        # Create group in new file
+                        new_h5.create_group('/', group_name.strip('/'), group_name.strip('/').title())
+
+                        # Verify and copy attributes
+                        for attr in h1_group._v_attrs._f_list():
+                            assert h1_group._v_attrs[attr] == h2_group._v_attrs[
+                                attr], f"Attribute {attr} mismatch in group {group_name}"
+                            getattr(new_h5.root, group_name.strip('/'))._v_attrs[attr] = h1_group._v_attrs[attr]
+
+                        # Merge arrays within each group
+                        for node in h1_group._f_list_nodes():
+                            node_name = node._v_name
+                            combined_array = np.concatenate([node[:], getattr(h2_group, node_name)[:]])
+                            new_h5.create_earray(group_name, node_name, obj=combined_array)
+
+        print(f"Merged file created at: {new_h5_path}")
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+    finally:
+        # Check if the file exists and if any exception occurred, then delete the file
+        if new_h5_path.exists():
+            try:
+                new_h5_path.unlink()
+                print(f"Partial file deleted: {new_h5_path}")
+            except Exception as e:
+                print(f"Error deleting partial file: {e}")
 
 
 def get_h5_filename(file_dir, shell=True):
@@ -277,9 +297,7 @@ def get_raw_digital_signal(rec_dir, dig_type, channel, h5_file=None):
             "/digital_%s" % dig_type in hf5
             and "/digital_%s/dig_%s_%i" % (dig_type, dig_type, channel) in hf5
         ):
-            out = hf5.root["digital_%s" % dig_type]["dig_%s_%i" % (dig_type, channel)][
-                :
-            ]
+            out = hf5.root["digital_%s" % dig_type]["dig_%s_%i" % (dig_type, channel)][:]
             return out
     return None
 
@@ -290,7 +308,6 @@ def get_raw_trace(h5_file=None, rec_dir=None, chan_idx=None, el_map=None):
     If /raw is not in hdf5, this grabs the raw trace from the dat file if it is
     present and electrode_mapping was provided
     """
-
     if h5_file is None:
         h5_file = get_h5_filename(rec_dir, shell=True)
 
@@ -375,7 +392,7 @@ def get_raw_unit_waveforms(
         electrode_mapping = get_electrode_mapping(rec_dir)
 
     if clustering_params is None:
-        clustering_params = param_io.load_params("clustering_params", rec_dir)
+        clustering_params = paramio.load_params("clustering_params", rec_dir)
 
     snapshot = clustering_params["spike_snapshot"]
     snapshot = [snapshot["Time before spike (ms)"], snapshot["Time after spike (ms)"]]
@@ -427,7 +444,7 @@ def write_time_vector_to_h5(h5_file, electrode, fs):
         else:
             return False
 
-def write_spike2_array_to_h5(h5_file, electrode, waves):
+def write_spike2_array_to_h5(h5_file, electrode, waves, fs=None):
 
     if not Path(h5_file).exists():
         h5_file = get_h5_filename(h5_file)
@@ -438,9 +455,10 @@ def write_spike2_array_to_h5(h5_file, electrode, waves):
     println("Writing electrode%i to %s..." % (electrode, h5_file))
     with tables.open_file(h5_file, "r+") as hf5:
         if "/raw" in hf5 and "/raw/electrode%i" % electrode in hf5:
-            #apepdn array
             node = hf5.root.raw["electrode%i" % electrode]
             node._v_attrs["has_data"] = True
+            if fs is not None:
+                node._v_attrs["sampling_rate"] = fs
             node.append(waves)
             return True
 
@@ -454,7 +472,7 @@ def get_unit_waveforms(file_dir, unit, required_descrip=None, h5_file=None):
     if h5_file is None:
         h5_file = get_h5_filename(file_dir)
 
-    clustering_params = param_io.load_params("clustering_params", file_dir)
+    clustering_params = paramio.load_params("clustering_params", file_dir)
     fs = clustering_params["sampling_rate"]
     with tables.open_file(h5_file, "r") as hf5:
         waveforms = hf5.root.sorted_units[un].waveforms[:]
@@ -476,7 +494,7 @@ def get_unit_spike_times(file_dir, unit, required_descrip=None, h5_file=None):
     if h5_file is None:
         h5_file = get_h5_filename(file_dir)
 
-    clustering_params = param_io.load_params("clustering_params", file_dir)
+    clustering_params = paramio.load_params("clustering_params", file_dir)
     fs = clustering_params["sampling_rate"]
     with tables.open_file(h5_file, "r") as hf5:
         times = hf5.root.sorted_units[un].times[:]
@@ -854,7 +872,7 @@ def create_hdf_arrays(
             if not electrode_mapping.empty:
                 for idx, row in electrode_mapping.iterrows():
                     hf5.create_earray(
-                        "/raw", f"electrode{row['electrode']}", atom, (0,)
+                        "/raw", f"electrode{row['electrode']}", f_atom, (0,)
                     )
                     hf5.root.raw._v_attrs["sampling_rate"] = row["sampling_rate"]
                     hf5.root.raw._v_attrs["units"] = row["units"]
