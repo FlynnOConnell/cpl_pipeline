@@ -13,6 +13,8 @@ def write_dict_to_json(dat, save_file):
     dat : dict
     save_file : str | Path
     """
+    if dat is None:
+        return
     for k, v in dat.items():  # Path() objects are not serializable, so convert to str
         if isinstance(v, Path):  # :(
             dat[k] = str(v)

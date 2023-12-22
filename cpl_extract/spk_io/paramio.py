@@ -63,7 +63,8 @@ def load_params(param_name, rec_dir=None, default_keyword=None):
     return out
 
 def write_params_to_json(param_name, rec_dir, params):
-    """Writes params into a json file placed in the analysis_params folder in
+    """
+    Writes params into a json file placed in the analysis_params folder in
     rec_dir with the name param_name.json
 
     Parameters
@@ -80,5 +81,4 @@ def write_params_to_json(param_name, rec_dir, params):
     print("Writing %s to %s" % (param_name, save_file))
     if not os.path.isdir(p_dir):
         os.mkdir(p_dir)
-
     write_dict_to_json(params, save_file)

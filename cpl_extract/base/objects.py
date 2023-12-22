@@ -4,8 +4,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from cpl_extract import logger
-from cpl_extract.spk_io import userio
+from .. import get_filedirs, select_from_list, get_user_input
 import pickle
 
 
@@ -28,7 +27,7 @@ class data_object:
             data_type = self.__class__.__name__.lower()
 
         if root_dir is None:
-            root_dir = prompt.get_filedirs(
+            root_dir = get_filedirs(
                 "Select %s directory" % data_type, shell=shell
             )
             if root_dir is None or not os.path.isdir(root_dir):
@@ -37,7 +36,7 @@ class data_object:
                 )
 
         if data_name is None:
-            data_name = prompt.get_user_input(
+            data_name = get_user_input(
                 "Enter name for %s" % data_type, os.path.basename(root_dir), shell
             )
 
@@ -95,7 +94,7 @@ class data_object:
             shell = False
 
         if new_root is None:
-            new_root = prompt.get_filedirs(
+            new_root = get_filedirs(
                 "Select new location of %s" % self.root_dir, shell=shell
             )
 
@@ -146,10 +145,13 @@ def load_data(data_type, file_dir=None, shell=False):
         shell = True
 
     if file_dir is None:
-        file_dir = prompt.get_filedirs(
+        file_dir = get_filedirs(
             "Select %s directory or .p file" % data_type, shell=shell
         )
 
+    # check if '~' in file_dir and expand
+    if "~" in file_dir:
+        file_dir = os.path.expanduser(file_dir)
     if os.path.isfile(file_dir) and f"{data_type}.p" in file_dir:
         data_file = [file_dir]
         file_dir = os.path.dirname(file_dir)
@@ -161,7 +163,7 @@ def load_data(data_type, file_dir=None, shell=False):
     if len(data_file) == 0:
         return None
     elif len(data_file) > 1:
-        tmp = prompt.select_from_list(
+        tmp = select_from_list(
             "Multiple %s files found." "Select the one you want to load." % data_type,
             data_file,
             shell=shell,

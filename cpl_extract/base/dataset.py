@@ -11,10 +11,11 @@ import numpy as np
 import pandas as pd
 import scipy.io as sio
 import tables
+from icecream import ic
 from joblib import Parallel, delayed, cpu_count
 from tqdm import tqdm
 
-from cpl_extract import spk_io
+from cpl_extract import spk_io, write_dict_to_json
 from cpl_extract.analysis import cluster as clust
 from cpl_extract.analysis import spike_analysis
 from cpl_extract.analysis.circus_interface import circus_clust
@@ -30,7 +31,7 @@ from cpl_extract.plot.data_plot import (
     plot_ensemble_raster,
 )
 from cpl_extract.spk_io import printer as pt, writer as wt, userio, h5io
-from cpl_extract.spk_io.paramio import load_params
+from cpl_extract.spk_io.paramio import load_params, write_params_to_json
 from cpl_extract.spk_io.h5io import (
     get_h5_filename,
     write_electrode_map_to_h5,
@@ -281,7 +282,7 @@ class Dataset(objects.data_object):
             self.spike_array_params["dig_ins_to_use"] = dim.channel[
                 dim["spike_array"]
             ].to_list()
-            wt.write_params_to_json(
+            write_params_to_json(
                 "spike_array_params", self.root_dir, self.spike_array_params
             )
         else:
@@ -320,7 +321,7 @@ class Dataset(objects.data_object):
             dim.loc[[x in tmp["laser_channels"] for x in dim.channel], "laser"] = True
 
         self.spike_array_params = tmp.copy()
-        wt.write_params_to_json("spike_array_params", self.root_dir, tmp)
+        write_params_to_json("spike_array_params", self.root_dir, tmp)
         if os.path.isfile(self.h5_file):
             write_digital_map_to_h5(self.h5_file, self.dig_in_mapping, "in")
 
@@ -339,7 +340,7 @@ class Dataset(objects.data_object):
         )
         if tmp:
             self.clustering_params = tmp
-            wt.write_params_to_json("clustering_params", self.root_dir, tmp)
+            write_params_to_json("clustering_params", self.root_dir, tmp)
 
         self.save()
 
@@ -356,7 +357,7 @@ class Dataset(objects.data_object):
         )
         if tmp:
             self.psth_params = tmp
-            wt.write_params_to_json("psth_params", self.root_dir, tmp)
+            write_params_to_json("psth_params", self.root_dir, tmp)
 
         self.save()
 
@@ -375,7 +376,7 @@ class Dataset(objects.data_object):
         )
         if tmp:
             self.pal_id_params = tmp
-            wt.write_params_to_json("pal_id_params", self.root_dir, tmp)
+            write_params_to_json("pal_id_params", self.root_dir, tmp)
 
         self.save()
 
@@ -457,8 +458,7 @@ class Dataset(objects.data_object):
         return "\n".join(out)
 
     def __repr__(self):
-        if hasattr(self.h5_file, "isopen"):
-            return f"Open H5 file with data: \n" f"" f"{self.h5_file}"
+        return self.__str__()
 
     def _write_all_params_to_json(self):
         """
@@ -467,27 +467,25 @@ class Dataset(objects.data_object):
         """
         print("Writing all parameters to json file in analysis_params folder...")
         clustering_params = self.clustering_params
-        spike_array_params = self.spike_array_params
+        spike_array_params = self.spike_array_params if hasattr(self, "spike_array_params") else {}
         psth_params = self.psth_params
         pal_id_params = self.pal_id_params
         rec_dir = self.root_dir
-        wt.write_params_to_json("clustering_params", rec_dir, clustering_params)
-        wt.write_params_to_json("spike_array_params", rec_dir, spike_array_params)
-        wt.write_params_to_json("psth_params", rec_dir, psth_params)
-        wt.write_params_to_json("pal_id_params", rec_dir, pal_id_params)
+        write_params_to_json("clustering_params", rec_dir, clustering_params)
+        write_params_to_json("spike_array_params", rec_dir, spike_array_params)
+        write_params_to_json("psth_params", rec_dir, psth_params)
+        write_params_to_json("pal_id_params", rec_dir, pal_id_params)
 
     def extract_data(self, filename=None,):
         """
-        Create hdf5 store for data and read in data files. Also create
-        subfolders for processing outputs
+        Create hdf5 store for data and read in data files and create
+        subfolders for processing outputs.
 
         Parameters
         ----------
-        data_quality: {'clean', 'noisy'} (optional)
-            Specifies quality of data for default clustering parameters
-            associated. Should generally first process with clean (default)
-            parameters and then try noisy after running blech_clust and
-            checking if too many electrodes as cutoff too early
+        filename : str (optional)
+            name of h5 file to create. If none is specified, the default is
+            the name of the recording directory with a .h5 extension
         """
 
         file = filename if filename else self.h5_file
@@ -514,9 +512,17 @@ class Dataset(objects.data_object):
 
     def _process_spike2data(self):
         """Called only when extracting data from Spike2 file and extract_data() is called"""
+        #TODO: log
+        if "verbose" in globals():
+            verbose = True
+        else:
+            verbose = False
+
         electrodes = self.electrode_mapping["electrode"].unique()
         _time_flag = False
         for electrode_idx in electrodes:
+
+            ic(f"Extracting electrode {electrode_idx}/{electrodes[-1]}") if verbose else None
             this_electrode = self.electrode_mapping[self.electrode_mapping["electrode"] == electrode_idx]
             electrode = this_electrode["electrode"].iloc[0]
             unit_fs = this_electrode["sampling_rate"].iloc[0]
@@ -528,6 +534,7 @@ class Dataset(objects.data_object):
             if _time_flag is False:
                 saved = write_time_vector_to_h5(self.h5_file, electrode, unit_fs)
                 if saved:
+                    ic("Time vector saved to h5 file") if verbose else None
                     _time_flag = True
 
     def create_trial_list(self):
@@ -571,7 +578,7 @@ class Dataset(objects.data_object):
         """
         print("Marking dead channels\n----------")
         # em = self.electrode_mapping.copy()
-        em = self.unit_mapping.copy()
+        em = self.electrode_mapping.copy()
         if dead_channels is None:
             userio.tell_user("Making traces figure for dead channel detection...", shell=True)
 
@@ -629,7 +636,7 @@ class Dataset(objects.data_object):
             )
             if tmp:
                 self.clustering_params = tmp
-                wt.write_params_to_json("clustering_params", self.root_dir, tmp)
+                write_params_to_json("clustering_params", self.root_dir, tmp)
             else:
                 raise ValueError(
                     "%s is not a valid data_quality preset. Must "
@@ -694,10 +701,10 @@ class Dataset(objects.data_object):
         print("Spike Detection Complete\n------------------")
         return results
 
-    def blech_clust_run(self, data_quality=None, multi_process=False, n_cores=None, umap=True, accept_params=False):
+    def cluster_spikes(self, data_quality=None, multi_process=False, n_cores=None, umap=True, accept_params=False):
         """
         Write clustering parameters to file and
-        Run blech_process on each electrode using GNU parallel
+        Run process on each electrode using GNU parallel
 
         Parameters
         ----------
@@ -718,14 +725,14 @@ class Dataset(objects.data_object):
             )
             if tmp:
                 self.clustering_params = tmp
-                wt.write_params_to_json("clustering_params", self.root_dir, tmp)
+                write_params_to_json("clustering_params", self.root_dir, tmp)
             else:
                 raise ValueError(
                     "%s is not a valid data_quality preset. Must "
                     'be "clean" or "noisy" or None.'
                 )
 
-        print("\nRunning Blech Clust\n-------------------")
+        print("\nRunning Spike Clustering\n-------------------")
         print("Parameters\n%s" % pt.print_dict(self.clustering_params))
 
         # Get electrodes, throw out 'dead' electrodes
@@ -785,15 +792,21 @@ class Dataset(objects.data_object):
         self.process_status["cleanup_clustering"] = True
         self.save()
 
-    def sort_spikes(self, electrode=None, shell=False) -> (Tk, SpikeSorterGUI):
+    def sort_spikes(self, electrode=None, all_electrodes=(), shell=False) -> (Tk, SpikeSorterGUI):
         if electrode is None:
-            electrode = userio.get_user_input("electrode #: ", shell=shell)
+            ic("No electrode specified. Asking user for elextrode.")
+            if all_electrodes:
+                ic(f"all_electrodes: {all_electrodes}")
+                electrode_formatted_str = ", ".join([str(x) for x in all_electrodes])
+            else:
+                electrode_formatted_str = ", ".join([str(x) for x in self.electrode_mapping["electrode"].unique()])
+
+            electrode = userio.get_user_input(f"Choose an electrode to process. \n"
+                                              f"Possible electrodes: \n"
+                                              f"{electrode_formatted_str}", shell=shell)
             if electrode is None or not electrode.isnumeric():
                 return
             electrode = int(electrode)
-
-        if electrode == 'all':
-            electrodes = self.electrode_mapping['electrode'].tolist()
 
         if not self.process_status["spike_clustering"]:
             raise ValueError("Must run spike clustering first.")
@@ -804,7 +817,8 @@ class Dataset(objects.data_object):
         sorter = clust.SpikeSorter(rec_dirs=self.root_dir, electrode=electrode, shell=shell)
         if not shell:
             root, sorting_GUI = launch_sorter_GUI(sorter)
-            return root, sorting_GUI
+            if root:
+                root.mainloop()
         self.process_status["sort_units"] = True
 
     def units_similarity(self, similarity_cutoff=50, shell=False):
@@ -1344,7 +1358,7 @@ def port_in_dataset(rec_dir=None, shell=False):
                 snapshot_post = params["spike_snapshot"]["Time after spike (ms)"]
                 sd_params["spike_snapshot"] = [snapshot_pre, snapshot_post]
                 sd_params["sampling_rate"] = params["sampling_rate"]
-                wt.write_dict_to_json(sd_params, sd_fn)
+                write_dict_to_json(sd_params, sd_fn)
 
             c_fn = os.path.join(clust_dir, "BlechClust_params.json")
             if not os.path.isfile(c_fn):
@@ -1364,7 +1378,7 @@ def port_in_dataset(rec_dir=None, shell=False):
                 c_params["wf_amplitude_sd_cutoff"] = params["data_params"][
                     "Intra-cluster waveform amp SD cutoff"
                 ]
-                wt.write_dict_to_json(c_params, c_fn)
+                write_dict_to_json(c_params, c_fn)
 
             # To make: clust_dir/clustering_results/ clustering_results.json, rec_key.json, spike_id.npy
             # To make: detect_dir/data/cutoff_time.txt and detection_threshold.txt

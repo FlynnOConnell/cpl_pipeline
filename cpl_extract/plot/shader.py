@@ -43,12 +43,17 @@ def waveforms_datashader(waveforms, threshold=None):
 
     if waveforms.shape[0] == 0:
         return None
+
     # Make a pandas dataframe with two columns, x and y, holding all the data.
     # The individual waveforms are separated by a row of NaNs.
-
     # First downsample the waveforms 10 times (to remove the effects of 10 times upsampling during de-jittering)
     waveforms = waveforms[:, ::10]
     x_values = np.arange(len(waveforms[0])) + 1
+
+    lower_percentile = 5
+    upper_percentile = 95
+    y_lower = np.percentile(waveforms, lower_percentile)
+    y_upper = np.percentile(waveforms, upper_percentile)
 
     # Then make a new array of waveforms - the last element of each waveform is a NaN
     new_waveforms = np.zeros((waveforms.shape[0], waveforms.shape[1] + 1))
@@ -61,14 +66,12 @@ def waveforms_datashader(waveforms, threshold=None):
     x[:-1] = x_values
 
     # Now make the dataframe
-    df = pd.DataFrame(
-        {"x": np.tile(x, new_waveforms.shape[0]), "y": new_waveforms.flatten()}
-    )
+    df = pd.DataFrame({"x": np.tile(x, new_waveforms.shape[0]), "y": new_waveforms.flatten()})
 
     # Produce a datashader canvas
     canvas = ds.Canvas(
         x_range=(np.min(x_values), np.max(x_values)),
-        y_range=(df["y"].min() - 10, df["y"].max() + 10),
+        y_range=(y_lower, y_upper),
         plot_height=1200,
         plot_width=1600,
     )
@@ -91,10 +94,8 @@ def waveforms_datashader(waveforms, threshold=None):
     yticklabels = np.floor(np.linspace(df["y"].max() + 10, df["y"].min() - 10, 10))
     ax.set_yticklabels(yticklabels)
 
-    if threshold is not None:
-        scaled_thresh = (threshold - np.max(yticklabels)) * (
-            1200 / (np.min(yticklabels) - np.max(yticklabels))
-        )
+    if threshold is not None and y_lower <= threshold <= y_upper:
+        scaled_thresh = (threshold - y_upper) * (1200 / (y_lower - y_upper))
         ax.axhline(scaled_thresh, linestyle="--", color="r", alpha=0.3)
 
     # Delete the dataframe

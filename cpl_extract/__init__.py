@@ -1,6 +1,19 @@
 import os
+from pathlib import Path
 
+import icecream
 import numpy as np
+try:
+    from icecream import ic
+except ImportError:  # Graceful fallback if IceCream isn't installed.
+    ic = lambda *a: None if not a else (a[0] if len(a) == 1 else a)  # noqa
+
+try:
+    from platformdirs import user_cache_dir
+
+except ImportError:
+    user_cache_dir = Path().home() / ".cache"
+    user_cache_dir.mkdir(exist_ok=True)
 
 from . import utils, analysis
 from .spk_io import *
@@ -12,6 +25,8 @@ from .base.objects import load_project, load_experiment
 from .base.experiment import experiment
 from .base.project import project
 
+ic.configureOutput(includeContext=True, contextAbsPath=True)
+icecream.install()
 
 def pad_arrays_to_same_length(arr_list, max_diff=100):
     """

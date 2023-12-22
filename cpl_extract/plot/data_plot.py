@@ -116,7 +116,7 @@ def plot_traces_and_outliers(h5_file: str, window=2, save_file=None):
 
         # make each electrode on the same scale
         for i, node in enumerate(electrodes):
-            trace = node[:] * 0.195  # some sort of voltage scalinghere
+            trace = node[:]# * 0.195  # some sort of voltage scalinghere
             max_amp[i] = np.max(np.abs(trace))
             max_amp_idx[i] = int(np.argmax(np.abs(trace)))
             std_amp[i] = np.std(trace)
@@ -380,7 +380,8 @@ def plot_held_units(rec_dirs, held_df, save_dir, rec_names=None):
 
 
 def plot_cluster_pca(clusters):
-    """Plot PCA view of clusters from spike_sorting
+    """
+    Plot PCA view of clusters from spike_sorting
 
     Parameters
     ----------
@@ -426,7 +427,8 @@ def plot_cluster_pca(clusters):
 
 
 def plot_cluster_raster(clusters):
-    """Plot raster view of a cluster from cpl_extract.analysis.spike_sorting
+    """
+    Plot raster view of a cluster from cpl_extract.analysis.spike_sorting
 
     Parameters
     ----------
@@ -455,12 +457,14 @@ def plot_cluster_raster(clusters):
 
 def plot_waveforms(waveforms, title=None, save_file=None, threshold=None):
 
+    fig, ax = shader.waveforms_datashader(waveforms, threshold=threshold)
 
-
-    fig, ax = shader.waveforms_datashader(waveforms,)
     ax.set_xlabel("Samples", fontsize=12)
     ax.set_ylabel("Voltage (Volts)", fontsize=12)
     ax.set_title(title, fontsize=12)
+
+    ax.autoscale(enable=True, axis="both", tight=True)
+
     plt.xticks(fontsize=10)
     plt.yticks(fontsize=10)
 

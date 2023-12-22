@@ -25,7 +25,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
 )
 
-from cpl_extract.gui import menu
+from cpl_extract.gui import menu, io
 from cpl_extract.gui.traces import (
     QRangeSlider,
     WaveformPlot,
@@ -66,9 +66,22 @@ class MainWindow(QMainWindow):
         self.data = {}
         self.loaded = False
         self.plotWidgets = {}
+        self.base_path = None
+        self.files = []
+        self.channels = []
+        self.clusters = []
+        self.dataset = None
+        self.h5_file = None
+        self.h5_file_path = None
+        self.raw_file_type = None
 
         # Load data directory container
-        self.base_path = pathlib.Path().home() / "clustersort"
+        # check for cached os env var
+        if os.environ.get("CACHE_DIR"):
+            self.base_path = pathlib.Path(os.environ.get("CACHE_DIR"))
+        else:
+            io.select_base_folder(self)
+
         self.data_thread = DataLoader(str(self.base_path))
         self.data_thread.dataLoaded.connect(self.update_data)
 
@@ -156,6 +169,7 @@ class MainWindow(QMainWindow):
     def debug(self):
         x = 5
         y = self.base_path
+        print(self)
 
     def get_current_channel_path(self):
         return (

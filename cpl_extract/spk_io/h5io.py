@@ -233,6 +233,7 @@ def get_spike_data(rec_dir, units=None, din=None, trials=None, h5_file=None):
         h5_file = get_h5_filename(rec_dir)
 
     if units is None:
+        ic("No units specified, retreiving all units", rec_dir)
         units = get_unit_names(rec_dir)
     elif not isinstance(units, list):
         units = [units]

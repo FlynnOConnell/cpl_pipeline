@@ -484,7 +484,6 @@ class experiment(data_object):
             electrode = userio.get_user_input("Electrode #: ", shell=shell)
             if electrode is None or not electrode.isnumeric():
                 return
-
             electrode = int(electrode)
 
         rec_dirs = list(self.rec_labels.values())
@@ -492,7 +491,6 @@ class experiment(data_object):
             dat = load_dataset(rd)
             if not dat.process_status["cleanup_clustering"]:
                 dat.cleanup_clustering()
-
             dat.process_status["sort_units"] = True
 
         sorter = SpikeSorter(rec_dirs, electrode, shell=shell)

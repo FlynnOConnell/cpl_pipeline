@@ -1,31 +1,26 @@
+from icecream import ic
+
 from .version import version
 from pathlib import Path
 
 
 def defaults():
-    """default options to run spike extract"""
-    home = Path().home()
-    cpe_path = home / "cpl_extract"
-    cpe_path.mkdir(exist_ok=True)
-
+    """
+    fallback default path options to start the pipeline
+    """
+    base_path = Path().home() / 'data'
     return {
         "spk2extract_version": version,  # current version of package
-        "data_path": cpe_path / "data",  # path to save data
-        "config_path": cpe_path / "config.ini",  # path to save config file
-        "sort_path": cpe_path / "sorted",  # path to save sort files
-        "log_path": cpe_path / "logs",  # path to save log files
+        "base_path": base_path,  # base path for all files
+        "log_path": base_path / ".logs",  # path to save log files
+        "data_quality": "noisy",  # data quality to use for sorting
         "log_level": "INFO",  # level of logging
-        "log_file": "cp_sort.log",  # name of log file
-        "log_file_level": "INFO",  # level of logging to file
+        "overwrite": False,  # overwrite existing files
+        "parallel": False,  # run in parallel
+        "verbose": False,  # verbose output
     }
-
-def secondary():
-    """
-    Test method
-    """
-    pass
 
 
 if __name__ == "__main__":
-    secondary()
-
+    d = defaults()
+    ic(d)

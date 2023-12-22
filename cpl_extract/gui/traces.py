@@ -21,10 +21,16 @@ from vispy.scene.cameras import PanZoomCamera
 class DataLoader(QThread):
     dataLoaded = pyqtSignal(object)
 
-    def __init__(self, base_path):
+    def __init__(self, base_path, *args, **kwargs):
         super(DataLoader, self).__init__()
         self.base_path = Path(base_path)
         self.data = {}
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+        for val in args:
+            setattr(self, val, None)
+
         if self.base_path.is_dir():
             self.start()
 

@@ -2,6 +2,8 @@ import tkinter as tk
 from tkinter import ttk
 import numpy as np
 import matplotlib
+from icecream import ic
+
 from cpl_extract.spk_io import userio
 from cpl_extract.utils import tk_widgets as tkw
 
@@ -11,10 +13,11 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 
 class SpikeSorterGUI(ttk.Frame):
-
     def __init__(self, parent, spike_sorter, *args, **kwargs):
         tk.Frame.__init__(self, parent, *args, **kwargs)
+        ic('init SpikeSorterGUI')
         self.root = parent
+        self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.root.style = ttk.Style()
         self.root.style.theme_use("clam")
         self.root.geometry("915x800")
@@ -97,7 +100,10 @@ class SpikeSorterGUI(ttk.Frame):
         discard = ttk.Button(
             buttons, text="Discard Clusters", command=self.discard_clusters
         )
+
         self._undo_button = ttk.Button(buttons, text="Undo", command=self.undo)
+
+
         merge.pack(side="top", fill="x", pady=5)
         split.pack(side="top", fill="x", pady=5)
         splitUMAP.pack(side="top", fill="x", pady=5)
@@ -115,6 +121,8 @@ class SpikeSorterGUI(ttk.Frame):
         discard.pack(side="top", fill="x", pady=5)
         self._undo_button.pack(side="top", fill="x", pady=5)
         self._undo_button.config(state="disabled")
+        close_button = ttk.Button(buttons, text="Close Electrode Without Saving", command=self.close)
+        close_button.pack(side="top", fill="x", pady=5)
 
         self._ui_frame = ui
 
@@ -214,7 +222,9 @@ class SpikeSorterGUI(ttk.Frame):
 
     def save(self, *args):
         chosen = self._check_bar.get_selected()
+        ic(chosen)
         if len(chosen) == 0:
+            ic('No clusters selected')
             return
 
         cell_types = {}
@@ -234,6 +244,7 @@ class SpikeSorterGUI(ttk.Frame):
 
         single = [cell_types[i]["single_unit"] for i in sorted(cell_types.keys())]
         multi = [cell_types[i]["multi_unit"] for i in sorted(cell_types.keys())]
+        ic(f"Saving {len(chosen)} clusters.")
         self.sorter.save_clusters(chosen, single, multi)
         self.update()
 
@@ -365,8 +376,7 @@ class SpikeSorterGUI(ttk.Frame):
         self.cstate("disabled")
 
     def close(self):
-        if self.root.is_alive():
-            pass
+        ic('Closing Window for Electrode %i' % self.electrode)
         self.root.destroy()
 
 
@@ -505,7 +515,7 @@ class WaveformPane(ttk.Frame):
         self.scrollpane.bind_children_to_mouse()
 
 
-class DummySorter(object):
+class DummySorter:
     def __init__(self, electrode, shell=False):
         self.electrode = electrode
         # Match recording directory ordering to clustering
@@ -619,7 +629,8 @@ class DummySorter(object):
         pass
 
     def get_mean_waveform(self, target_cluster):
-        """Returns mean waveform of target_cluster in active clusters. Also
+        """
+        Returns mean waveform of target_cluster in active clusters. Also
         returns SEM of waveforms
         """
         cluster = self._active[target_cluster]
@@ -645,4 +656,5 @@ class DummySorter(object):
 def launch_sorter_GUI(sorter):
     root = tk.Tk()
     sorter_GUI = SpikeSorterGUI(root, sorter)
+    root.mainloop()
     return root, sorter_GUI

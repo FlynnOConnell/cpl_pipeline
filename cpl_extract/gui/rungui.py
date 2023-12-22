@@ -50,9 +50,7 @@ class RunWindow(QDialog):
         self.error = None
         self.finish = None
         self.setGeometry(10, 10, 1500, 900)
-        self.setWindowTitle(
-            "Choose run options (hold mouse over parameters to see descriptions)"
-        )
+        self.setWindowTitle("Choose run options (hold mouse over parameters to see descriptions)")
         self.parent = parent
         self.win = QWidget(self)
         self.layout = QGridLayout()
@@ -61,9 +59,7 @@ class RunWindow(QDialog):
         self.win.setLayout(self.layout)
         # initial ops values
         self.opsfile = parent.opsuser
-        self.ops_path = os.fspath(
-            pathlib.Path.home().joinpath("autosort").joinpath("h5").absolute()
-        )
+        self.ops_path = os.fspath(pathlib.Path.home().joinpath("autosort").joinpath("h5").absolute())
         try:
             self.reset_ops()
             print("loaded default ops")

@@ -14,6 +14,17 @@ def select_base_folder(parent):
     name = QFileDialog.getExistingDirectory(**dlg_kwargs)
     parent.base_path = name
 
+def load_data_folder(parent):
+    dlg_kwargs = {
+        "parent": parent,
+        "caption": "Select data folder",
+        "options": QFileDialog.DontUseNativeDialog,
+    }
+    try:
+        base_path = parent.base_path
+    except AttributeError:
+        select_base_folder(parent)
+        base_path = parent.base_path
 
 def load_smr(parent):
     dlg_kwargs = {

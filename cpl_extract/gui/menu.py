@@ -27,6 +27,6 @@ def mainmenu(parent):
     load_menu.addAction(load_s2e_folder)
 
 
-def run_s2e(parent):
+def open_gui_window(parent):
     RW = rungui.RunWindow(parent)
     RW.show()
