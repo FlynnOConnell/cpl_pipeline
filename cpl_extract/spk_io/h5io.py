@@ -12,7 +12,6 @@ import pandas as pd
 import numpy as np
 from icecream import ic
 
-from cpl_extract.spk_io import userio
 from cpl_extract.analysis import cluster as clust
 from cpl_extract.spk_io import userio, println, paramio
 from cpl_extract.utils import particles
@@ -89,11 +88,11 @@ def get_h5_filename(file_dir, shell=True):
     str
         filename of h5 file in directory (not full path), None if no file found
     """
+
     if "SHH_CONNECTION" in os.environ:
         shell = True
 
-    file_list = os.listdir(file_dir)
-    h5_files = [f for f in file_list if f.endswith(".h5")]
+    h5_files = list(Path(file_dir).glob("*.h5"))
     if len(h5_files) > 1:
         choice = userio.select_from_list(
             "Choose which h5 file to load",
@@ -303,11 +302,9 @@ def get_raw_digital_signal(rec_dir, dig_type, channel, h5_file=None):
     return None
 
 
-def get_raw_trace(h5_file=None, rec_dir=None, chan_idx=None, el_map=None):
+def get_raw_trace(h5_file=None, rec_dir=None, chan_idx=None,):
     """
-    Returns raw voltage trace for electrode from hdf5 store
-    If /raw is not in hdf5, this grabs the raw trace from the dat file if it is
-    present and electrode_mapping was provided
+    Returns raw voltage trace for electrode from hdf5 store.
     """
     if h5_file is None:
         h5_file = get_h5_filename(rec_dir, shell=True)

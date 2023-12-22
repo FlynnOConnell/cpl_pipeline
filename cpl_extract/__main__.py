@@ -13,7 +13,6 @@ def add_args(parser: argparse.ArgumentParser):
     """
     parser.add_argument("-n", "--new", action="store_true", help="Create a new dataset.")
     parser.add_argument("-f", "--file", action="store_true", help="Load a dataset from an existing file.")
-    parser.add_argument("-v", "--version", action="store_true", help="Print version.")
     parser.add_argument("-p", "--path", type=str, help="Base path containing raw or extracted data.")
     parser.add_argument("-P", "--parallel", action="store_true", help="Run in parallel.")
     parser.add_argument("-d", "--detect-spikes", action="store_true", help="Detect spikes.")
@@ -30,22 +29,22 @@ def parse_args(parser: argparse.ArgumentParser):
     """
     args = parser.parse_args()
     dargs = vars(args)
-    set_param_msg = "->> Setting {0} to {1}"
-    if args.version:
-        ic(f"Version: 0.0.2")  # TODO: Get version from __init__.py
+
+    if args.path:
+        datapath = Path(args.path).expanduser().resolve()
+    else:
+        datapath = Path(defaults["datapath"]).expanduser().resolve()
+    ic(f"Setting datapath to {datapath}")
+    dargs["path"] = datapath
 
     if args.new:
-        data = Dataset(root_dir=args.path, shell=True)
+        data = Dataset(root_dir=datapath, shell=True)
         dargs['data'] = data
     elif args.file:
         data = load_dataset(args.path, shell=True)
         dargs['data'] = data
     else:
         raise ValueError("No dataset specified.")
-    if args.path:
-        datapath = Path(args.path).expanduser().resolve()
-        ic(f"Setting datapath to {datapath}")
-        dargs["path"] = datapath
     if args.parallel:
         ic("Setting parallel to True")
         dargs["parallel"] = True
@@ -58,15 +57,26 @@ def main(shell=False):
         parser = add_args(parser)
         args, dargs = parse_args(parser)
 
-        data = dargs['data']
-        if not data.process_status['initialize parameters']:
+        if list(Path(args.path).glob("*.p")):  # if it's a non-empty list
+            data = load_dataset(args.path,)
+        else:
+            data = Dataset(root_dir=args.path,)
+
+        if not data.process_status['initialize_parameters']:
             data.initParams()
+
+        if not data.process_status['extract_data']:
+            data.extract_data()
+
         if not data.process_status['mark_dead_channels']:
             data.mark_dead_channels()
+
         if not data.process_status['spike_detection']:
             data.detect_spikes()
+
         if not data.process_status['spike_clustering']:
             data.cluster_spikes()
+
         if not data.process_status['cleanup_clustering']:
             data.cleanup_clustering()
 

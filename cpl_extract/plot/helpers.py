@@ -316,3 +316,8 @@ def make_legend(
         mydir = r"C:\Users\dilorenzo\Desktop\CalciumPlots\plots\legend.png"
         figlegend.savefig(f"{mydir}", dpi=1200)
         logging.info(f"Legend saved in {mydir}")
+
+def analyze_waveform(waves):
+
+
+    pass
