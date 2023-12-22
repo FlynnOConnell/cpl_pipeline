@@ -491,7 +491,7 @@ class experiment(data_object):
             dat = load_dataset(rd)
             if not dat.process_status["cleanup_clustering"]:
                 dat.cleanup_clustering()
-            dat.process_status["sort_units"] = True
+            dat.process_status["spike_sorting"] = True
 
         sorter = SpikeSorter(rec_dirs, electrode, shell=shell)
         if not shell:

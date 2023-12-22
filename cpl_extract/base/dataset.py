@@ -1,6 +1,7 @@
 import datetime as dt
 import itertools
 import os
+import pprint
 import shutil
 import subprocess
 from copy import deepcopy
@@ -52,14 +53,14 @@ class Dataset(objects.data_object):
     """
 
     PROCESSING_STEPS = [
-        "initialize parameters",
+        "initialize_parameters",
         "extract_data",
         "create_trial_list",
         "mark_dead_channels",
         "spike_detection",
         "spike_clustering",
         "cleanup_clustering",
-        "sort_units",
+        "spike_sorting",
         "make_unit_plots",
         "units_similarity",
         "make_unit_arrays",
@@ -118,9 +119,9 @@ class Dataset(objects.data_object):
     def initParams(
         self,
         data_quality="hp",
-        emg_port=None,
-        emg_channels=None,
-        dig_in_names=None,
+        emg_port=None,  #  TODO: add emg_port to rec_info
+        emg_channels=None,  #  TODO: add emg_channels to rec_info
+        dig_in_names=None,  # This should be events, any input from the user
         dig_out_names=None,
         shell=False,
         accept_params=False,
@@ -138,6 +139,9 @@ class Dataset(objects.data_object):
             and re-run as 'noisy' if too many early cutoffs occurr.
             Alternately run as 'hp' (high performance)
             default parameter sets found in spk_io.defualts.clustering_params.json
+        emg_port : int
+            port number of EMG data
+            default is None
         emg_channels : list of int
             channel or channels of EMGs on port specified
             default is None
@@ -234,7 +238,7 @@ class Dataset(objects.data_object):
         self.pal_id_params = pal_id_params
         self.psth_params = psth_params
         self._write_all_params_to_json()
-        self.process_status["initialize parameters"] = True
+        self.process_status["initialize_parameters"] = True
         self.save()
 
     def _setup_digital_mapping(self, dig_type, dig_in_names=None, shell=False):
@@ -458,7 +462,7 @@ class Dataset(objects.data_object):
         return "\n".join(out)
 
     def __repr__(self):
-        return self.__str__()
+        return pprint.pformat(self.__dict__)
 
     def _write_all_params_to_json(self):
         """
@@ -511,8 +515,11 @@ class Dataset(objects.data_object):
         print("\nData Extraction Complete\n--------------------")
 
     def _process_spike2data(self):
-        """Called only when extracting data from Spike2 file and extract_data() is called"""
-        #TODO: log
+        """
+        Extract all data from Spike2 file and save to h5 file.
+
+        Called only when extracting data from Spike2 file and extract_data() is called"""
+
         if "verbose" in globals():
             verbose = True
         else:
@@ -520,9 +527,10 @@ class Dataset(objects.data_object):
 
         electrodes = self.electrode_mapping["electrode"].unique()
         _time_flag = False
-        for electrode_idx in electrodes:
 
+        for electrode_idx in electrodes:
             ic(f"Extracting electrode {electrode_idx}/{electrodes[-1]}") if verbose else None
+
             this_electrode = self.electrode_mapping[self.electrode_mapping["electrode"] == electrode_idx]
             electrode = this_electrode["electrode"].iloc[0]
             unit_fs = this_electrode["sampling_rate"].iloc[0]
@@ -819,7 +827,7 @@ class Dataset(objects.data_object):
             root, sorting_GUI = launch_sorter_GUI(sorter)
             if root:
                 root.mainloop()
-        self.process_status["sort_units"] = True
+        self.process_status["spike_sorting"] = True
 
     def units_similarity(self, similarity_cutoff=50, shell=False):
         if "SSH_CONNECTION" in os.environ:
@@ -1075,7 +1083,7 @@ class Dataset(objects.data_object):
 
     def pre_process_for_clustering(self, shell=False, dead_channels=None):
         status = self.process_status
-        if not status["initialize parameters"]:
+        if not status["initialize_parameters"]:
             self.initParams(shell=shell)
 
         if not status["extract_data"]:
@@ -1298,7 +1306,7 @@ def port_in_dataset(rec_dir=None, shell=False):
 
     dat.save()
 
-    if status["spike_clustering"] and not status["sort_units"]:
+    if status["spike_clustering"] and not status["spike_sorting"]:
         # Move files into correct structure to support spike sorting
         for i, row in dat.electrode_mapping.iterrows():
             el = row["electrode"]

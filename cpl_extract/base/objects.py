@@ -145,14 +145,9 @@ def load_data(data_type, file_dir=None, shell=False):
         shell = True
 
     if file_dir is None:
-        file_dir = get_filedirs(
-            "Select %s directory or .p file" % data_type, shell=shell
-        )
+        file_dir = get_filedirs("Select %s directory or .p file" % data_type, shell=shell)
 
-    # check if '~' in file_dir and expand
-    if "~" in file_dir:
-        file_dir = os.path.expanduser(file_dir)
-    if os.path.isfile(file_dir) and f"{data_type}.p" in file_dir:
+    if Path(file_dir).is_file() and f"{data_type}.p" in str(file_dir):
         data_file = [file_dir]
         file_dir = os.path.dirname(file_dir)
     elif not os.path.isdir(file_dir):
