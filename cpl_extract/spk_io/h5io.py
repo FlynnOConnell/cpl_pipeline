@@ -320,6 +320,17 @@ def get_raw_trace(h5_file=None, rec_dir=None, chan_idx=None, ):
             return None
 
 
+def _check_electrode_data_exists(h5_file=None, rec_dir=None, chan_idx=None, ):
+    if h5_file is None:
+        h5_file = get_h5_filename(rec_dir, shell=True)
+
+    with tables.open_file(h5_file, "r") as hf5:
+        if "/raw" in hf5 and f"/raw/electrode{chan_idx}" in hf5:
+            return True
+        else:
+            return False
+
+
 def get_referenced_trace(rec_dir, electrode, h5_file=None):
     """Returns referenced voltage trace for electrode from hdf5 store
     If /referenced is not in hdf5, return None
@@ -1150,8 +1161,8 @@ def common_avg_reference(h5_file, electrodes, group_num):
 
 
 def compress_and_repack(h5_file, new_file=None):
-    """Compress and repack the h5 file with ptrepack either to same name or new
-    name
+    """
+    Compress and repack the h5 file with ptrepack either to same name or new name
 
     Parameters
     ----------
@@ -1221,10 +1232,10 @@ def cleanup_clustering(file_dir, h5_file=None):
     changes = False
     with tables.open_file(h5_file, "r+") as hf5:
         if "/raw" in hf5:
-            println("Removing raw data from hdf5 store...")
-            hf5.remove_node("/raw", recursive=1)
-            changes = True
-            print("Done!")
+            # println("Removing raw data from hdf5 store...")
+            # hf5.remove_node("/raw", recursive=1)
+            # changes = True
+            ic(f"Leaving raw store... {h5_file}")
 
         if "/sorted_units" not in hf5:
             hf5.create_group("/", "sorted_units")
@@ -1238,17 +1249,16 @@ def cleanup_clustering(file_dir, h5_file=None):
 
     # Repack if any big changes were made to h5 store
     if changes:
-        if not hasattr(h5_file, "endswith"):
+        if not hasattr(h5_file, "endswith"):  #  pathlib / os.path compatibility
             h5_file = str(h5_file)
         if h5_file.endswith("_repacked.h5"):
             new_fn = h5_file
             new_h5 = compress_and_repack(h5_file, new_fn)
         else:
+            ic("Renaming..")
             new_fn = h5_file.replace(".h5", "_repacked.h5")
             new_h5 = compress_and_repack(h5_file)
-
         return new_h5
-
     else:
         return h5_file
 
