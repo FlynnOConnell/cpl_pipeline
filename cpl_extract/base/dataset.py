@@ -114,7 +114,11 @@ class Dataset(objects.data_object):
 
         self.dataset_creation_date = dt.datetime.today()
         self.processing_steps = Dataset.PROCESSING_STEPS.copy()
-        self.process_status = dict.fromkeys(self.processing_steps, False)
+        self._process_status = dict.fromkeys(self.processing_steps, False)
+
+    @property
+    def process_status(self):
+        return self._process_status
 
     def _change_root(self, new_root=None):
         old_root = self.root_dir
@@ -501,6 +505,21 @@ class Dataset(objects.data_object):
 
     def extract_data(self, filename=None,):
         """
+        Create a new H5 file with a pre-defined structure:
+
+        - /raw
+            - /electrode0[EArray]
+            - /electrode1[EArray]
+            - ...
+        - /time
+            - /time_vector[EArray]
+
+
+
+        .. seealso::
+            :func:`cpl_extract.spk_io.h5io.create_empty_data_h5`
+            :func:`cpl_extract.spk_io.h5io.create_hdf_arrays`
+
         Create hdf5 store for data and read in data files and create
         subfolders for processing outputs.
 
@@ -527,10 +546,9 @@ class Dataset(objects.data_object):
 
         print("Extracting data from Spike2 file")
         self._process_spike2data()
-
-        # update status
         self.process_status["extract_data"] = True
         self.save()
+
         print("\nData Extraction Complete\n--------------------")
 
     def _process_spike2data(self):
@@ -539,16 +557,11 @@ class Dataset(objects.data_object):
 
         Called only when extracting data from Spike2 file and extract_data() is called"""
 
-        if "verbose" in globals():
-            verbose = True
-        else:
-            verbose = False
-
         electrodes = self.electrode_mapping["electrode"].unique()
         _time_flag = False
 
         for electrode_idx in electrodes:
-            ic(f"Extracting electrode {electrode_idx}/{electrodes[-1]}") if verbose else None
+            ic(f"Extracting electrode {electrode_idx}/{electrodes[-1]}")
 
             this_electrode = self.electrode_mapping[self.electrode_mapping["electrode"] == electrode_idx]
             electrode = this_electrode["electrode"].iloc[0]
@@ -561,7 +574,7 @@ class Dataset(objects.data_object):
             if _time_flag is False:
                 saved = write_time_vector_to_h5(self.h5_file, electrode, unit_fs)
                 if saved:
-                    ic("Time vector saved to h5 file") if verbose else None
+                    ic("Time vector saved to h5 file")
                     _time_flag = True
 
     def create_trial_list(self):
