@@ -11,7 +11,7 @@ import pickle
 class data_object:
     def __init__(
         self,
-        data_type: str = None,
+        data_type,
         root_dir: str | Path = None,
         data_name: str = None,
         save_file: str | Path = None,
@@ -20,11 +20,6 @@ class data_object:
     ):
         if "SSH_CONNECTION" in os.environ:
             shell = True
-
-        # use the class name as the data_type if not provided
-        if data_type is None:
-            print("No data_type provided, using class name.")
-            data_type = self.__class__.__name__.lower()
 
         if root_dir is None:
             root_dir = get_filedirs(
@@ -36,9 +31,8 @@ class data_object:
                 )
 
         if data_name is None:
-            data_name = get_user_input(
-                "Enter name for %s" % data_type, os.path.basename(root_dir), shell
-            )
+            data_name = get_user_input("Enter name for %s" % data_type, os.path.basename(root_dir), shell)
+            print("Using %s as name for %s" % (data_name, data_type))
 
         if save_file is None:
             save_file = os.path.join(root_dir, "%s_%s.p" % (data_name, data_type))

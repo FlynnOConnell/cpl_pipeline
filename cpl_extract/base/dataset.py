@@ -44,6 +44,13 @@ from cpl_extract.spk_io.h5io import (
 from cpl_extract.utils.spike_sorting_GUI import launch_sorter_GUI, SpikeSorterGUI
 
 
+def circus_clust_run(shell=False):
+    from cpl_extract.analysis.circus_interface import circus_clust as circ
+
+    circ.prep_for_circus()
+    circ.start_the_show()
+
+
 class Dataset(objects.data_object):
     """
     Parameters
@@ -87,10 +94,9 @@ class Dataset(objects.data_object):
         root_dir : str (optional), file directory for intan recording data
 
         """
-        super().__init__(data_type=None, root_dir=root_dir, data_name=data_name, shell=shell)
+        super().__init__(data_type="dataset", root_dir=root_dir, data_name=data_name, shell=shell)
 
         # TODO: add check for file type + additional file types
-        self.emg_mapping = None
 
         h5_file = get_h5_filename(self.root_dir)
         if h5_file is None:
@@ -116,7 +122,7 @@ class Dataset(objects.data_object):
         self.h5_file = self.h5_file.replace(old_root, new_root)
         return new_root
 
-    def initParams(
+    def initialize_parameters(
         self,
         data_quality="hp",
         emg_port=None,  #  TODO: add emg_port to rec_info
@@ -182,8 +188,8 @@ class Dataset(objects.data_object):
 
         print("Extracting information from Spike2 file")
         self.data = Spike2Data(filepath=file,)
-        self.electrode_mapping = self.data.load_mapping()
-        self.electrode_mapping = self.electrode_mapping[self.electrode_mapping['unit'] == True]
+        self.electrode_mapping = self.data.load_mapping()  # this gets metadata without loading data into memory
+        self.electrode_mapping = self.electrode_mapping[self.electrode_mapping['unit'] == True] ## separate out units from other channels
 
         print(self.electrode_mapping)
 
@@ -385,7 +391,8 @@ class Dataset(objects.data_object):
         self.save()
 
     def __str__(self):
-        """Put all information about dataset in string format
+        """
+        Put all information about dataset in string format
 
         Returns
         -------
@@ -414,12 +421,12 @@ class Dataset(objects.data_object):
 
         info = self.rec_info
 
-        if self.emg_mapping:
-            out.append("--------------------")
-            out.append("EMG")
-            out.append("--------------------")
-            out.append(pt.print_dataframe(self.emg_mapping))
-            out.append("")
+        # if self.emg_mapping:
+        #     out.append("--------------------")
+        #     out.append("EMG")
+        #     out.append("--------------------")
+        #     out.append(pt.print_dataframe(self.emg_mapping))
+        #     out.append("")
 
         if info.get("dig_in"):
             out.append("--------------------")
@@ -438,26 +445,38 @@ class Dataset(objects.data_object):
         out.append("--------------------")
         out.append("Clustering Parameters")
         out.append("--------------------")
-        out.append(pt.print_dict(self.clustering_params))
+        try:
+            out.append(pt.print_dict(self.clustering_params))
+        except AttributeError:
+            out.append("Clustering parameters not yet set")
         out.append("")
 
         out.append("--------------------")
         out.append("Spike Array Parameters")
         out.append("--------------------")
-        out.append(pt.print_dict(self.spike_array_params))
+        try:
+            out.append(pt.print_dict(self.spike_array_params))
+        except AttributeError:
+            out.append("Spike array parameters not yet set")
         out.append("")
 
-        out.append("--------------------")
-        out.append("PSTH Parameters")
-        out.append("--------------------")
-        out.append(pt.print_dict(self.psth_params))
-        out.append("")
+        try:
+            out.append("--------------------")
+            out.append("PSTH Parameters")
+            out.append("--------------------")
+            out.append(pt.print_dict(self.psth_params))
+            out.append("")
+        except AttributeError:
+            pass
 
-        out.append("--------------------")
-        out.append("Palatability/Identity Parameters")
-        out.append("--------------------")
-        out.append(pt.print_dict(self.pal_id_params))
-        out.append("")
+        try:
+            out.append("--------------------")
+            out.append("Palatability/Identity Parameters")
+            out.append("--------------------")
+            out.append(pt.print_dict(self.pal_id_params))
+            out.append("")
+        except AttributeError:
+            pass
 
         return "\n".join(out)
 
@@ -567,6 +586,7 @@ class Dataset(objects.data_object):
             self.dig_out_trials = out_list
         else:
             print("No digital output data found")
+
 
         self.process_status["create_trial_list"] = True
         self.save()
@@ -678,7 +698,6 @@ class Dataset(objects.data_object):
             results = [(None, None, None)] * (max(electrodes) + 1)
             spike_detectors = [
                 clust.SpikeDetection(data_dir, x, self.clustering_params) for x in electrodes
-
             ]
             for sd in tqdm(spike_detectors):
                 res = sd.run()
@@ -1075,19 +1094,13 @@ class Dataset(objects.data_object):
         )
         print("descriptor edit success")
 
-    def circus_clust_run(self, shell=False):
-        from cpl_extract.analysis.circus_interface import circus_clust as circ
-
-        circ.prep_for_circus()
-        circ.start_the_show()
-
     def pre_process_for_clustering(self, shell=False, dead_channels=None):
         status = self.process_status
         if not status["initialize_parameters"]:
-            self.initParams(shell=shell)
+            self.initialize_parameters(shell=shell)
 
         if not status["extract_data"]:
-            self.extract_data(shell=True)
+            self.extract_data()
 
         if not status["create_trial_list"]:
             self.create_trial_list()
@@ -1095,8 +1108,11 @@ class Dataset(objects.data_object):
         if not status["mark_dead_channels"] and dead_channels != False:
             self.mark_dead_channels(dead_channels=dead_channels, shell=shell)
 
-        if not status["common_average_reference"]:
-            self.common_average_reference()
+        try:  # not using at the moment
+            if not status["common_average_reference"]:
+                self.common_average_reference()
+        except AttributeError:
+            pass
 
         if not status["spike_detection"]:
             self.detect_spikes()
@@ -1106,8 +1122,9 @@ class Dataset(objects.data_object):
         self.extract_data()
         print("Marking dead channels...")
         self.mark_dead_channels(dead_channels, shell=shell)
-        print("Common average referencing...")
-        self.common_average_reference()
+        # TODO:
+        # print("Common average referencing...")
+        # self.common_average_reference()
         print("Initiating circus clustering...")
         circus = circus_clust(
             self.root_dir, self.data_name, self.sampling_rate, self.electrode_mapping
@@ -1217,9 +1234,16 @@ class Dataset(objects.data_object):
 
         return tbl
 
-    def print_status(self):
-        print("Process Status")
-        print(pt.print_dict(self.process_status))
+    def completed_steps(self):
+        if not hasattr(self, "process_status"):
+            return []
+        return [k for k, v in self.process_status.items() if v in [True, "True", "true"]]
+
+    def incomplete_steps(self):
+        if not hasattr(self, "process_status"):
+            return []
+        return [k for k, v in self.process_status.items() if v in [False, "False", "false"]]
+
 
 def run_joblib_process(process):
     res = process.run()
@@ -1264,7 +1288,7 @@ def port_in_dataset(rec_dir=None, shell=False):
     # Check for info.rhd file or query needed info
     info_rhd = os.path.join(dat.root_dir, "info.rhd")
     if os.path.isfile(info_rhd):
-        dat.initParams(shell=shell)
+        dat.initialize_parameters(shell=shell)
     else:
         raise FileNotFoundError(f"{info_rhd} is required for proper dataset creation")
 
