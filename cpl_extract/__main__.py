@@ -1,6 +1,5 @@
 import argparse
 from pathlib import Path
-from pprint import pprint
 
 from icecream import ic
 
@@ -12,8 +11,12 @@ def add_args(parser: argparse.ArgumentParser):
     """
     Adds arguments to parser.
     """
-    parser.add_argument("-n", "--new", action="store_true", help="Create a new dataset.")
-    parser.add_argument("-f", "--file", action="store_true", help="Load a dataset from an existing file.")
+
+    parser.add_argument("-n", "--new", nargs='?', const=True, type=str,
+                        help="Create a new dataset, optionally specify a path.")
+    parser.add_argument("-f", "--file", nargs='?', const=True, type=str,
+                        help="Load a dataset from an existing file, optionally specify a path.")
+
     parser.add_argument("-p", "--path", type=str, help="Base path containing raw or extracted data.")
     parser.add_argument("-P", "--parallel", action="store_true", help="Run in parallel.")
     parser.add_argument("-d", "--detect-spikes", action="store_true", help="Detect spikes.")
@@ -32,14 +35,15 @@ def parse_args(parser: argparse.ArgumentParser):
     args = parser.parse_args()
     dargs = vars(args)
 
-    if args.path:
-        datapath = Path(args.path).expanduser().resolve()
+    if args.new is not True:
+        datapath = Path(args.new).expanduser().resolve()
+    elif args.file is not True:
+        datapath = Path(args.file).expanduser().resolve()
     else:
         datapath = Path(defaults()["datapath"]).expanduser().resolve()
 
     ic(f"Setting datapath to {datapath}")
     dargs["path"] = datapath
-
     if args.new:
         data = Dataset(root_dir=datapath, shell=True)
         dargs['data'] = data
@@ -47,10 +51,12 @@ def parse_args(parser: argparse.ArgumentParser):
         data = load_dataset(datapath, shell=True)
         dargs['data'] = data
     else:
+        ic(f"Searching for .p file in {args.path}")
         if list(Path(args.path).glob("*.p")):  # if it's a non-empty list
-            data = load_dataset(args.path,)
+            data = load_dataset(args.path, )
         else:
-            raise FileNotFoundError(f"No .p file found in {args.path}, please create a new dataset or load an existing one.")
+            raise FileNotFoundError(
+                f"No .p file found in {args.path}, please create a new dataset or load an existing one.")
 
     # Iterate over each processing step and execute if the corresponding flag is set
     for step in Dataset.PROCESSING_STEPS:
@@ -58,10 +64,11 @@ def parse_args(parser: argparse.ArgumentParser):
         if arg:
             method_name = Dataset.PROCESSING_STEPS[step]
             if method_name:
+                ic(f"Calling {method_name} from CLI args.")
                 method = getattr(data, method_name)
                 method()
             else:
-                pprint(f"No method found for argument provided: {arg}"
+                ic(f"No method found for argument provided: {arg}"
                    f"Valid arguments: {Dataset.PROCESSING_STEPS.keys()}")
 
     return args, dargs
