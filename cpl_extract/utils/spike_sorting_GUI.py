@@ -121,7 +121,7 @@ class SpikeSorterGUI(ttk.Frame):
         discard.pack(side="top", fill="x", pady=5)
         self._undo_button.pack(side="top", fill="x", pady=5)
         self._undo_button.config(state="disabled")
-        close_button = ttk.Button(buttons, text="Close Electrode Without Saving", command=self.close)
+        close_button = ttk.Button(buttons, text="Close", command=self.close)
         close_button.pack(side="top", fill="x", pady=5)
 
         self._ui_frame = ui
@@ -377,6 +377,7 @@ class SpikeSorterGUI(ttk.Frame):
 
     def close(self):
         ic('Closing Window for Electrode %i' % self.electrode)
+        self.root.quit()
         self.root.destroy()
 
 
