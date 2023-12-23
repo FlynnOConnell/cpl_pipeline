@@ -23,11 +23,12 @@ class unit_descriptor(tables.IsDescription):
 
 class electrode_map_particle(tables.IsDescription):
     """PyTables particle for storing electrode mapping"""
-
     electrode = tables.Int16Col()
     name = tables.StringCol(20)
     port = tables.Int16Col()
     units = tables.StringCol(5)
+    gains = tables.Float32Col()
+    offsets = tables.Float32Col()
     sampling_rate = tables.Float32Col()
     lfp = tables.BoolCol()
     unit = tables.BoolCol()

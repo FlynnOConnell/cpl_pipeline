@@ -287,6 +287,8 @@ class Spike2Data:
                 "name": [self.sonfile.GetChannelTitle(idx) for idx in channel_indices],
                 "port": [self.sonfile.PhysicalChannel(idx) for idx in channel_indices],
                 "units": [self.sonfile.GetChannelUnits(idx) for idx in channel_indices],
+                "offsets": [self.sonfile.GetChannelOffset(idx) for idx in channel_indices],
+                "scales": [self.sonfile.GetChannelScale(idx) for idx in channel_indices],
                 "sampling_rate": [
                     np.round(
                         1 / (self.sonfile.ChannelDivide(idx) * self._time_base()), 2
