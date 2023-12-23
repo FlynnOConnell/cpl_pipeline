@@ -17,7 +17,7 @@ def add_args(parser: argparse.ArgumentParser):
     parser.add_argument("-f", "--file", nargs='?', const=True, type=str,
                         help="Load a dataset from an existing file, optionally specify a path.")
 
-    parser.add_argument("-p", "--path", type=str, help="Base path containing raw or extracted data.")
+    parser.add_argument("-y", "--yes", action="store_true", help="Auto-accept all arguments.")
     parser.add_argument("-P", "--parallel", action="store_true", help="Run in parallel.")
     parser.add_argument("-d", "--detect-spikes", action="store_true", help="Detect spikes.")
     parser.add_argument("-c", "--cluster-spikes", action="store_true", help="Cluster spikes.")
