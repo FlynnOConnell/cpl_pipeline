@@ -29,7 +29,7 @@ def _sort():
     for rec_dir in iter_dirs(root_dir):
         filename = [f for f in rec_dir.iterdir() if f.suffix == '.smr'][0]
         data = Dataset(rec_dir, filename.stem)
-        data.initParams(shell=True, accept_params=True)
+        data.initialize_parameters(shell=True, accept_params=True)
         data.extract_data()
         datasets.append(data)
 

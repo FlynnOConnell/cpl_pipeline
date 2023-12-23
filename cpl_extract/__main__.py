@@ -1,10 +1,11 @@
 import argparse
 from pathlib import Path
+from pprint import pprint
 
-from icecream import ic, install
+from icecream import ic
 
+from cpl_extract import Dataset, load_dataset
 from cpl_extract.defaults import defaults
-from cpl_extract import run_sort, Dataset, load_dataset, detect_number_of_cores
 
 
 def add_args(parser: argparse.ArgumentParser):
@@ -20,20 +21,22 @@ def add_args(parser: argparse.ArgumentParser):
     parser.add_argument("-s", "--sort-spikes", action="store_true", help="Sort spikes.")
     parser.add_argument("-a", "--all", action="store_true", help="Run all steps.")
 
+    for step in Dataset.PROCESSING_STEPS:
+        parser.add_argument(f"--{step.replace(' ', '_')}", action="store_true", help=f"{step}")
     return parser
 
 
 def parse_args(parser: argparse.ArgumentParser):
-    """
-    Parses arguments and returns ops with parameters filled in.
-    """
+    """ Parses arguments from parser. """
+
     args = parser.parse_args()
     dargs = vars(args)
 
     if args.path:
         datapath = Path(args.path).expanduser().resolve()
     else:
-        datapath = Path(defaults["datapath"]).expanduser().resolve()
+        datapath = Path(defaults()["datapath"]).expanduser().resolve()
+
     ic(f"Setting datapath to {datapath}")
     dargs["path"] = datapath
 
@@ -41,13 +44,26 @@ def parse_args(parser: argparse.ArgumentParser):
         data = Dataset(root_dir=datapath, shell=True)
         dargs['data'] = data
     elif args.file:
-        data = load_dataset(args.path, shell=True)
+        data = load_dataset(datapath, shell=True)
         dargs['data'] = data
     else:
-        raise ValueError("No dataset specified.")
-    if args.parallel:
-        ic("Setting parallel to True")
-        dargs["parallel"] = True
+        if list(Path(args.path).glob("*.p")):  # if it's a non-empty list
+            data = load_dataset(args.path,)
+        else:
+            raise FileNotFoundError(f"No .p file found in {args.path}, please create a new dataset or load an existing one.")
+
+    # Iterate over each processing step and execute if the corresponding flag is set
+    for step in Dataset.PROCESSING_STEPS:
+        arg = getattr(args, step.replace(' ', '_'))
+        if arg:
+            method_name = Dataset.PROCESSING_STEPS[step]
+            if method_name:
+                method = getattr(data, method_name)
+                method()
+            else:
+                pprint(f"No method found for argument provided: {arg}"
+                   f"Valid arguments: {Dataset.PROCESSING_STEPS.keys()}")
+
     return args, dargs
 
 
@@ -57,13 +73,9 @@ def main(shell=False):
         parser = add_args(parser)
         args, dargs = parse_args(parser)
 
-        if list(Path(args.path).glob("*.p")):  # if it's a non-empty list
-            data = load_dataset(args.path,)
-        else:
-            data = Dataset(root_dir=args.path,)
-
+        data = dargs['data']
         if not data.process_status['initialize_parameters']:
-            data.initParams()
+            data.initialize_parameters()
 
         if not data.process_status['extract_data']:
             data.extract_data()
@@ -79,17 +91,6 @@ def main(shell=False):
 
         if not data.process_status['cleanup_clustering']:
             data.cleanup_clustering()
-
-        if args.detect_spikes:
-            if args.parallel:
-                ic(detect_number_of_cores())
-                data.detect_spikes(parallel=True, n_cores=detect_number_of_cores() / 2)
-            else:
-                data.detect_spikes()
-        if args.cluster_spikes:
-            data.cluster_spikes()
-        if args.sort_spikes:
-            data.sort_spikes()
 
         electrodes = data.electrode_mapping.loc[:, "electrode"].to_list()
         for electrode in electrodes:
