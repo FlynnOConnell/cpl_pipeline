@@ -658,9 +658,8 @@ class Dataset(objects.data_object):
 
     def detect_spikes(self, data_quality=None, multi_process=False, n_cores=None):
         """
-        Run spike detection on each electrode. Prepares for clustering with
-        BlechClust. Works for both single recording clustering or
-        multi-recording clustering
+        Run spike detection on each electrode.
+        Works for both single recording clustering or multi-recording clustering.
 
         Parameters
         ----------
@@ -668,8 +667,11 @@ class Dataset(objects.data_object):
             set if you want to change the data quality parameters for cutoff
             and spike detection before running clustering. These parameters are
             automatically set as "clean" during initial parameter setup
+        multi_process : bool, False (default)
+            set to True to run spike detection on multiple cores
         n_cores : int (optional)
             number of cores to use for parallel processing. default is max-1.
+            has no effect if multi_process is False
         """
         if data_quality:
             tmp = load_params(

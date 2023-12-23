@@ -635,7 +635,6 @@ class SpikeDetection:
         self._plot_dir.mkdir(parents=True, exist_ok=True)
 
         self._status = dict.fromkeys(self._files.keys(), False)
-        self._referenced = True
 
         # Delete existing data if overwrite is True
         if overwrite and self._out_dir.exists():
@@ -694,7 +693,7 @@ class SpikeDetection:
             self._status["params"] = True
 
     def _check_existing_files(self):
-        """Checks which files already exist and updates _status so as to avoid
+        """Checks which files already exist and updates _status to avoid
         re-creation later
         """
         for k, v in self._files.items():
@@ -713,8 +712,7 @@ class SpikeDetection:
         if all(status.values()):
             return electrode, 1, self.recording_cutoff
 
-        print(f"Could not find referenced data for {self._electrode}...running spike detection")
-        self._referenced = False
+        ic(f"Running spike detection on electrode {electrode}")
         ref_el = h5io.get_raw_trace(rec_dir=file_dir, chan_idx=electrode)
         if ref_el is None:
             raise FileNotFoundError(f"Could not find referenced data for {electrode} in {file_dir}")
