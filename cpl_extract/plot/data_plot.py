@@ -91,9 +91,7 @@ def plot_traces_and_outliers(h5_file: str, window=2, save_file=None):
     Parameters
     ----------
     h5_file : str, full path to h5_file with raw data
-
-    Args:
-        window:
+    window: int, size of the window around the
     """
 
     if not hasattr(h5_file, "endswith"):
@@ -135,10 +133,7 @@ def plot_traces_and_outliers(h5_file: str, window=2, save_file=None):
         for i, node in enumerate(electrodes):
             trace = node[:] / max_v
             ax[0].plot(time_vector[idx], trace[idx] + i, linewidth=0.5)
-
             ax[1].plot([i, i], [0, metric[i]], color="black", linewidth=0.5)
-
-        ax[0].set_ylim([0, n_electrodes])
 
         ax[1].scatter(np.arange(n_electrodes), metric)
         med = np.median(metric)
@@ -169,6 +164,39 @@ def plot_traces_and_outliers(h5_file: str, window=2, save_file=None):
 
     return fig, ax
 
+def plot_data(data, sampling_rate):
+    """
+    Plots a 1D array with two subplots, one for 10 seconds and another for 1 second.
+
+    Parameters:
+    data (1D array): The data to be plotted.
+    sampling_rate (float): The sampling rate in Hz.
+    """
+    # Calculate the time axis for the data
+    time_axis = np.arange(len(data)) / sampling_rate
+
+    # Create a figure and two subplots
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6))
+
+    # Plot the entire dataset or first 10 seconds, whichever is shorter
+    max_time_10s = min(10, time_axis[-1])
+    ax1.plot(time_axis, data)
+    ax1.set_xlim([0, max_time_10s])
+    ax1.set_title("Data Plot - First 10 seconds")
+    ax1.set_xlabel("Time (seconds)")
+    ax1.set_ylabel("Amplitude")
+
+    # Plot 1 second of data
+    max_time_1s = min(1, time_axis[-1])
+    ax2.plot(time_axis, data)
+    ax2.set_xlim([0, max_time_1s])
+    ax2.set_title("Data Plot - First 1 second")
+    ax2.set_xlabel("Time (seconds)")
+    ax2.set_ylabel("Amplitude")
+
+    # Display the plot
+    plt.tight_layout()
+    plt.show()
 
 def plot_overlay_psth(
     rec_dir,
