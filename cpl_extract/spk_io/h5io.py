@@ -271,9 +271,9 @@ def get_spike_data(rec_dir, units=None, din=None, trials=None, h5_file=None):
             out[dig_str] = spike_array
 
     if (
-        isinstance(trials, int)
-        or isinstance(trials, np.int32)
-        or isinstance(trials, np.int64)
+            isinstance(trials, int)
+            or isinstance(trials, np.int32)
+            or isinstance(trials, np.int64)
     ):
         for k in out.keys():
             out[k] = out[k][:trials]
@@ -294,15 +294,15 @@ def get_raw_digital_signal(rec_dir, dig_type, channel, h5_file=None):
 
     with tables.open_file(h5_file, "r") as hf5:
         if (
-            "/digital_%s" % dig_type in hf5
-            and "/digital_%s/dig_%s_%i" % (dig_type, dig_type, channel) in hf5
+                "/digital_%s" % dig_type in hf5
+                and "/digital_%s/dig_%s_%i" % (dig_type, dig_type, channel) in hf5
         ):
             out = hf5.root["digital_%s" % dig_type]["dig_%s_%i" % (dig_type, channel)][:]
             return out
     return None
 
 
-def get_raw_trace(h5_file=None, rec_dir=None, chan_idx=None,):
+def get_raw_trace(h5_file=None, rec_dir=None, chan_idx=None, ):
     """
     Returns raw voltage trace for electrode from hdf5 store.
     """
@@ -344,13 +344,13 @@ def get_referenced_trace(rec_dir, electrode, h5_file=None):
 
 
 def get_raw_unit_waveforms(
-    rec_dir,
-    unit_name,
-    electrode_mapping=None,
-    clustering_params=None,
-    shell=True,
-    required_descrip=None,
-    h5_file=None,
+        rec_dir,
+        unit_name,
+        electrode_mapping=None,
+        clustering_params=None,
+        shell=True,
+        required_descrip=None,
+        h5_file=None,
 ):
     """
     Returns the waveforms of a single unit extracting them directly from the
@@ -428,21 +428,21 @@ def get_raw_unit_waveforms(
     )
     return slices_dj, descriptor, new_fs
 
+
 def write_time_vector_to_h5(h5_file, electrode, fs):
-    # get unit, make vector the ams elength as the unit
+    """Writes time vector the same size as the electrode array"""
     with tables.open_file(h5_file, "r+") as hf5:
 
         if "/raw/electrode%i" % electrode in hf5:
             arr = hf5.root.raw["electrode%i" % electrode][:]
             time = np.arange(0, arr.shape[0])
             hf5.root.time.time_vector.append(time)
-            hf5.root.time._v_attrs["from_electrode"] = True
             return True
         else:
             return False
 
-def write_spike2_array_to_h5(h5_file, electrode, waves, fs=None):
 
+def write_spike2_array_to_h5(h5_file, electrode, waves, fs=None):
     if not Path(h5_file).exists():
         h5_file = get_h5_filename(h5_file)
 
@@ -458,6 +458,7 @@ def write_spike2_array_to_h5(h5_file, electrode, waves, fs=None):
                 node._v_attrs["sampling_rate"] = fs
             node.append(waves)
             return True
+
 
 def get_unit_waveforms(file_dir, unit, required_descrip=None, h5_file=None):
     if isinstance(unit, int):
@@ -481,6 +482,7 @@ def get_unit_waveforms(file_dir, unit, required_descrip=None, h5_file=None):
 
     return waveforms, descriptor, fs * 10
 
+
 def get_unit_spike_times(file_dir, unit, required_descrip=None, h5_file=None):
     if isinstance(unit, int):
         un = "unit%03i" % unit
@@ -502,6 +504,7 @@ def get_unit_spike_times(file_dir, unit, required_descrip=None, h5_file=None):
             return None, descriptor, fs
 
     return times, descriptor, fs * 10
+
 
 def get_unit_as_cluster(file_dirs, unit, rec_key=None):
     if isinstance(unit, int):
@@ -555,6 +558,7 @@ def get_unit_as_cluster(file_dirs, unit, rec_key=None):
 
     return clusters
 
+
 def get_electrode_mapping(rec_dir, h5_file=None):
     if h5_file is None:
         h5_file = get_h5_filename(rec_dir)
@@ -564,6 +568,7 @@ def get_electrode_mapping(rec_dir, h5_file=None):
         table = hf5.root.electrode_map[:]
         el_map = read_table_into_DataFrame(table)
     return el_map
+
 
 def get_digital_mapping(rec_dir, dig_type, h5_file=None):
     if h5_file is None:
@@ -577,6 +582,7 @@ def get_digital_mapping(rec_dir, dig_type, h5_file=None):
         dig_map = read_table_into_DataFrame(table)
 
     return dig_map
+
 
 def get_node_list(h5_file):
     with tables.open_file(h5_file, "r") as hf5:
@@ -601,6 +607,7 @@ def get_node_list(h5_file):
             out.extend(list_nodes(node))
 
         return out
+
 
 def get_recording_filetype(file_dir):
     """
@@ -635,6 +642,7 @@ def get_recording_filetype(file_dir):
 
     return file_type
 
+
 def write_electrode_map_to_h5(h5_file, electrode_map):
     """Writes electrode mapping DataFrame to table in hdf5 store"""
     print("Writing electrode_map to %s..." % h5_file)
@@ -659,6 +667,7 @@ def write_electrode_map_to_h5(h5_file, electrode_map):
             new_row.append()
         hf5.flush()
 
+
 def write_digital_map_to_h5(h5_file, digital_map, dig_type):
     """Write digital input/output mapping DataFrame to table in hdf5 store"""
     dig_str = "digital_%sput_map" % dig_type
@@ -682,6 +691,7 @@ def write_digital_map_to_h5(h5_file, digital_map, dig_type):
 
         hf5.flush()
 
+
 def read_table_into_DataFrame(table):
     df = pd.DataFrame.from_records(table)
     dt = df.dtypes
@@ -691,6 +701,7 @@ def read_table_into_DataFrame(table):
         df[k] = df[k].apply(lambda x: x.decode("utf-8"))
 
     return df
+
 
 def read_unit_description(unit_description):
     try:
@@ -708,8 +719,9 @@ def read_unit_description(unit_description):
     else:
         return "Unlabelled"
 
+
 def add_new_unit(
-    rec_dir, electrode, waves, times, single_unit, multi_unit, h5_file=None
+        rec_dir, electrode, waves, times, single_unit, multi_unit, h5_file=None
 ):
     """
     Adds new sorted unit to h5_file and returns the new unit name
@@ -770,8 +782,9 @@ def add_new_unit(
 
     return unit_name
 
+
 def edit_unit_descriptor(
-    file_dir, unit_num, descriptor_key, descriptor_val, h5_file=None
+        file_dir, unit_num, descriptor_key, descriptor_val, h5_file=None
 ):
     """
     use this to edit unit table, i.e. if you made a mistake labeling a neuron in spike sorting
@@ -800,8 +813,9 @@ def edit_unit_descriptor(
 
     return
 
+
 def create_empty_data_h5(filename, overwrite=False, shell=False):
-    """Create empty h5 store for blech data with approriate data groups
+    """Create empty h5 store for data with approriate data groups
 
     Parameters
     ----------
@@ -826,7 +840,7 @@ def create_empty_data_h5(filename, overwrite=False, shell=False):
                 "%s already exists. Would you like to delete?" % filename,
                 choices=["No", "Yes"],
                 shell=shell,
-                )
+            )
 
         if q == 0:
             return None
@@ -837,7 +851,8 @@ def create_empty_data_h5(filename, overwrite=False, shell=False):
 
     print("Creating empty HDF5 store with raw data groups")
     println("Writing %s.h5 ..." % basename)
-    data_groups = ["raw", "raw_lfp","time", "digital_in", "digital_out", "trial_info"]
+    data_groups = ["raw", "raw_lfp", "time", "digital_in", "digital_out",
+                   "trial_info"]  # this should be a constant DATA_GROUPS that can be changed
     with tables.open_file(filename, "w", title=basename) as hf5:
         for grp in data_groups:
             hf5.create_group("/", grp)
@@ -846,12 +861,13 @@ def create_empty_data_h5(filename, overwrite=False, shell=False):
     print("Done!\n")
     return filename
 
+
 def create_hdf_arrays(
-    file_name: str | Path,
-    rec_info: dict,
-    electrode_mapping: pd.DataFrame = None,
-    lfp_mapping: pd.DataFrame = None,
-    event_mapping: pd.DataFrame = None,
+        file_name: str | Path,
+        rec_info: dict,
+        electrode_mapping: pd.DataFrame = None,
+        lfp_mapping: pd.DataFrame = None,
+        event_mapping: pd.DataFrame = None,
 ) -> None:
     file_name = Path(file_name)
     if not file_name.suffix == ".h5":
@@ -896,6 +912,7 @@ def create_hdf_arrays(
 
     print("Done!")
 
+
 def write_array_to_hdf5(hf5, loc, name, arr):
     try:
         hf5.create_array(loc, name, arr)
@@ -904,6 +921,7 @@ def write_array_to_hdf5(hf5, loc, name, arr):
         hf5.remove_node(loc, name)
         hf5.create_array(loc, name, arr)
         hf5.flush()
+
 
 def delete_unit(file_dir, unit_num, h5_file=None):
     """Delete a sorted unit and re-label all following units.
@@ -980,6 +998,7 @@ def delete_unit(file_dir, unit_num, h5_file=None):
     print("Finished deleting unit\n----------")
     return True
 
+
 def parse_unit_number(unit_name):
     """number of unit extracted from unit_name
 
@@ -995,6 +1014,7 @@ def parse_unit_number(unit_name):
     parser = re.compile(pattern)
     out = int(parser.match(unit_name)[1])
     return out
+
 
 def fix_unit_numbering(file_dir):
     """checks all units in an h5 file and makes sure all numbers are
@@ -1044,6 +1064,7 @@ def fix_unit_numbering(file_dir):
 
     print("Finished correcting unit names\n----------")
     return True
+
 
 def common_avg_reference(h5_file, electrodes, group_num):
     """Computes and subtracts the common average for a group of electrodes
@@ -1126,6 +1147,7 @@ def common_avg_reference(h5_file, electrodes, group_num):
 
         print("Done!")
 
+
 def compress_and_repack(h5_file, new_file=None):
     """Compress and repack the h5 file with ptrepack either to same name or new
     name
@@ -1172,6 +1194,7 @@ def compress_and_repack(h5_file, new_file=None):
         new_file = h5_file
 
     return new_file
+
 
 def cleanup_clustering(file_dir, h5_file=None):
     """
@@ -1227,6 +1250,7 @@ def cleanup_clustering(file_dir, h5_file=None):
 
     else:
         return h5_file
+
 
 def create_trial_data_table(h5_file, digital_map, fs, dig_type="in"):
     """
@@ -1352,6 +1376,7 @@ def create_trial_data_table(h5_file, digital_map, fs, dig_type="in"):
 
     return trial_df
 
+
 def read_trial_data_table(h5_file, dig_type="in", channels=None):
     """Opens the h5 file and returns the digital_in or digital_out trial info
     as a pandas DataFrame. Can specify specific digital channels if desired.
@@ -1393,6 +1418,7 @@ def read_trial_data_table(h5_file, dig_type="in", channels=None):
         df = df[df["channel"].isin(channels)]
 
     return df
+
 
 def read_in_amplifier_signal(hf5, file_dir, file_type, num_channels, el_map, em_map):
     """Read intan amplifier files into hf5 array.
