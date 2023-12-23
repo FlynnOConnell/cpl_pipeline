@@ -7,7 +7,7 @@ import numpy as np
 import pyqtgraph as pg
 import vispy
 from PyQt5 import QtGui, QtCore, QtWidgets
-from PyQt5.QtCore import Qt, pyqtSignal, QThread
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPalette, QColor
 from PyQt5.QtWidgets import (
     QMainWindow,
@@ -77,10 +77,15 @@ class MainWindow(QMainWindow):
 
         # Load data directory container
         # check for cached os env var
+        data = None
         if os.environ.get("CACHE_DIR"):
             self.base_path = pathlib.Path(os.environ.get("CACHE_DIR"))
         else:
-            io.select_base_folder(self)
+            data = io.ask_single_npy_file(self)
+
+        if data:
+            self.data = data
+            self.update_data(data)
 
         self.data_thread = DataLoader(str(self.base_path))
         self.data_thread.dataLoaded.connect(self.update_data)
@@ -94,8 +99,52 @@ class MainWindow(QMainWindow):
         self.setGeometry(50, 50, 1500, 800)
 
         self.mainLayout = QVBoxLayout()
+
         top_area = QWidget()
         self.top_layout = QGridLayout()
+
+        # Initially add loading widgets
+        self.top_layout.addWidget(self.loading_label, 0, 0)
+        self.top_layout.addWidget(self.loading_spinner, 0, 1)
+        self.vispy_button = QPushButton("View")
+        self.vispy_button.clicked.connect(self.draw_plots)
+        self.vispy_button.setSizePolicy(
+            QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Fixed
+        )
+        self.clear_button = QPushButton("Clear")
+
+        # Set stretch factors
+        self.top_layout.setColumnStretch(0, 0)
+        self.top_layout.setColumnStretch(1, 0)
+        self.top_layout.setColumnStretch(2, 0)
+        self.top_layout.setColumnStretch(3, 0)
+
+        top_area.setLayout(self.top_layout)
+        top_area.setFixedHeight(80)
+
+        # Add top area to main layout
+        self.mainLayout.addWidget(top_area)
+
+        # ------------- Bottom Area for Further Items ----------------
+        self.bottom_area = QWidget()
+        self.bottom_layout = QGridLayout()
+        self.bottom_area.setLayout(self.bottom_layout)
+
+        # Add bottom area to main layout
+        self.mainLayout.addWidget(self.bottom_area)
+        self.mainLayout.setStretch(
+            1, 1
+        )  # Makes the bottom area take up the remaining space
+
+        # Set main layout to central widget
+        cwidget = QWidget()
+        cwidget.setLayout(self.mainLayout)
+        self.setCentralWidget(cwidget)
+        menu.mainmenu(self)
+        self.setAcceptDrops(True)
+        self.show()
+
+    def top_layout(self):
 
         # Initially add loading widgets
         self.top_layout.addWidget(self.loading_label, 0, 0)
@@ -141,31 +190,6 @@ class MainWindow(QMainWindow):
         self.top_layout.setColumnStretch(2, 0)
         self.top_layout.setColumnStretch(3, 0)
 
-        top_area.setLayout(self.top_layout)
-        top_area.setFixedHeight(80)
-
-        # Add top area to main layout
-        self.mainLayout.addWidget(top_area)
-
-        # ------------- Bottom Area for Further Items ----------------
-        self.bottom_area = QWidget()
-        self.bottom_layout = QGridLayout()
-        self.bottom_area.setLayout(self.bottom_layout)
-
-        # Add bottom area to main layout
-        self.mainLayout.addWidget(self.bottom_area)
-        self.mainLayout.setStretch(
-            1, 1
-        )  # Makes the bottom area take up the remaining space
-
-        # Set main layout to central widget
-        cwidget = QWidget()
-        cwidget.setLayout(self.mainLayout)
-        self.setCentralWidget(cwidget)
-        menu.mainmenu(self)
-        self.setAcceptDrops(True)
-        self.show()
-
     def debug(self):
         x = 5
         y = self.base_path
@@ -188,8 +212,8 @@ class MainWindow(QMainWindow):
         self.loading_label.deleteLater()
         self.loading_spinner.deleteLater()
 
-        self.top_layout.addWidget(self.file_selector, 0, 0)
         self.top_layout.addWidget(self.channel_selector, 0, 1)
+        self.plotWidgets['waveforms'] = self.get_vispy(data)
         self.top_layout.addWidget(self.cluster_selector, 0, 2)
         self.top_layout.addWidget(self.single_cluster_selector_label, 0, 3)
         self.top_layout.addWidget(self.vispy_button, 0, 4)
@@ -335,13 +359,16 @@ class MainWindow(QMainWindow):
         self.update_npy_plot()
 
 
-def run():
+def run(*args, **kwargs):
+
+    for k, v in kwargs.items():
+        print(k, v)
+
     warnings.filterwarnings("ignore")
     app = QApplication(sys.argv)
-    import cpl_extract
 
-    s2ppath = os.path.dirname(os.path.realpath(cpl_extract.__file__))
-    icon_path = os.path.join(s2ppath, "docs", "_static", "favicon.ico")
+    path = os.path.dirname(os.path.abspath(__file__))
+    icon_path = os.path.join(path, "docs", "_static", "favicon.png")
     app_icon = QtGui.QIcon()
     app_icon.addFile(icon_path, QtCore.QSize(32, 32))
 

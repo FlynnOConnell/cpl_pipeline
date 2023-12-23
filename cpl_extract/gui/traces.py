@@ -35,22 +35,36 @@ class DataLoader(QThread):
             self.start()
 
     def run(self):
-        for file in self.base_path.iterdir():
-            if file.is_dir():
-                file_data = {}
-                for channel_dir in (file / "Data").iterdir():
-                    if channel_dir.is_dir():
-                        channel_data = {}
-                        for cluster_num in channel_dir.iterdir():
-                            if cluster_num.is_dir():
-                                cluster_data = {}
-                                for cluster in cluster_num.iterdir():
-                                    cluster_data[cluster.name] = {"path": str(cluster)}
-                                channel_data[cluster_num.name] = cluster_data
-                        for np_file in channel_dir.glob("*.npy"):
-                            channel_data[np_file.stem] = {"path": str(np_file)}
-                        file_data[channel_dir.name] = channel_data
-                self.data[file.name] = file_data
+        for electrode_dir in self.base_path.iterdir():
+            if electrode_dir.is_dir():
+                electrode_data = {}
+
+                # Analysis params
+
+                analysis_params_dir = electrode_dir / 'analysis_params'
+                if analysis_params_dir.exists():
+                    for param_file in analysis_params_dir.glob('*.json'):
+                        electrode_data['analysis_params'] = {param_file.stem: str(param_file)}
+
+                # Data
+                data_dir = electrode_dir / 'data'
+                if data_dir.exists():
+                    data_files = {}
+                    for data_file in data_dir.glob('*'):
+                        data_files[data_file.stem] = str(data_file)
+                    electrode_data['data'] = data_files
+
+                # Plots
+                plots_dir = electrode_dir / 'plots'
+                if plots_dir.exists():
+                    plot_files = {}
+                    for plot_file in plots_dir.glob('*'):
+                        plot_files[plot_file.stem] = str(plot_file)
+                    electrode_data['plots'] = plot_files
+
+                self.data[electrode_dir.name] = electrode_data
+
+        self.data = self.data
         self.dataLoaded.emit(self.data)
 
 

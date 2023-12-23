@@ -5,6 +5,19 @@ from PyQt5.QtWidgets import QFileDialog, QMessageBox
 from cpl_extract.extract import Spike2Data
 
 
+def ask_single_npy_file(parent):
+    dlg_kwargs = {
+        "parent": parent,
+        "caption": "Select .npy file",
+        "filter": ".npy",
+    }
+    name = QFileDialog.getOpenFileName(**dlg_kwargs)
+    basename, fname = os.path.split(str(name))
+    parent.fname = name[0]
+    data = np.load(parent.fname)
+    return data
+
+
 def select_base_folder(parent):
     dlg_kwargs = {
         "parent": parent,
