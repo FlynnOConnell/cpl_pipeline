@@ -16,11 +16,14 @@ from cpl_extract.analysis import cluster as clust
 from cpl_extract.spk_io import userio, println, paramio
 from cpl_extract.utils import particles
 
-support_rec_types = {
+SUPP_REC_TYPES = {
     "spike230bit": ".smr",
     "spike264bit": ".smrx",
     "plexon": ".pl2",
 }
+
+DATA_GROUPS = ["raw", "raw_lfp", "time", "digital_in", "digital_out",
+               "trial_info"]
 
 
 def merge_h5_files(file_list: list[str | Path]):
@@ -625,7 +628,7 @@ def get_recording_filetype(file_dir):
     """
     file_list = os.listdir(file_dir)
     file_type = None
-    for k, v in support_rec_types.items():
+    for k, v in SUPP_REC_TYPES.items():
         regex = re.compile(v)
         if any([True for x in file_list if regex.match(x) is not None]):
             file_type = k
@@ -634,7 +637,7 @@ def get_recording_filetype(file_dir):
         msg = "\n   ".join(
             [
                 "unsupported recording type. Supported types are:",
-                *list(support_rec_types.keys()),
+                *list(SUPP_REC_TYPES.keys()),
             ]
         )
     else:
@@ -851,10 +854,8 @@ def create_empty_data_h5(filename, overwrite=False, shell=False):
 
     print("Creating empty HDF5 store with raw data groups")
     println("Writing %s.h5 ..." % basename)
-    data_groups = ["raw", "raw_lfp", "time", "digital_in", "digital_out",
-                   "trial_info"]  # this should be a constant DATA_GROUPS that can be changed
     with tables.open_file(filename, "w", title=basename) as hf5:
-        for grp in data_groups:
+        for grp in DATA_GROUPS:
             hf5.create_group("/", grp)
         hf5.flush()
 
