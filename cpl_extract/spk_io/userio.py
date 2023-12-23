@@ -188,7 +188,6 @@ def get_user_input(msg, default=None, shell=False):
         return out
     else:
         out = eg.enterbox(msg, default=default)
-
         return out
 
 

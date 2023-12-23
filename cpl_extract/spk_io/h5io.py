@@ -433,9 +433,8 @@ def write_time_vector_to_h5(h5_file, electrode, fs):
     with tables.open_file(h5_file, "r+") as hf5:
 
         if "/raw/electrode%i" % electrode in hf5:
-            # mae time vector
             arr = hf5.root.raw["electrode%i" % electrode][:]
-            time = np.arange(0, arr.shape[0] / fs, 1 / fs)
+            time = np.arange(0, arr.shape[0])
             hf5.root.time.time_vector.append(time)
             hf5.root.time._v_attrs["from_electrode"] = True
             return True
