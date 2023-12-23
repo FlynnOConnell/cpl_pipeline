@@ -50,18 +50,15 @@ from cpl_extract.spk_io.writer import (
 logger = logging.getLogger(__name__)
 
 
-def get_filtered_electrode(data, freq=(300.0, 3000.0), sampling_rate=30000.0):
-    # el = data
-    # m, n = butter(
-    #     2,
-    #     [2.0 * freq[0] / sampling_rate, 2.0 * freq[1] / sampling_rate],
-    #     btype="bandpass",
-    # )
-    # filt_el = filtfilt(m, n, el)
-    return mne.filter.filter_data(data, sampling_rate, freq[1], freq[0])
-
-def notch_filter(data, sampling_rate=30000.0):
-    return  mne.filter.notch_filter(data, sampling_rate=sampling_rate, freqs=[60, 120, 180, 240])
+def get_filtered_electrode(data, freq=[300.0, 3000.0], sampling_rate=30000.0):
+    el = data
+    m, n = butter(
+        2,
+        [2.0 * freq[0] / sampling_rate, 2.0 * freq[1] / sampling_rate],
+        btype="bandpass",
+    )
+    filt_el = filtfilt(m, n, el)
+    return filt_el
 
 
 def get_waveforms(
