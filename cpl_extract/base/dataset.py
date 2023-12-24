@@ -44,9 +44,8 @@ from cpl_extract.spk_io.h5io import (
 from cpl_extract.utils.spike_sorting_GUI import launch_sorter_GUI, SpikeSorterGUI
 
 
-def circus_clust_run(shell=False):
+def circus_clust_run():
     from cpl_extract.analysis.circus_interface import circus_clust as circ
-
     circ.prep_for_circus()
     circ.start_the_show()
 
@@ -64,10 +63,10 @@ class Dataset(objects.data_object):
         "extract_data",
         "create_trial_list",
         "mark_dead_channels",
-        "spike_detection",
+        "detect_spikes",
         "spike_clustering",
         "cleanup_clustering",
-        "spike_sorting",
+        "sort_spikes",
         "make_unit_plots",
         "units_similarity",
         "make_unit_arrays",
@@ -98,6 +97,7 @@ class Dataset(objects.data_object):
 
         # TODO: add check for file type + additional file types
 
+        self._data = None
         h5_file = get_h5_filename(self.root_dir)
         if h5_file is None:
             h5_file = self.root_dir / f"{self.data_name}.h5"
@@ -134,7 +134,7 @@ class Dataset(objects.data_object):
         dig_in_names=None,  # This should be events, any input from the user
         dig_out_names=None,
         shell=False,
-        accept_params=False,
+        accept_params=True,
     ):
         """
         Initalizes basic default analysis parameters and allows customization
@@ -191,23 +191,27 @@ class Dataset(objects.data_object):
             file = data_files[0]
 
         print("Extracting information from Spike2 file")
-        self.data = Spike2Data(filepath=file,)
-        self.electrode_mapping = self.data.load_mapping()  # this gets metadata without loading data into memory
-        self.electrode_mapping = self.electrode_mapping[self.electrode_mapping['unit'] == True] ## separate out units from other channels
+
+        ## this is patched together but functional being that we get events straight from spike2
+        self._data = Spike2Data(filepath=file,)
+        self.data = self._data.load_mapping()  # this gets metadata without loading data into memory
+        self.events = self.data[self.data['event'] == True]
+        self.lfp = self.data[self.data['lfp'] == True]
+        self.electrode_mapping = self.data[self.data['unit'] == True]
 
         print(self.electrode_mapping)
 
         # add the data dataframe to the rec_info dictionary
-        self.rec_info.update(self.electrode_mapping.to_dict())
+        self.rec_info.update(self.data.to_dict())
         self.rec_info.update(
             {
-                "rec_length": self.data.rec_length,
+                "rec_length": self._data.rec_length,
                 "num_electrodes": len(self.electrode_mapping),
                 "idx_electrodes": self.electrode_mapping['electrode'].values,
                 "name_electrodes": self.electrode_mapping['name'].values,
+                "dig-in": self.data[self.data['event'] == True]
             }
         )
-        self.rec_df = pd.DataFrame.from_dict(self.rec_info, orient='index').T
 
         # Get default parameters from files
         clustering_params = load_params(
@@ -234,7 +238,7 @@ class Dataset(objects.data_object):
             clustering_params = conf(
                 clustering_params, "Clustering Parameters", shell=shell
             )
-            self.edit_spike_array_params(shell=shell)
+            # self.edit_spike_array_params(shell=shell)
             psth_params = conf(psth_params, "PSTH Parameters", shell=shell)
             pal_id_params = conf(
                 pal_id_params,
@@ -290,9 +294,9 @@ class Dataset(objects.data_object):
 
         if dig_type == "in":
             self.dig_in_mapping = dim = df2.copy()
-            self.spike_array_params["laser_channels"] = dim.channel[
-                dim["laser"]
-            ].to_list()
+            # self.spike_array_params["laser_channels"] = dim.channel[
+            #     dim["laser"]
+            # ].to_list()
             self.spike_array_params["dig_ins_to_use"] = dim.channel[
                 dim["spike_array"]
             ].to_list()
@@ -329,10 +333,11 @@ class Dataset(objects.data_object):
                 [x in tmp["dig_ins_to_use"] for x in dim.channel], "spike_array"
             ] = True
 
-        dim["laser"] = False
-        if tmp["laser_channels"] != [""]:
-            tmp["laser_channels"] = [int(x) for x in tmp["laser_channels"]]
-            dim.loc[[x in tmp["laser_channels"] for x in dim.channel], "laser"] = True
+        ## Not yet implemented
+        # dim["laser"] = False
+        # if tmp["laser_channels"] != [""]:
+        #     tmp["laser_channels"] = [int(x) for x in tmp["laser_channels"]]
+        #     dim.loc[[x in tmp["laser_channels"] for x in dim.channel], "laser"] = True
 
         self.spike_array_params = tmp.copy()
         write_params_to_json("spike_array_params", self.root_dir, tmp)
@@ -558,6 +563,8 @@ class Dataset(objects.data_object):
         Called only when extracting data from Spike2 file and extract_data() is called"""
 
         electrodes = self.electrode_mapping["electrode"].unique()
+        events = self.events["electrode"].unique()
+        self.dig_in_mapping = self.events.copy()
         _time_flag = False
 
         for electrode_idx in electrodes:
@@ -566,7 +573,7 @@ class Dataset(objects.data_object):
             this_electrode = self.electrode_mapping[self.electrode_mapping["electrode"] == electrode_idx]
             electrode = this_electrode["electrode"].iloc[0]
             unit_fs = this_electrode["sampling_rate"].iloc[0]
-            data = [chunk for chunk in self.data.read_data_in_chunks(electrode_idx)]
+            data = [chunk for chunk in self._data.read_data_in_chunks(electrode_idx, "wave")]
             data = list(itertools.chain(*data))
 
             write_spike2_array_to_h5(self.h5_file, electrode, waves=data, fs=unit_fs)
@@ -576,6 +583,13 @@ class Dataset(objects.data_object):
                 if saved:
                     ic("Time vector saved to h5 file")
                     _time_flag = True
+
+        self._events = pd.DataFrame()
+        for event_idx in events:
+            ev_data = [chunk for chunk in self._data.read_data_in_chunks(event_idx, "event")]
+            if len(ev_data) > 1:
+                self._events = pd.concat([self._events, ev_data[0], ev_data[1]])
+
 
     def create_trial_list(self):
         """
@@ -841,6 +855,7 @@ class Dataset(objects.data_object):
                 ic(f"all_electrodes: {all_electrodes}")
                 electrode_formatted_str = ", ".join([str(x) for x in all_electrodes])
             else:
+                ic(f"electrode_mapping: {self.electrode_mapping}")
                 electrode_formatted_str = ", ".join([str(x) for x in self.electrode_mapping["electrode"].unique()])
 
             electrode = userio.get_user_input(f"Choose an electrode to process. \n"
@@ -850,17 +865,23 @@ class Dataset(objects.data_object):
                 return
             electrode = int(electrode)
 
+        if all_electrodes:
+            if electrode not in all_electrodes:
+                ic(f"Electrode {electrode} not in all_electrodes {all_electrodes}.")
+                return
+
         if not self.process_status["spike_clustering"]:
+            # TODO: add option to run clustering here
+            dbg = None
             raise ValueError("Must run spike clustering first.")
 
         if not self.process_status["cleanup_clustering"]:
+            # TODO: why cleanup
             self.cleanup_clustering()
 
         sorter = clust.SpikeSorter(rec_dirs=self.root_dir, electrode=electrode, shell=shell)
         if not shell:
             root, sorting_GUI = launch_sorter_GUI(sorter)
-            if root:
-                root.mainloop()
         self.process_status["spike_sorting"] = True
 
     def units_similarity(self, similarity_cutoff=50, shell=False):
@@ -931,7 +952,6 @@ class Dataset(objects.data_object):
     def make_unit_arrays(self):
         """Make spike arrays for each unit and store in hdf5 store"""
         params = self.spike_array_params
-
         print("Generating unit arrays with parameters:\n----------")
         print(pt.print_dict(params, tabs=1))
         make_spike_arrays(self.h5_file, params)
@@ -1086,7 +1106,8 @@ class Dataset(objects.data_object):
         )
 
     def get_unit_table(self):
-        """Returns a pandas dataframe with sorted unit information
+        """
+        Returns a pandas dataframe with sorted unit information
 
         Returns
         --------
@@ -1109,27 +1130,24 @@ class Dataset(objects.data_object):
         )
         print("descriptor edit success")
 
-    def pre_process_for_clustering(self, shell=False, dead_channels=None):
+    def pre_process_for_clustering(self, *args, **kwargs):
         status = self.process_status
-        if not status["initialize_parameters"]:
-            self.initialize_parameters(shell=shell)
-
+        if not status['initialize_parameters']:
+            self.initialize_parameters(**kwargs)
         if not status["extract_data"]:
             self.extract_data()
-
-        if not status["create_trial_list"]:
+        if "create_trial_list" in args:
             self.create_trial_list()
+        if not status["mark_dead_channels"] and "dead_channels" in kwargs:
+            self.mark_dead_channels(dead_channels=kwargs.pop("dead_channels"), **kwargs)
 
-        if not status["mark_dead_channels"] and dead_channels != False:
-            self.mark_dead_channels(dead_channels=dead_channels, shell=shell)
+        # try:  # not using at the moment
+        #     if not status["common_average_reference"]:
+        #         self.common_average_reference()
+        # except AttributeError:
+        #     pass
 
-        try:  # not using at the moment
-            if not status["common_average_reference"]:
-                self.common_average_reference()
-        except AttributeError:
-            pass
-
-        if not status["spike_detection"]:
+        if "spike_detection" in args:
             self.detect_spikes()
 
     def extract_and_circus_cluster(self, dead_channels=None, shell=True):

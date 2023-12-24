@@ -215,8 +215,39 @@ def load_project(file_dir=None, shell=False):
     return load_data("project", file_dir, shell=shell)
 
 
-def load_pickled_object(fn):
-    with open(fn, "rb") as f:
+def load_pickled_object(fn: str | bytes | os.PathLike[str] | os.PathLike[bytes] | int):
+    """
+    Loads a pickled object from a filename.
+
+    The argument *fn* must have two methods, a read() method that takes
+    an integer argument, and a readline() method that requires no
+    arguments.  Both methods should return bytes.  Thus *fn* can be a
+    binary file object opened for reading, an io.BytesIO object, or any
+    other custom object that meets this interface.
+    Parameters
+    ----------
+    fn : any pathlike, str or bytes
+        path to pickled object file
+
+    """
+    if not isinstance(fn, (str, bytes, os.PathLike, int)):
+        raise TypeError(f"fn must be a pathlike object, str, bytes, or int. Got {type(fn)}")
+
+    fn = Path(fn)  # Convert to Path object for convenience
+    if fn.is_dir():
+        # List all pickled files in the directory
+        pickled_files = [x for x in fn.iterdir() if x.suffix in (".p", ".pk", ".pickle", ".pkl")]
+        if not pickled_files:
+            raise FileNotFoundError(f"No pickled files found in {fn}")
+        elif len(pickled_files) > 1:
+            # TODO: Implement select_from_list or another method to choose file
+            raise ValueError("Multiple pickled files found, selection method not implemented.")
+        else:
+            fn = pickled_files[0]  # Use the only file found
+    elif not fn.is_file():
+        raise FileNotFoundError(f"No file found at {fn}")
+
+    with fn.open("rb") as f:
         out = pickle.load(f)
 
     return out
