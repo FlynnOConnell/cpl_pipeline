@@ -713,13 +713,13 @@ class SpikeDetection:
             return electrode, 1, self.recording_cutoff
 
         ic(f"Running spike detection on electrode {electrode}")
-        ref_el = h5io.get_raw_trace(rec_dir=file_dir, chan_idx=electrode)
-        if ref_el is None:
-            raise FileNotFoundError(f"Could not find referenced data for {electrode} in {file_dir}")
+        raw_trace = h5io.get_raw_trace(rec_dir=file_dir, chan_idx=electrode)
+        if not raw_trace:
+            raise FileNotFoundError(f"Could not find data for {electrode} in {file_dir}")
 
         # Filter electrode trace
-        filt_el = get_filtered_electrode(ref_el, freq=params["bandpass"], sampling_rate=params["sampling_rate"])
-        del ref_el
+        filt_el = get_filtered_electrode(raw_trace, freq=params["bandpass"], sampling_rate=params["sampling_rate"])
+        del raw_trace
         # Get recording cutoff
         if not status["recording_cutoff"]:
             self.recording_cutoff = get_recording_cutoff(filt_el, **params)
@@ -1374,23 +1374,25 @@ class CplClust:
 
 
 class SpikeSorter:
-    def __init__(self, rec_dirs, electrode, clustering_dir=None, shell=False, verbose=False):
+    def __init__(self, rec_dirs, electrode, clustering_dir=None, shell=False):
 
         if not isinstance(rec_dirs, Iterable):
             rec_dirs = [rec_dirs]
 
         rec_dirs = [Path(x).resolve() for x in rec_dirs]
         ic("rec_dirs", "electrode", "clustering_dir", "shell", )
-        ic(rec_dirs, electrode, clustering_dir, shell, ) if verbose else None
+        ic(rec_dirs, electrode, clustering_dir, shell,)
         self.rec_dirs = rec_dirs
         self.electrode = electrode
+        self._sort_result = ""
+
         if clustering_dir is None:
             if len(rec_dirs) > 1:
                 top = os.path.dirname(rec_dirs[0])
                 clustering_dir = os.path.join(top, "spike_clustering", "electrode_%i" % electrode)
-                ic() if verbose else None
+                ic()
             else:
-                ic() if verbose else None
+                ic()
                 clustering_dir = os.path.join(rec_dirs[0], "spike_clustering", "electrode_%i" % electrode)
 
         self.clustering_dir = clustering_dir
@@ -1884,6 +1886,7 @@ class SpikeSorter:
 
     def plot_clusters_umap(self, target_clusters):
         if len(target_clusters) == 0:
+            ic("No target clusters selected")
             return
 
         waves = [self._active[i]["spike_waveforms"] for i in target_clusters]

@@ -11,6 +11,7 @@ import warnings
 warnings.simplefilter('ignore', category=NumbaDeprecationWarning)
 warnings.simplefilter('ignore', category=NumbaPendingDeprecationWarning)
 
+
 def make_spike_arrays(h5_file, params):
     """
     Makes stimulus triggered spike array for all sorted units
