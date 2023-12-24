@@ -584,12 +584,11 @@ class Dataset(objects.data_object):
                     ic("Time vector saved to h5 file")
                     _time_flag = True
 
-        self._events = pd.DataFrame()
+        self._events = {}
         for event_idx in events:
-            ev_data = [chunk for chunk in self._data.read_data_in_chunks(event_idx, "event")]
-            if len(ev_data) > 1:
-                self._events = pd.concat([self._events, ev_data[0], ev_data[1]])
-
+            codes, times  = [chunk for chunk in self._data.read_data_in_chunks(event_idx, "event")]
+            if codes:
+                self._events[event_idx] = {"codes": codes, "times": times}
 
     def create_trial_list(self):
         """

@@ -260,24 +260,65 @@ class Spike2Data:
         self._flush_sonfile()
         return self.data
 
-    def read_data_in_chunks(self, channel_index, chunk_size=None):
-        chunk_size = chunk_size if chunk_size else 64 * 1024
-        item_size = self.sonfile.ItemSize(channel_index)
+    def read_data_in_chunks(self, channel_index, event_type, chunk_size=None):
+        """
+        Read data from a channel in chunks.
+
+        Parameters
+        ----------
+        channel_index : int
+            The channel index to read from, spike2 channels.
+        event_type : str
+            The data-type of event to read, either "wave" or "event".
+
+        Returns
+        -------
+        generator
+            A generator that yields chunks of data from the channel.
+        """
+        chunk_size = chunk_size if chunk_size else 32 * 1024
+        item_byte_size = self.sonfile.ItemSize(channel_index)
         total_bytes = self.sonfile.ChannelBytes(channel_index)
-        total_items = total_bytes // item_size
+        total_items = total_bytes // item_byte_size  # approximate number of items
 
         start_idx = 0
 
         while start_idx < total_items:
             end_idx = min(start_idx + chunk_size, total_items)
             num_items = end_idx - start_idx
-            chunk_data = self.sonfile.ReadFloats(channel_index, num_items, start_idx)
-            yield chunk_data
+            if event_type == "event":
+
+                marks = self.sonfile.ReadMarkers(channel_index, num_items, start_idx)
+
+                # spike2 sends a 4-byte ascii-encoded int for each character in the string
+                # convert those ints to a string
+                char_codes = [
+                    codes_to_string([mark.Code1, mark.Code2, mark.Code3, mark.Code4])
+                    for mark in marks
+                ]
+
+                # create a boolean mask for filtering both char_codes and ticks
+                is_printable_mask = [
+                    all(char in string.printable for char in code) for code in char_codes
+                ]
+
+                # filter char_codes and ticks based on the boolean mask
+                filtered_codes = list(compress(char_codes, is_printable_mask))
+                ticks = [mark.Tick for mark in marks]
+                filtered_ticks = np.array(list(compress(ticks, is_printable_mask)))
+
+                # convert the filtered clock ticks to seconds
+                event_time = np.round(ticks_to_time(filtered_ticks, self._time_base()), 3)
+                events = np.vstack((filtered_codes, event_time)).T
+
+                yield filtered_codes, event_time
+
+            elif event_type == "wave":
+                chunk_data = self.sonfile.ReadFloats(channel_index, num_items, start_idx)
+                yield chunk_data
             start_idx = end_idx
 
     def _extract_df(self):
-        if not self._loaded:
-            self._load_sonfile_in_memory()
 
         channel_indices = range(self._max_channels())
 
@@ -325,13 +366,12 @@ class Spike2Data:
         self.data_loaded = True
         self._flush_sonfile()
 
-    def _process_event(self, row):
+    def _process_event(self, idx):
         """
         Process event channels, i.e. channels that contain events.
 
         Event times are converted to seconds.
         """
-        idx, name, chantype, fs, units = row
         try:
             marks = self.sonfile.ReadMarkers(idx, int(2e9), 0)
 
@@ -359,11 +399,9 @@ class Spike2Data:
 
         # better to not guess what error sonpy is going to throw
         except Exception as e:
-            self.errors[f"{idx}_{name}_{chantype}"] = e
-            self.logger.warning(f"Error reading marker:{name},{chantype}, {e}")
             return [], []
 
-    # wrappers for sonfile methods with additional information
+    # below are most wrappers for sonfile methods with additional information
     def _channel_interval(self, channel: int):
         """
         Get the waveform sample interval, in clock ticks.
