@@ -45,7 +45,7 @@ class digital_mapping_particle(tables.IsDescription):
 
     electrode = tables.Int16Col()
     name = tables.StringCol(20)
-    palatability_rank = tables.Int16Col()
+    event = tables.BoolCol()
     laser = tables.BoolCol()
     spike_array = tables.BoolCol()
     exclude = tables.BoolCol()

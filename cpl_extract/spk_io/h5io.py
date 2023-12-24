@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pprint
 from pathlib import Path
 
 import tables
@@ -22,8 +23,7 @@ SUPP_REC_TYPES = {
     "plexon": ".pl2",
 }
 
-DATA_GROUPS = ["raw", "raw_lfp", "time", "digital_in", "digital_out",
-               "trial_info"]
+DATA_GROUPS = ["raw", "raw_lfp", "time", "digital_in", "digital_out", "trial_info"]
 
 
 def merge_h5_files(file_list: list[str | Path]):
@@ -182,8 +182,7 @@ def get_unit_table(rec_dir, h5_file=None):
         descrip = get_unit_descriptor(rec_dir, row["unit_num"], h5_file=h5_file)
         row["electrode"] = descrip["electrode_number"]
         row["single_unit"] = bool(descrip["single_unit"])
-        row["regular_spiking"] = bool(descrip["regular_spiking"])
-        row["fast_spiking"] = bool(descrip["fast_spiking"])
+        row["multi_unit"] = bool(descrip["multi_unit"])
         return row
 
     unit_table = unit_table.apply(add_descrip, axis=1)
@@ -827,9 +826,23 @@ def edit_unit_descriptor(
 
     return
 
+def check_h5_data(filename):
+    with (tables.open_file(filename, "r") as hf5):
+        nodes = hf5.root._f_list_nodes()
+        node_data = {}
+        for node in nodes:
+            if node._v_name in DATA_GROUPS:
+                if node._v_nchildren > 0:
+                    for child in node._f_list_nodes():
+                        if hasattr(child, "nrows"):
+                            if child.nrows > 0:
+                                node_data[child._v_name] = child.shape
+    return node_data
+
 
 def create_empty_data_h5(filename, overwrite=False, shell=False):
-    """Create empty h5 store for data with approriate data groups
+    """
+    Create empty h5 store for data with approriate data groups
 
     Parameters
     ----------
@@ -847,11 +860,14 @@ def create_empty_data_h5(filename, overwrite=False, shell=False):
     basename = os.path.splitext(os.path.basename(filename))[0]
 
     if os.path.isfile(filename):
-        if overwrite:
+        node_data = check_h5_data(filename)
+        if overwrite or node_data == {}:
             q = 1
         else:
+            # gather h5 information
             q = userio.ask_user(
-                "%s already exists. Would you like to delete?" % filename,
+                f"{filename} already exists. Overwrite? \n"
+                f"{pprint.pformat(node_data)}",
                 choices=["No", "Yes"],
                 shell=shell,
             )
@@ -1260,6 +1276,7 @@ def cleanup_clustering(file_dir, h5_file=None):
             new_h5 = compress_and_repack(h5_file)
         return new_h5
     else:
+
         return h5_file
 
 

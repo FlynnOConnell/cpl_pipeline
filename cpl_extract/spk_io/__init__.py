@@ -26,4 +26,5 @@ __all__ = [
     "get_user_input",
     "select_from_list",
     "center",
+    "check_h5_data",
 ]
