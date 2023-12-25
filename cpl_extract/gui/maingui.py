@@ -75,11 +75,10 @@ class MainWindow(QMainWindow):
         self.h5_file_path = None
         self.raw_file_type = None
 
-        # Load data directory container
-        # check for cached os env var
         data = None
         if os.environ.get("CACHE_DIR"):
             self.base_path = pathlib.Path(os.environ.get("CACHE_DIR"))
+
         else:
             data = io.ask_single_npy_file(self)
 

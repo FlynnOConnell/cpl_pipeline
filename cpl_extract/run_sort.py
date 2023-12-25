@@ -16,6 +16,7 @@ from cpl_extract import *
 
 if "CACHE_PATH" in os.environ:
     cache_path = Path(os.environ["CPL_CACHE_PATH"])
+
 else:
     cache_path = Path().home() / ".cache"
 

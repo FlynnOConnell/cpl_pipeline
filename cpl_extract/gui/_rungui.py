@@ -505,8 +505,7 @@ class RunWindow(QDialog):
             self.add_ops()
         self.finish = True
         self.error = False
-        pass
-        # ops_file = os.path.join(self.ops_path, "ops.npy")
+        ops_file = os.path.join(self.ops_path, "ops.npy")
         # db_file = os.path.join(self.ops_path, "db.npy")
         # shutil.copy(os.path.join(self.ops_path, "ops%d.npy" % self.f), ops_file)
         # shutil.copy(os.path.join(self.ops_path, "db%d.npy" % self.f), db_file)

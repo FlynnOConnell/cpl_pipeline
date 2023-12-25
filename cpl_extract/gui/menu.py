@@ -4,7 +4,7 @@ Copyright © 2023 Howard Hughes Medical Institute, Authored by Carsen Stringer a
 from PyQt5.QtWidgets import QMenu, QAction
 
 from . import io
-from . import rungui
+from . import _rungui
 
 
 def mainmenu(parent):
