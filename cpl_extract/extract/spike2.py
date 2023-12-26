@@ -311,7 +311,7 @@ class Spike2Data:
                 event_time = np.round(ticks_to_time(filtered_ticks, self._time_base()), 3)
                 events = np.vstack((filtered_codes, event_time)).T
 
-                yield filtered_codes, event_time
+                yield events
 
             elif event_type == "wave":
                 chunk_data = self.sonfile.ReadFloats(channel_index, num_items, start_idx)

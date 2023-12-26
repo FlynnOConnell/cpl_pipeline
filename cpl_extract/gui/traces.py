@@ -1,7 +1,6 @@
 import numpy as np
 from pathlib import Path
 
-import vispy
 from PyQt5.QtCore import QPoint, Qt, pyqtSignal, QThread
 from PyQt5.QtGui import QPen, QPainter
 from PyQt5.QtWidgets import (
@@ -13,6 +12,7 @@ from PyQt5.QtWidgets import (
     QComboBox,
     QPushButton,
 )
+from icecream import ic
 from vispy import scene, geometry
 from vispy.scene import AxisWidget, BaseCamera
 from vispy.scene.cameras import PanZoomCamera
@@ -21,26 +21,51 @@ from vispy.scene.cameras import PanZoomCamera
 class DataLoader(QThread):
     dataLoaded = pyqtSignal(object)
 
-    def __init__(self, base_path, *args, **kwargs):
+    def __init__(self, base_path,):
         super(DataLoader, self).__init__()
         self.base_path = Path(base_path)
+        self.status = {}
         self.data = {}
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-        for val in args:
-            setattr(self, val, None)
+        self.pk = None
+        self.npy = None
+        self.dirs = []
+        self.edirs = {}
 
         if self.base_path.is_dir():
             self.start()
 
     def run(self):
+
+        pickle_files = self.base_path.glob('*.p')
+        npy_files = self.base_path.glob('*.npy')
+        folders = [x for x in self.base_path.iterdir() if x.is_dir()]
+
+        if 'spike_detection' in folders:
+            ic()
+            self.status['spike_detection'] = True
+
+        if 'spike_clustering' in folders:
+            ic()
+            self.status['spike_clustering'] = True
+
+        if 'spike_sorting' in folders:
+            ic()
+            self.status['spike_sorting'] = True
+
+        if len(list(pickle_files)) == 1:
+            ic()
+            self.pk = list(pickle_files)[0]
+
+        for edir in self.base_path.rglob("electrode*"):
+            ic()
+            if edir.is_dir():
+                ic()
+                self.edirs[edir.parent] = edir
+
         for electrode_dir in self.base_path.iterdir():
             if electrode_dir.is_dir():
                 electrode_data = {}
-
                 # Analysis params
-
                 analysis_params_dir = electrode_dir / 'analysis_params'
                 if analysis_params_dir.exists():
                     for param_file in analysis_params_dir.glob('*.json'):
@@ -317,3 +342,8 @@ class QRangeSlider(QWidget):
         for control, color in [("left", Qt.red), ("right", Qt.green)]:
             painter.setPen(QPen(color, 3))
             painter.drawEllipse(QPoint(self.get_pos(control), self.height() // 2), 5, 5)
+
+if __name__ == "__main__":
+    from pathlib import Path
+    path = Path().home() / 'data' / 'r35'
+    loader = DummyDataLoader(path)

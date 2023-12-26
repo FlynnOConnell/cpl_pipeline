@@ -586,9 +586,12 @@ class Dataset(objects.data_object):
 
         self._events = {}
         for event_idx in events:
-            codes, times  = [chunk for chunk in self._data.read_data_in_chunks(event_idx, "event")]
-            if codes:
-                self._events[event_idx] = {"codes": codes, "times": times}
+            events = [chunk for chunk in self._data.read_data_in_chunks(event_idx, "event")]
+            if events[0]:  # empty event will be [[]], which evaluates to true
+                code = events[0][:, 0][0].astype(str)
+                time = events[0][:, 1][0].astype(float)
+
+                self._events[event_idx] = {"code": code, "time": time}
 
     def create_trial_list(self):
         """

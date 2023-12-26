@@ -1,6 +1,3 @@
-"""
-Copyright © 2023 Howard Hughes Medical Institute, Authored by Carsen Stringer and Marius Pachitariu.
-"""
 from PyQt5.QtWidgets import QMenu, QAction
 
 from . import io
@@ -9,9 +6,9 @@ from . import _rungui
 
 def mainmenu(parent):
     main_menu = parent.menuBar()
-    load_s2e_folder = QAction("Set base folder", parent)
-    load_s2e_folder.setShortcut("Ctrl+B")
-    load_s2e_folder.triggered.connect(lambda: io.select_base_folder(parent))
+    set_base_folder = QAction("Set base folder", parent)
+    set_base_folder.setShortcut("Ctrl+B")
+    set_base_folder.triggered.connect(lambda: io.select_base_folder(parent))
 
     load_npy = QAction("Load .npy data", parent)
     load_npy.setShortcut("Ctrl+L")
@@ -24,7 +21,7 @@ def mainmenu(parent):
     file_menu = main_menu.addMenu("&File")
     main_menu.addAction(debug)
     load_menu = file_menu.addMenu("&Load")
-    load_menu.addAction(load_s2e_folder)
+    load_menu.addAction(set_base_folder)
 
 
 def open_gui_window(parent):
