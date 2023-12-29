@@ -209,7 +209,9 @@ class Dataset(objects.data_object):
             if len(file) > 1:
                 self.merge = True
                 self._data = Spike2Data(filepath=os.path.join(file_dir, file[0]))
+                self.data = self._data.load_metadata()
                 data_file_b = Spike2Data(filepath=os.path.join(file_dir, file[1]))
+                data_file_b.load_metadata()
 
                 rec_length = self._data.rec_length + data_file_b.rec_length
         else:
