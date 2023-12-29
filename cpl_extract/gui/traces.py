@@ -17,79 +17,71 @@ from vispy import scene, geometry
 from vispy.scene import AxisWidget, BaseCamera
 from vispy.scene.cameras import PanZoomCamera
 
+from tests.test_traces import DummyDataLoader
+from PyQt5.QtCore import QThread, pyqtSignal
+from pathlib import Path
+
+PROCESSING_STEPS = ['analysis_params', 'spike_detection', 'spike_sorting']
 
 class DataLoader(QThread):
     dataLoaded = pyqtSignal(object)
 
-    def __init__(self, base_path,):
+    def __init__(self, base_path):
         super(DataLoader, self).__init__()
         self.base_path = Path(base_path)
-        self.status = {}
-        self.data = {}
-        self.pk = None
-        self.npy = None
-        self.dirs = []
+        print(self.base_path)
+        self.status = {k: False for k in PROCESSING_STEPS}
+        self.data = {k: None for k in PROCESSING_STEPS}
+        self.pk = list(self.base_path.glob("*.p"))
+        self.h5 = list(self.base_path.glob("*.h5"))
         self.edirs = {}
 
         if self.base_path.is_dir():
+            print('starting data thread')
             self.start()
 
+    @property
+    def get_h5(self):
+        if self.h5 is None:
+            h5_files = list(self.base_path.glob('*.h5'))
+            if len(h5_files) == 1:
+                self.h5 = h5_files[0]
+        return self.h5
+
+    def get_pk(self):
+        if self.pk is None:
+            pickle_files = list(self.base_path.glob('*.p'))
+            if len(pickle_files) == 1:
+                return self.pk
+            elif len(pickle_files) > 1:
+                print('Multiple pickle files found')
+                return None
+            else:
+                print('No pickle files found')
+                return None
+
     def run(self):
+        for step in PROCESSING_STEPS:
+            print(step)
+            step_path = self.base_path / step
+            if step_path.is_dir():
+                print(f'{step} = True')
+                self.status[step] = True
+                self.data[step] = step_path
 
-        pickle_files = self.base_path.glob('*.p')
-        npy_files = self.base_path.glob('*.npy')
-        folders = [x for x in self.base_path.iterdir() if x.is_dir()]
+        # Check for pickle file
+        pickle_files = list(self.base_path.glob('*.p'))
+        if len(pickle_files) == 1:
+            print('Pickle found')
+            self.status['pickle_file'] = True
+            self.data['pickle_file'] = pickle_files[0]
 
-        if 'spike_detection' in folders:
-            ic()
-            self.status['spike_detection'] = True
-
-        if 'spike_clustering' in folders:
-            ic()
-            self.status['spike_clustering'] = True
-
-        if 'spike_sorting' in folders:
-            ic()
-            self.status['spike_sorting'] = True
-
-        if len(list(pickle_files)) == 1:
-            ic()
-            self.pk = list(pickle_files)[0]
-
-        for edir in self.base_path.rglob("electrode*"):
-            ic()
-            if edir.is_dir():
-                ic()
-                self.edirs[edir.parent] = edir
-
-        for electrode_dir in self.base_path.iterdir():
-            if electrode_dir.is_dir():
-                electrode_data = {}
-                # Analysis params
-                analysis_params_dir = electrode_dir / 'analysis_params'
-                if analysis_params_dir.exists():
-                    for param_file in analysis_params_dir.glob('*.json'):
-                        electrode_data['analysis_params'] = {param_file.stem: str(param_file)}
-
-                # Data
-                data_dir = electrode_dir / 'data'
-                if data_dir.exists():
-                    data_files = {}
-                    for data_file in data_dir.glob('*'):
-                        data_files[data_file.stem] = str(data_file)
-                    electrode_data['data'] = data_files
-
-                # Plots
-                plots_dir = electrode_dir / 'plots'
-                if plots_dir.exists():
-                    plot_files = {}
-                    for plot_file in plots_dir.glob('*'):
-                        plot_files[plot_file.stem] = str(plot_file)
-                    electrode_data['plots'] = plot_files
-
-                self.data[electrode_dir.name] = electrode_data
-
-        self.data = self.data
+        # Check for h5 file
+        h5_files = list(self.base_path.glob('*.h5'))
+        if len(h5_files) == 1:
+            print('h5 files found')
+            self.status['h5_file'] = True
+            self.data['h5_file'] = h5_files[0]
         self.dataLoaded.emit(self.data)
 
 

@@ -50,6 +50,13 @@ def circus_clust_run():
     circ.start_the_show()
 
 
+def is_very_empty(lst):
+    """Check if a nested list is empty, including the inner nested lists"""
+    ic(lst)
+    if not lst:
+        return True
+    return [is_very_empty(item) for item in lst]
+
 class Dataset(objects.data_object):
     """
     Parameters
@@ -586,10 +593,10 @@ class Dataset(objects.data_object):
 
         self._events = {}
         for event_idx in events:
-            events = [chunk for chunk in self._data.read_data_in_chunks(event_idx, "event")]
-            if events[0]:  # empty event will be [[]], which evaluates to true
-                code = events[0][:, 0][0].astype(str)
-                time = events[0][:, 1][0].astype(float)
+            events = [chunk for chunk in self._data.read_data_in_chunks(event_idx, "event")][0]
+            if events.shape[0] > 0:  # empty event will be [[]], which evaluates to true, so check the insides
+                code = events[:, 0].astype(str)
+                time = events[:, 1].astype(float)
 
                 self._events[event_idx] = {"code": code, "time": time}
 
@@ -1152,6 +1159,15 @@ class Dataset(objects.data_object):
         if "spike_detection" in args:
             self.detect_spikes()
 
+        if not status["spike_clustering"]:
+            self.cluster_spikes()
+
+        if not status["cleanup_clustering"]:
+            self.cleanup_clustering()
+
+        if not status['spike_detection']:
+            self.detect_spikes()
+
     def extract_and_circus_cluster(self, dead_channels=None, shell=True):
         print("Extracting Data...")
         self.extract_data()
@@ -1285,7 +1301,6 @@ def run_joblib_process(process):
     return res
 
 def port_in_dataset(rec_dir=None, shell=False):
-    """Import an existing dataset into this framework"""
     if rec_dir is None:
         rec_dir = userio.get_filedirs("Select recording directory", shell=shell)
         if rec_dir is None:

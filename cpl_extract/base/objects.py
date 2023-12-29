@@ -139,7 +139,7 @@ def load_data(data_type, file_dir=None, shell=False):
         shell = True
 
     if file_dir is None:
-        file_dir = get_filedirs("Select %s directory or .p file" % data_type, shell=shell)
+        file_dir = get_filedirs(prompt="Select %s directory or .p file" % data_type, shell=shell)
 
     if Path(file_dir).is_file() and f"{data_type}.p" in str(file_dir):
         data_file = [file_dir]
@@ -215,6 +215,8 @@ def load_project(file_dir=None, shell=False):
     return load_data("project", file_dir, shell=shell)
 
 
+# TODO: This should probably go in the input/output module
+# TODO: Add support for loading multiple pickled objects
 def load_pickled_object(fn: str | bytes | os.PathLike[str] | os.PathLike[bytes] | int):
     """
     Loads a pickled object from a filename.

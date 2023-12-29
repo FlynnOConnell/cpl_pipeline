@@ -11,8 +11,9 @@ from PyQt5.QtWidgets import (
 class MultiSelectionDialog(QDialog):
     selection_made = pyqtSignal(list)
 
-    def __init__(self, populate_func=None, parent=None):
+    def __init__(self, populate_func, parent=None):
         super(MultiSelectionDialog, self).__init__(parent)
+
         self.populate_func = populate_func
         layout = QVBoxLayout()
 
@@ -31,7 +32,12 @@ class MultiSelectionDialog(QDialog):
     def populate(self):
         self.list_widget.clear()
         if self.populate_func:
-            items = self.populate_func()
+            if hasattr(self.populate_func, "append"):
+                items = self.populate_func
+            elif hasattr(self.populate_func, "__call__"):
+                items = self.populate_func()
+            else:
+                raise TypeError("populate_func must be a callable (function, generator, etc) or list")
             self.list_widget.addItems(items)
 
     def close_and_emit(self):

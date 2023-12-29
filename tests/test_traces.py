@@ -10,7 +10,6 @@ class DummyDataLoader:
         self.base_path = Path(base_path)
         self.status = {}
         self.data = {}
-        self.pk = None
         self.npy = None
         self.pickle_files = None
         self.npy_files = None
@@ -19,26 +18,20 @@ class DummyDataLoader:
         self.run()
 
     def run(self):
-
-        self.pickle_files = self.base_path.glob('*.p')
-        self.npy_files = self.base_path.glob('*.npy')
+        self.pickle_files = list(self.base_path.glob('*.p'))
+        self.npy_files = list(self.base_path.glob('*.npy'))
         self.dirs = [folder for folder in self.base_path.iterdir() if folder.is_dir()]
 
         if 'spike_detection' in self.dirs:
-            ic()
             self.status['spike_detection'] = True
 
         if 'spike_clustering' in self.dirs:
-            ic()
             self.status['spike_clustering'] = True
 
         if 'spike_sorting' in self.dirs:
-            ic()
             self.status['spike_sorting'] = True
 
         if len(list(self.pickle_files)) == 1:
-            ic()
-            self.pk = list(self.pickle_files)[0]
             self.status['pk_file'] = True
 
         if len(list(self.npy_files)) >= 1:
@@ -47,11 +40,21 @@ class DummyDataLoader:
 
         for edir in self.base_path.rglob("electrode*"):
             ic()
-            if edir.is_dir():
-                ic()
+            if edir.is_file():
                 self.edirs[edir.parent] = edir
                 data_dir = edir / 'data'
                 plots_dir = edir / 'plot'
+            if edir.is_dir():
+                self.edirs[edir.parent] = edir
+                data_dir = edir / 'data'
+                plots_dir = edir / 'plot'
+            else:
+                continue
+
+            if data_dir.exists():
+                self.status['data'] = True
+            if plots_dir.exists():
+                self.status['plots'] = True
 
         for electrode_dir in self.base_path.iterdir():
             if electrode_dir.is_dir():

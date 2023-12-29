@@ -3,7 +3,7 @@ from pathlib import Path
 
 from icecream import ic
 
-from cpl_extract import Dataset, load_dataset
+from cpl_extract import Dataset, load_dataset, load_pickled_object
 from cpl_extract.defaults import defaults
 
 
@@ -72,8 +72,13 @@ def main(shell=False):
     if shell:
         parser = argparse.ArgumentParser(description="Sorting pipeline parameters.")
         args, data = parse_args(add_args(parser))
-
+    else:
+        from cpl_extract import load_dataset
+        data = load_dataset()
+        data.initialize_parameters()
+        data.extract_data()
+        data.pre_process_for_clustering()
 
 
 if __name__ == "__main__":
-    main(shell=True)
+    main(shell=False)

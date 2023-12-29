@@ -27,13 +27,14 @@ from PyQt5.QtWidgets import (
 )
 from icecream import ic
 
+from cpl_extract import load_pickled_object
 from cpl_extract.gui import menu, io
 from cpl_extract.gui.traces import (
     QRangeSlider,
     WaveformPlot,
     PlotDialog,
     ClusterSelectors,
-    DataLoader,
+    DataLoader, PROCESSING_STEPS,
 )
 from cpl_extract.gui.widgets import MultiSelectionDialog
 
@@ -78,14 +79,12 @@ class MainWindow(QMainWindow):
         self.h5_file_path = None
         self.raw_file_type = None
 
-        data = None
-        if os.environ.get("CACHE_DIR"):
-            self.base_path = pathlib.Path(os.environ.get("CACHE_DIR"))
+        io.select_base_folder(self)
+        if self.base_path is None:
+            raise ValueError("Must have a valid base directory")
         else:
-            io.select_base_folder(self)  # sets base_path within method
+            self.base_path = Path(self.base_path)
 
-        self.data_thread = DataLoader(str(self.base_path))
-        self.data_thread.dataLoaded.connect(self.update_data)
 
         pg.setConfigOptions(imageAxisOrder="row-major")
         self.setWindowTitle("cpl_extract")
@@ -103,7 +102,6 @@ class MainWindow(QMainWindow):
         self.open_area = QWidget()
         self.open_layout = QGridLayout()
         self.open_area.setLayout(self.open_layout)
-        self.select_processing_step()
 
         # ------------- Bottom Area for Further Items ----------------
         self.bottom_area = QWidget()
@@ -121,118 +119,45 @@ class MainWindow(QMainWindow):
         menu.mainmenu(self)
 
         self.setAcceptDrops(True)
+        self.data_thread = DataLoader(str(self.base_path))
+        self.data_thread.dataLoaded.connect(self.display_processing_directory)
         self.show()
 
-
-    def sort_layout(self):
-        self.file_selector = ClusterSelectors(self.get_files)
-        self.channel_selector = ClusterSelectors(self.get_channels)
-        self.cluster_selector = ClusterSelectors(self.get_clusters)
-        self.single_cluster_selector = MultiSelectionDialog(self.get_single_clusters)
-        self.single_cluster_selector_label = QPushButton("Select Clusters")
-        self.single_cluster_selector_label.clicked.connect(
-            self.open_multi_select_dialog
-        )
-
-        self.file_selector.data_changed.connect(self.channel_selector.populate)
-        self.file_selector.data_changed.connect(self.cluster_selector.populate)
-        self.file_selector.data_changed.connect(self.single_cluster_selector.populate)
-
-        self.channel_selector.data_changed.connect(self.cluster_selector.populate)
-        self.channel_selector.data_changed.connect(
-            self.single_cluster_selector.populate
-        )
-
-        self.cluster_selector.data_changed.connect(
-            self.single_cluster_selector.populate
-        )
-
-        self.file_selector.populate()
-        self.channel_selector.populate()
-        self.cluster_selector.populate()
-        self.single_cluster_selector.populate()
-
-        self.vispy_button = QPushButton("View")
-        self.vispy_button.clicked.connect(self.draw_plots)
-        self.vispy_button.setSizePolicy(
+    def start_layout(self):
+        layout = QGridLayout()
+        self.start_button = QPushButton("Start")
+        # self.start_button.clicked.connect()
+        self.start_button.setSizePolicy(
             QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Fixed
         )
-        self.clear_button = QPushButton("Clear")
-
-        # Set stretch factors
-        self.top_layout.setColumnStretch(0, 0)
-        self.top_layout.setColumnStretch(1, 0)
-        self.top_layout.setColumnStretch(2, 0)
-        self.top_layout.setColumnStretch(3, 0)
-
-    def debug(self):
-        x = 5
-        y = self.base_path
-        print(self)
-
-    def get_current_channel_path(self):
-        return (
-            self.base_path
-            / self.file_selector.currentText()
-            / "data"
-            / self.channel_selector.currentText()
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setSizePolicy(
+            QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Fixed
         )
-
-    def get_current_cluster_group_path(self):
-        return self.get_current_channel_path() / self.cluster_selector.currentText()
-
-    def update_data(self, data):
-        pass
-
-        # self.top_layout.addWidget(self.channel_selector, 0, 1)
-        # self.plotWidgets['waveforms'] = self.get_vispy(data)
-        # self.top_layout.addWidget(self.cluster_selector, 0, 2)
-        # self.top_layout.addWidget(self.single_cluster_selector_label, 0, 3)
-        # self.top_layout.addWidget(self.vispy_button, 0, 4)
-        #
-        # self.data = data
-        # self.file_selector.populate()
-
-    def handle_single_cluster_selection(self, selected_clusters):
-        paths = [
-            self.get_current_cluster_group_path() / cluster
-            for cluster in selected_clusters
-        ]
-        for path in paths:
-            cluster_npy = path / "cluster_spikes.npy"
-            data = np.load(cluster_npy)
-            self.plotWidgets[path.name] = self.get_vispy(data, path.name)
-
-    def open_multi_select_dialog(
-        self,
-    ):
-        """Opens a dialog to select multiple clusters in the center of the screen, resizable"""
-        dialog = MultiSelectionDialog(self.get_single_clusters)
-        dialog.selection_made.connect(self.handle_single_cluster_selection)
-        dialog.resize(200, min(400, len(self.get_single_clusters()) * 20 + 50))
-        dialog.move(self.frameGeometry().center() - dialog.rect().center())
-        dialog.exec_()
+        layout.addWidget(self.start_button, 0, 0)
+        layout.addWidget(self.progress, 0, 1)
+        self.top_layout.addLayout(layout, 0, 0)
 
     def handle_process(self, selection):
-        ic(selection)
-        if selection == ['detection']:
-            ic()
-        else:
+        if isinstance(selection, list):
+            selection = selection[0]
+        selection = Path(selection)
+        if selection.with_suffix('.p'):
+            load_pickled_object(selection)
             ic()
 
-    def steps(self):
-        return ['detection', 'clustering']
-
-    def select_processing_step(
-            self,
-    ):
+    def display_processing_directory(self,):
         """Opens a dialog to select multiple clusters in the center of the screen, resizable"""
-        steps = ['detection', 'clustering']
-        dialog = MultiSelectionDialog(self.steps)
-        dialog.selection_made.connect(self.handle_process)
-        dialog.resize(200, min(400, len(steps) * 20 + 50))
-        dialog.move(self.frameGeometry().center() - dialog.rect().center())
-        dialog.exec_()
+        pkl_file = self.data_thread.get_pk()
+        if pkl_file:
+            pickle_files = list(self.base_path.glob('**/*.p'))
+            pk = io.load_pickled_object(pickle_files[0])
+            self.data = pk
+        else:
+            print('no pickle file found')
+
 
     def draw_plots(self):
         plot_dialog = PlotDialog(self.plotWidgets)
@@ -242,9 +167,6 @@ class MainWindow(QMainWindow):
         for key in self.plotWidgets.keys():
             self.bottom_layout.removeWidget(self.plotWidgets[key])
         self.plotWidgets = {}
-
-    def get_files(self):
-        return sorted(self.data.keys())
 
     def get_channels(self):
         selected_file = self.file_selector.currentText()
@@ -299,63 +221,8 @@ class MainWindow(QMainWindow):
                     self.loaded = True
                     break
 
-    def make_graphics_npy(self):
-        self.downsample_box = QComboBox()
-        self.downsample_box.addItem("0x")
-        for i in range(1, 7):
-            self.downsample_box.addItem(f"{i * 10}x")
-        self.downsample_box.currentIndexChanged.connect(self.update_downsample_factor)
-        self.downsample_box.setToolTip("Downsample factor")
-        self.top_layout.addWidget(self.downsample_box, 0, 2, 1, 1)
 
-        self.scroll = QScrollArea(self)
-        self.scroll.setWidgetResizable(True)
-
-        self.scroll_content = QWidget()
-        self.vlayout = QVBoxLayout()
-
-        self.plot = pg.PlotWidget(
-            useOpenGL=True,
-        )
-        p = self.plot
-        p.setMouseEnabled(x=False, y=True)
-        p.enableAutoRange(x=False, y=True)
-        p.setTitle(f"Plot for npy")
-
-        self.vlayout.addWidget(p)
-        self.plotWidgets["npy"] = p
-        self.scroll_content.setLayout(self.vlayout)
-        self.scroll.setWidget(self.scroll_content)
-        self.top_layout.addWidget(self.downsample_box, 0, 4)
-        self.bottom_layout.addWidget(self.scroll, 0, 0, 1, -1)
-
-        # Custom range slider in traces.py
-        self.start_slider = QSlider(Qt.Horizontal)
-        self.start_slider.setMinimum(0)
-        self.start_slider.setMaximum(self.npy.shape[0] - 1)
-        self.start_slider.setValue(0)
-
-        self.end_slider = QSlider(Qt.Horizontal)
-        self.end_slider.setMinimum(0)
-        self.end_slider.setMaximum(self.npy.shape[0] - 1)
-        self.end_slider.setValue(self.npy.shape[0] - 1)
-
-        self.range_slider = QRangeSlider(min_val=0, max_val=self.npy.shape[0] - 1)
-        self.range_slider.setMinimumHeight(50)
-
-        self.range_slider.left_value = 0
-        self.range_slider.right_value = self.npy.shape[0] - 1
-        self.range_slider.range_changed.connect(self.start_data_thread)
-        self.vlayout.addWidget(self.range_slider)
-        self.vlayout.addStretch()
-        self.update_npy_plot()
-
-
-def run(*args, **kwargs):
-
-    for k, v in kwargs.items():
-        print(k, v)
-
+def run():
     warnings.filterwarnings("ignore")
     app = QApplication(sys.argv)
 
@@ -376,5 +243,4 @@ if __name__ == "__main__":
    cache = Path().home() / '.cache'
    cache.mkdir(exist_ok=True)
    os.environ['CACHE_DIR'] = str(cache)
-
    run()
