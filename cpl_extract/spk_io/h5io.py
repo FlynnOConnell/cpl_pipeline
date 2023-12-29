@@ -74,7 +74,7 @@ def merge_h5_files(file_list: list[str | Path]):
                 print(f"Error deleting partial file: {e}")
 
 
-def get_h5_filename(file_dir, shell=True):
+def get_h5_filename(file_dir, shell=True, merge=False):
     """
     Return the name of the h5 file found in file_dir.
     Asks for selection if multiple found
@@ -85,6 +85,8 @@ def get_h5_filename(file_dir, shell=True):
     shell : bool (optional)
         True (default) for command line interface if multiple h5 files found
         False for GUI
+    merge : bool (optional)
+        True to return list of all h5 files in directory
 
     Returns
     -------
@@ -97,20 +99,21 @@ def get_h5_filename(file_dir, shell=True):
 
     h5_files = list(Path(file_dir).glob("*.h5"))
     if len(h5_files) > 1:
-        choice = userio.select_from_list(
-            "Choose which h5 file to load",
-            h5_files,
-            "Multiple h5 stores found",
-            shell=shell,
-        )
-        if choice is None:
-            return None
+        if merge:
+             return [os.path.join(file_dir, h5_files[n]) for n in range(len(h5_files))]
         else:
-            h5_files = [choice]
-
+            choice = userio.select_from_list(
+                "Choose which h5 file to load",
+                h5_files,
+                "Multiple h5 stores found",
+                shell=shell,
+            )
+            if choice is None:
+                return None
+            else:
+                h5_files = [choice]
     elif len(h5_files) == 0:
         return None
-
     return os.path.join(file_dir, h5_files[0])
 
 
@@ -888,7 +891,6 @@ def create_empty_data_h5(filename, overwrite=False, shell=False):
 
     print("Done!\n")
     return filename
-
 
 def create_hdf_arrays(
         file_name: str | Path,

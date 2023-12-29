@@ -37,6 +37,7 @@ def parse_args(parser: argparse.ArgumentParser):
         data = Dataset(datapath)
         if args.yes:
             data.initialize_parameters(accept_params=True)
+            data.extract_data()
         else:
             data.initialize_parameters()
     elif args.file:
@@ -74,11 +75,11 @@ def main(shell=False):
         args, data = parse_args(add_args(parser))
     else:
         from cpl_extract import load_dataset
-        data = load_dataset()
+
+        data = Dataset(Path().expanduser().resolve())
         data.initialize_parameters()
         data.extract_data()
-        data.pre_process_for_clustering()
 
 
 if __name__ == "__main__":
-    main(shell=False)
+    main(shell=True)

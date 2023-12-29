@@ -82,8 +82,6 @@ class Spike2Data:
 
     Attributes:
     -----------
-    exclude : tuple
-        A tuple of channel names to exclude from the data.
     filename : Path
         The full path to the Spike2 file, including filename + extension.
     sonfile : SonFile
@@ -132,23 +130,15 @@ class Spike2Data:
 
     def __init__(self, filepath: Path | str):
         """
-        Class for reading and storing data from a Spike2 file.
+        Wrapper class for reading and storing data from a Spike2 file.
 
         Parameters:
         -----------
         filepath : Path | str
             The full path to the Spike2 file, including filename + extension.
-        savepath : Path | str, optional
-            The full path to the directory to save the data to. Default is None.
-        extraction_logger : logger, optional
-            The logger to use for extraction. Default is None.
-        exclude : tuple, optional
-            A tuple of channel names to exclude from the data. Default is empty tuple.
 
         Attributes:
         -----------
-        exclude : tuple
-            A tuple of channel names to exclude from the data.
         filename : Path
             The full path to the Spike2 file, including filename + extension.
         sonfile : SonFile
@@ -251,15 +241,6 @@ class Spike2Data:
             self._loaded = True
             return self._sonfile
 
-    def load_mapping(self):
-        """
-        Load the sonfile object into memory.
-        """
-        self._load_sonfile_in_memory()
-        self._extract_df()
-        self._flush_sonfile()
-        return self.data
-
     def read_data_in_chunks(self, channel_index, event_type, chunk_size=None):
         """
         Read data from a channel in chunks.
@@ -318,7 +299,7 @@ class Spike2Data:
                 yield chunk_data
             start_idx = end_idx
 
-    def _extract_df(self):
+    def load_metadata(self):
 
         channel_indices = range(self._max_channels())
 
@@ -365,41 +346,7 @@ class Spike2Data:
 
         self.data_loaded = True
         self._flush_sonfile()
-
-    def _process_event(self, idx):
-        """
-        Process event channels, i.e. channels that contain events.
-
-        Event times are converted to seconds.
-        """
-        try:
-            marks = self.sonfile.ReadMarkers(idx, int(2e9), 0)
-
-            # convert the char ascii-encoded ints to a string
-            char_codes = [
-                codes_to_string([mark.Code1, mark.Code2, mark.Code3, mark.Code4])
-                for mark in marks
-            ]
-
-            # create a boolean mask for filtering both char_codes and ticks
-            is_printable_mask = [
-                all(char in string.printable for char in code) for code in char_codes
-            ]
-
-            # filter char_codes and ticks based on the boolean mask
-            filtered_codes = list(compress(char_codes, is_printable_mask))
-            ticks = [mark.Tick for mark in marks]
-            filtered_ticks = np.array(list(compress(ticks, is_printable_mask)))
-
-            # convert the filtered clock ticks to seconds
-            event_time = np.round(ticks_to_time(filtered_ticks, self._time_base()), 3)
-            events = np.vstack((filtered_codes, event_time)).T
-
-            return filtered_codes, event_time
-
-        # better to not guess what error sonpy is going to throw
-        except Exception as e:
-            return [], []
+        return self.data
 
     # below are most wrappers for sonfile methods with additional information
     def _channel_interval(self, channel: int):

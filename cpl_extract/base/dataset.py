@@ -90,6 +90,7 @@ class Dataset(objects.data_object):
         data_name=None,
         shell=False,
         file_type=".smr",
+        merge=False,
     ):
         """
         Initialize dataset object from file_dir, grabs basename from name of
@@ -98,13 +99,19 @@ class Dataset(objects.data_object):
         Parameters
         ----------
         root_dir : str (optional), file directory for intan recording data
+        data_name : str (optional), name of dataset
+        shell : bool (optional), True if you want command-line interface, False for GUI
+        file_type : str (optional), file extension for data files
+        merge : bool (optional), if True, merge all h5 files in the recording directory into one
 
         """
         super().__init__(data_type="dataset", root_dir=root_dir, data_name=data_name, shell=shell)
 
         # TODO: add check for file type + additional file types
 
+        self.data = None
         self._data = None
+        self.merge = merge
         h5_file = get_h5_filename(self.root_dir)
         if h5_file is None:
             h5_file = self.root_dir / f"{self.data_name}.h5"
@@ -183,6 +190,11 @@ class Dataset(objects.data_object):
         # intan files are stored as in .dat format readable from a text parser,
         # but spike2 datafiles require the SonPy library to extract.
 
+        # if merge is True, then we need to load two spike2 files
+        rec_length = None
+        data_file_a = None
+        data_file_b = None
+
         file_dir = Path(self.root_dir)
         data_files = [f for f in file_dir.iterdir() if f.suffix == ".smr"]
 
@@ -192,27 +204,29 @@ class Dataset(objects.data_object):
                 f"Select the one you want to load."
             )
             file = userio.select_from_list(
-                "Select Spike2 file", data_files, "Spike2 File Selection", shell=shell
+                "Select Spike2 file, or multiple files to merge.", data_files, "Spike2 File Selection", shell=shell, multi_select=True
             )
+            if len(file) > 1:
+                self.merge = True
+                self._data = Spike2Data(filepath=os.path.join(file_dir, file[0]))
+                data_file_b = Spike2Data(filepath=os.path.join(file_dir, file[1]))
+
+                rec_length = self._data.rec_length + data_file_b.rec_length
         else:
             file = data_files[0]
+            self._data = Spike2Data(filepath=file,)
+            self.data = self._data.load_metadata()
+            rec_length = self._data.rec_length
 
-        print("Extracting information from Spike2 file")
-
-        ## this is patched together but functional being that we get events straight from spike2
-        self._data = Spike2Data(filepath=file,)
-        self.data = self._data.load_mapping()  # this gets metadata without loading data into memory
         self.events = self.data[self.data['event'] == True]
         self.lfp = self.data[self.data['lfp'] == True]
         self.electrode_mapping = self.data[self.data['unit'] == True]
-
         print(self.electrode_mapping)
-
-        # add the data dataframe to the rec_info dictionary
+        # add the data dataframe to the rec_length dictionary
         self.rec_info.update(self.data.to_dict())
         self.rec_info.update(
             {
-                "rec_length": self._data.rec_length,
+                "rec_length": rec_length,
                 "num_electrodes": len(self.electrode_mapping),
                 "idx_electrodes": self.electrode_mapping['electrode'].values,
                 "name_electrodes": self.electrode_mapping['name'].values,
@@ -221,9 +235,7 @@ class Dataset(objects.data_object):
         )
 
         # Get default parameters from files
-        clustering_params = load_params(
-            "clustering_params", file_dir, default_keyword=data_quality
-        )
+        clustering_params = load_params( "clustering_params", file_dir, default_keyword=data_quality)
         spike_array_params = load_params("spike_array_params", file_dir)
         psth_params = load_params("psth_params", file_dir)
         pal_id_params = load_params("pal_id_params", file_dir)
@@ -387,25 +399,6 @@ class Dataset(objects.data_object):
 
         self.save()
 
-    def edit_pal_id_params(self, shell=False):
-        """Allows user interface for editing palatability/identity parameters
-
-        Parameters
-        ----------
-        shell : bool (optional)
-            True if you want command-line interface, False for GUI (default)
-        """
-        tmp = userio.fill_dict(
-            self.pal_id_params,
-            "Palatability/Identity Parameters\n(Times in ms)",
-            shell=shell,
-        )
-        if tmp:
-            self.pal_id_params = tmp
-            write_params_to_json("pal_id_params", self.root_dir, tmp)
-
-        self.save()
-
     def __str__(self):
         """
         Put all information about dataset in string format
@@ -515,7 +508,7 @@ class Dataset(objects.data_object):
         write_params_to_json("psth_params", rec_dir, psth_params)
         write_params_to_json("pal_id_params", rec_dir, pal_id_params)
 
-    def extract_data(self, filename=None,):
+    def extract_data(self, filename=None,merge=False):
         """
         Create a new H5 file with a pre-defined structure:
 
@@ -525,8 +518,6 @@ class Dataset(objects.data_object):
             - ...
         - /time
             - /time_vector[EArray]
-
-
 
         .. seealso::
             :func:`cpl_extract.spk_io.h5io.create_empty_data_h5`
@@ -540,6 +531,9 @@ class Dataset(objects.data_object):
         filename : str (optional)
             name of h5 file to create. If none is specified, the default is
             the name of the recording directory with a .h5 extension
+        merge: bool (optional)
+            if True, merge all h5 files in the recording directory into one
+            continuous recording.
         """
 
         file = filename if filename else self.h5_file
@@ -550,20 +544,28 @@ class Dataset(objects.data_object):
             print("Data already extracted. Skipping.")
             return
 
-        spk_io.create_hdf_arrays(
-            file_name=file,
-            rec_info=self.rec_info,
-            electrode_mapping=self.electrode_mapping,
-        )
+        if self.merge:
+            spk_io.create_hdf_arrays(
+                file_name=file,
+                rec_info=self.rec_info,
+                electrode_mapping=self.electrode_mapping,
+            )
+
+        else:
+            spk_io.create_hdf_arrays(
+                file_name=file,
+                rec_info=self.rec_info,
+                electrode_mapping=self.electrode_mapping,
+            )
 
         print("Extracting data from Spike2 file")
-        self._process_spike2data()
+        self._process_spike2data(merge=merge)
         self.process_status["extract_data"] = True
         self.save()
 
         print("\nData Extraction Complete\n--------------------")
 
-    def _process_spike2data(self):
+    def _process_spike2data(self, merge=False):
         """
         Extract all data from Spike2 file and save to h5 file.
 
