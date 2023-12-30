@@ -3,7 +3,7 @@ import tables
 import pandas as pd
 from pathlib import Path
 import os
-from cpl_extract.spk_io import create_empty_data_h5, create_hdf_arrays, merge_h5_files
+from cpl_pipeline.spk_io import create_empty_data_h5, create_hdf_arrays, merge_h5_files
 
 class TestHDF5Operations(unittest.TestCase):
 

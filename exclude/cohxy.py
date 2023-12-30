@@ -16,12 +16,12 @@ from mne_connectivity import spectral_connectivity_epochs
 from scipy.stats import zscore, sem, ttest_rel
 from sklearn.manifold import spectral_embedding  # noqa
 
-from cpl_extract.analysis.stats import extract_file_info
-from cpl_extract.logs import logger
-from cpl_extract.spk_io.utils import read_npz_as_dict
-from cpl_extract.utils import extract_common_key
-from cpl_extract.viz import helpers
-from cpl_extract.viz import plots
+from cpl_pipeline.analysis.stats import extract_file_info
+from cpl_pipeline.logs import logger
+from cpl_pipeline.spk_io.utils import read_npz_as_dict
+from cpl_pipeline.utils import extract_common_key
+from cpl_pipeline.viz import helpers
+from cpl_pipeline.viz import plots
 
 import matplotlib
 
@@ -544,7 +544,7 @@ if __name__ == "__main__":
     ax.axhline(y=12, color="black", linestyle="--", alpha=0.5)
     ax.legend(loc="best", fontsize=12, frameon=False)
     plt.show()
-    from cpl_extract.viz import plots
+    from cpl_pipeline.viz import plots
 
     mydata = data[data["Animal"].isin(animal_list)].iloc[1]
     raw_o = mydata["raw"].copy()

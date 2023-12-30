@@ -7,8 +7,8 @@ import mne
 import numpy as np
 import pandas as pd
 
-from cpl_extract.logs import logger
-from cpl_extract.spk_io import spk_h5
+from cpl_pipeline.logs import logger
+from cpl_pipeline.spk_io import spk_h5
 
 logger.setLevel("INFO")
 
