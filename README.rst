@@ -6,9 +6,9 @@ Electrophyiological Data Analyis Pipeline for use with Spike2 files.
 
 Uses algorithms and code directly from 
 
-.. image:: https://readthedocs.org/projects/cpl_pipeline/badge/?version=latest
-    :target: https://cpl_pipeline.readthedocs.io/en/latest/?badge=latest
-    :alt: ReadTheDocs
+.. image:: https://readthedocs.org/projects/cpl-pipeline/badge/?version=latest
+    :target: https://cpl-pipeline.readthedocs.io/en/latest/?badge=latest
+    :alt: Documentation Status
 
 This primarily relies on the `SonPy <https://github.com/divieira/sonpy/>`_ library for 
 extracting data from Spike2 `.smr` files. 
