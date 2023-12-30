@@ -73,8 +73,8 @@ def get_data(datapath: Path | str, match: str = None):
     events_arr = h5_file["events"]["events"]
     event_times_arr = h5_file["events"]["times"]
 
-    spikedata = h5_file["spikedata"]
-    for chan_idx, data in spikedata.items():
+    Spike2Data = h5_file["Spike2Data"]
+    for chan_idx, data in Spike2Data.items():
         if chan_idx in ["VERSION", "CLASS", "TITLE"]:
             continue
         spikes = data["spikes"]

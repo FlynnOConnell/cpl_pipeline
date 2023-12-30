@@ -320,15 +320,15 @@ document.write(`
 <span id="id1"></span><h1>Usage<a class="headerlink" href="#usage" title="Permalink to this heading">#</a></h1>
 <p>The workhorse of this package is the <code class="xref py py-class docutils literal notranslate"><span class="pre">Spike2Data</span></code> class. It contains properties for loading
 and extracting all of the data from .smr files.</p>
-<p>The <code class="xref py py-class docutils literal notranslate"><span class="pre">SpikeData</span></code> class is initialized with a path to a .smr file.</p>
-<p>The data is NOT loaded into memory when the <code class="xref py py-class docutils literal notranslate"><span class="pre">SpikeData</span></code> object is created,
-this only happens when SpikeData.process() is called. The data can then be accessed using the properties of the the class.
-See the documentation for <code class="xref py py-class docutils literal notranslate"><span class="pre">SpikeData</span></code> for more information.</p>
+<p>The <code class="xref py py-class docutils literal notranslate"><span class="pre">Spike2Data</span></code> class is initialized with a path to a .smr file.</p>
+<p>The data is NOT loaded into memory when the <code class="xref py py-class docutils literal notranslate"><span class="pre">Spike2Data</span></code> object is created,
+this only happens when Spike2Data.process() is called. The data can then be accessed using the properties of the the class.
+See the documentation for <code class="xref py py-class docutils literal notranslate"><span class="pre">Spike2Data</span></code> for more information.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">cpl_pipeline</span>
 <span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
 
 <span class="n">my_smr_file</span> <span class="o">=</span> <span class="n">Path</span><span class="p">()</span><span class="o">.</span><span class="n">home</span><span class="p">()</span> <span class="o">/</span> <span class="s1">&#39;data&#39;</span> <span class="o">/</span> <span class="s1">&#39;my_smr_file.smr&#39;</span>
-<span class="n">spike_data</span> <span class="o">=</span> <span class="n">cpl_pipeline</span><span class="o">.</span><span class="n">SpikeData</span><span class="p">(</span><span class="n">my_smr_file</span><span class="p">)</span>
+<span class="n">spike_data</span> <span class="o">=</span> <span class="n">cpl_pipeline</span><span class="o">.</span><span class="n">Spike2Data</span><span class="p">(</span><span class="n">my_smr_file</span><span class="p">)</span>
 <span class="n">spike_data</span><span class="o">.</span><span class="n">process</span><span class="p">()</span>
 </pre></div>
 </div>
@@ -341,7 +341,7 @@ See the documentation for <code class="xref py py-class docutils literal notrans
 <span class="n">all_data</span> <span class="o">=</span> <span class="p">{}</span>
 
 <span class="k">for</span> <span class="n">file</span> <span class="ow">in</span> <span class="n">files</span><span class="p">:</span>
-    <span class="n">data</span> <span class="o">=</span> <span class="n">cpl_pipeline</span><span class="o">.</span><span class="n">SpikeData</span><span class="p">(</span><span class="n">file</span><span class="p">)</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="n">cpl_pipeline</span><span class="o">.</span><span class="n">Spike2Data</span><span class="p">(</span><span class="n">file</span><span class="p">)</span>
     <span class="n">data</span><span class="o">.</span><span class="n">process</span><span class="p">()</span>
     <span class="n">all_data</span><span class="p">[</span><span class="n">file</span><span class="o">.</span><span class="n">stem</span><span class="p">]</span> <span class="o">=</span> <span class="n">data</span>
 </pre></div>

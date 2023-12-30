@@ -60,7 +60,7 @@ For more complete api instructions, see :ref:`api <api/index>`.
     from pathlib import Path
 
     my_smr_file = Path().home() / 'data' / 'my_smr_file.smr'
-    spike_data = cpl_pipeline.SpikeData(my_smr_file)
+    spike_data = cpl_pipeline.Spike2Data(my_smr_file)
 
 .. _contribute:
 
