@@ -1,6 +1,3 @@
-Analyzing ADC Signals
-=====================
-
 The SonPy C++ bindings give us access to some helpful information:
 
 - **Recording Length**: The length of the recording in seconds.

@@ -3,7 +3,7 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cpl_extract"
+name = "cpl_pipeline"
 # TODO: add `license-files` once PEP 639 is accepted (see meson-python#88)
 license = {file = "LICENSE.txt"}
 description = "Spike extraction utilities for python"

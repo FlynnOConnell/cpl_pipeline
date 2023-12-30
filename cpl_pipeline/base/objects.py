@@ -40,10 +40,10 @@ class data_object:
         if log_file is None:
             # check globals for logfile
             if f"{data_name}_{data_type}.log" in globals():
-                log_file = globals()["cpl_extract_logfile"]
+                log_file = globals()["cpl_pipeline_logfile"]
                 print(f"Using global logfile {log_file}.")
             elif f"{data_name}.log" in globals():
-                log_file = globals()["cpl_extract_logfile"]
+                log_file = globals()["cpl_pipeline_logfile"]
                 print(f"Using global logfile {log_file}.")
             else:
                 log_file = (
