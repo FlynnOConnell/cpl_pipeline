@@ -1,46 +1,118 @@
 ==================
-cpl_pipeline
+Computational Physiology Pipeline
 ==================
+
+Electrophyiological Data Analyis Pipeline for use with Spike2 files.
+
+Uses algorithms and code directly from 
 
 .. image:: https://readthedocs.org/projects/cpl_pipeline/badge/?version=latest
     :target: https://cpl_pipeline.readthedocs.io/en/latest/?badge=latest
     :alt: ReadTheDocs
 
-Data extraction pipeline for spike2 electrophysiological data.
-This primarily relies on the [CED](https://ced.co.uk/) [SonPy](https://github.com/divieira/sonpy) library, which
-is ill-documented and is a thin C++ wrapper around code that we will never see.
+This primarily relies on the `SonPy <https://github.com/divieira/sonpy/>`_ library for 
+extracting data from Spike2 `.smr` files. 
 
-Understanding the Spike2 Data Types
------------------------------------
-We are working with data from an Analog-to-Digital Converter (ADC). A bit about what this all means:
+.. _install:
 
-ADC (Analog-to-Digital Converter)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+============
+Installation
+============
 
-An ADC converts continuous analog signals (like electrical voltage) into a digital representation. The digital representation is often stored in bits, and in this case, it's stored in 16 bits, which means each measurement (or sample) is represented with 16 bits of data. This gives you a range of possible values from -32768 to 32767, which are derived from :math:`2^{16}` different possible 16-bit values (ranging from 0 to 65535) but offset to allow for negative values.
+This pipeline requires Python 3.9+ (SonPy dependency), and numpy <= 1.3.5 (numba dependency).
 
-Waveform Data
-^^^^^^^^^^^^^
+It is recommended to install using anaconda. 
 
-This term refers to data representing a wave acquired over time, and it is time-continuous, meaning that it has been sampled at regular intervals over time, forming a continuous signal.
+**Windows:**
 
-Scale and Offset
-^^^^^^^^^^^^^^^^^
+.. code-block:: bash
 
-Each ADC channel contains a scale and offset that allows you to transform the recorded integer values into a different range according to the linear transformation equation:
+    # Download the Miniconda installer for Windows from the official website
+    # https://docs.conda.io/en/latest/miniconda.html
 
-.. math:: y = mx + c
+    # Follow the installer instructions
 
-where:
+    # Open the Anaconda Prompt and navigate to your project directory
+    cd path/to/spike2extract
 
-- :math:`y` is the transformed data value
-- :math:`m` is the scale factor
-- :math:`x` is the original data value
-- :math:`c` is the offset
+    # Create and activate the environment
+    conda env create -f environment.yml
+    conda activate clustersort
 
-This transformation allows you to calibrate the data to represent real-world quantities accurately. In the case of Spike2, the scale and offset would be used to convert the ADC counts to a voltage value based on the specifications of the Spike2 hardware used to acquire the data.
+    # Install the requirements
+    pip install -r requirements.txt
+    pip install -e .
 
-Working with this Data
-^^^^^^^^^^^^^^^^^^^^^^^
+**Linux and Intel MacOS:**
 
-Considering the bit-depth of your signals (16-bit), it allows for a decent range of discrete values, giving us a high-resolution representation of the continuous signals that were measured.
+.. code-block:: bash
+
+    git clone https://github.com/FlynnOConnell/spike2extract.git
+    cd path/to/clustersort
+
+    # Install Miniconda3
+    wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+    bash Miniconda3-latest-Linux-x86_64.sh -b -p "${HOME}/miniconda3"
+    echo ". ${HOME}/miniconda3/etc/profile.d/conda.sh" >> ~/.bashrc
+    source "${HOME}/miniconda3/etc/profile.d/conda.sh"
+
+    conda env create -f environment.yml
+    conda activate clustersort
+    pip install -r requirements.txt
+    pip install -e .
+
+**M1 Macs (Apple Silicon):**
+
+.. note::
+   M1 Macs require an x86 environment to run certain dependencies. The instructions below guide you through setting this up.
+
+.. code-block:: bash
+
+    # Download the Miniconda installer for MacOSX (x86) from the official website
+    # https://docs.conda.io/en/latest/miniconda.html
+
+    # Install Miniconda3 using the x86 architecture
+    arch -x86_64 /bin/bash Miniconda3-latest-MacOSX-x86_64.sh -b -p "${HOME}/miniconda3"
+
+    # Add Miniconda3 to your .zshrc or .bash_profile
+    echo ". ${HOME}/miniconda3/etc/profile.d/conda.sh" >> ~/.zshrc
+    source "${HOME}/miniconda3/etc/profile.d/conda.sh"
+
+    # Create and activate the x86 environment 
+    arch -x86_64 conda env create -f environment.yml
+    conda activate clustersort
+
+    # Install the requirements
+    pip install -r requirements.txt
+    pip install -e .
+
+.. warning::
+   Ensure you activate the `clustersort` environment before running the pipeline.
+
+Usage
+=====
+
+Example notebooks using the pipeline can be found in the notebook (nb) folder.
+
+Recommended processing steps: 
+
+.. code-block:: python
+    import cpl_pipeline
+
+    dat = cpl_pipeline.Dataset('/path/to/data/dir/') # This will open a dialog box, select the directory/folder containing your .smr file(s)
+    dat.initParams(data_quality='hp') # follow GUI prompts. 
+    dat.extract_data()          # Extracts raw data into HDF5 store
+    dat.create_trial_list()     # Creates table of digital input triggers
+    dat.mark_dead_channels()    # View traces and label electrodes as dead, or just pass list of dead channels
+    dat.common_average_reference() # Use common average referencing on data. Repalces raw with referenced data in HDF5 store
+    dat.detect_spikes()        # Detect spikes in data. Replaces raw data with spike data in HDF5 store
+    dat.blech_clust_run(umap=True)       # Cluster data using GMM
+    dat.sort_spikes(electrode_number) # Split, merge and label clusters as units. Follow GUI prompts. Perform this for every electrode
+    dat.post_sorting() #run this after you finish sorting all electrodes
+    dat.make_PSTH_plots() #optional: make PSTH plots for all units 
+    dat.make_raster_plots() #optional: make raster plots for all units
+
+The pipeline is run by being given a directory. Via the shell or GUI, a base directory is chosen that should contain a raw datafile. 
+
+
+
