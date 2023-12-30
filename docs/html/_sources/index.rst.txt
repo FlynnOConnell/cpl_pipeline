@@ -1,5 +1,5 @@
 =========================
-spk2extract Documentation
+cpl_pipeline Documentation
 =========================
 
 Clustersort is a python utility for extracting spike waveforms from raw Spike2 data files. It gives
@@ -31,20 +31,20 @@ For more complete installation instructions, see :ref:`install <install>`.
 
 .. code-block:: bash
 
-    pip install spk2extract
+    pip install cpl_pipeline
 
 2. Conda/Mamba (coming soon)
 
 .. code-block:: bash
 
-    conda install spk2extract
+    conda install cpl_pipeline
 
 3. From source:
 
 .. code-block:: bash
 
-    git clone https://github.com/FlynnOConnell/spk2extract.git
-    cd spk2extract
+    git clone https://github.com/FlynnOConnell/cpl_pipeline.git
+    cd cpl_pipeline
     python setup.py install
 
 
@@ -56,11 +56,11 @@ For more complete api instructions, see :ref:`api <api/index>`.
 
 .. code-block::
 
-    import spk2extract
+    import cpl_pipeline
     from pathlib import Path
 
     my_smr_file = Path().home() / 'data' / 'my_smr_file.smr'
-    spike_data = spk2extract.SpikeData(my_smr_file)
+    spike_data = cpl_pipeline.SpikeData(my_smr_file)
 
 .. _contribute:
 
@@ -77,5 +77,5 @@ Contribute
 Contact
 =======
 
-- GitHub: https://github.com/flynnoconnell/spk2extract
+- GitHub: https://github.com/flynnoconnell/cpl_pipeline
 - Email: Flynnoconnell@gmail.com

@@ -30,11 +30,11 @@ classifiers = [
 dynamic = ["version", "dependencies"]
 
 [project.urls]
-homepage = "https://www.github.com/Flynnoconnell/spk2extract"
-source = "https://www.github.com/Flynnoconnell/spk2extract"
+homepage = "https://www.github.com/Flynnoconnell/cpl_pipeline"
+source = "https://www.github.com/Flynnoconnell/cpl_pipeline"
 
 [tool.pyright]
-include = ["spk2extract"]
+include = ["cpl_pipeline"]
 exclude = [
     "**/node_modules",
     "**/__pycache__",
@@ -57,5 +57,5 @@ reportMissingTypeStubs = false
 pythonVersion = "3.9"
 pythonPlatform = "Linux"
 executionEnvironments = [
-  { root = "spk2extract" }
+  { root = "cpl_pipeline" }
 ]

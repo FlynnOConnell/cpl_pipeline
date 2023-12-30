@@ -65,6 +65,8 @@ class Dataset(objects.data_object):
         absolute path to a recording directory, if left empty a filechooser will pop up.
     """
 
+    # it might make sense to extract this
+    # imported from the autosorter so every module will have the same processing steps
     PROCESSING_STEPS = [
         "initialize_parameters",
         "extract_data",

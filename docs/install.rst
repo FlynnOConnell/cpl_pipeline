@@ -8,7 +8,7 @@ For a quick start, see :ref:`quickstart <quickstart>`.
 
 This pipeline requires Python 3.9+, and numpy <= 1.3.5 to comply with numba restrictions.
 
-* `spk2extract on GitHub <https://github.com/FlynnOConnell/clustersort/>`_
+* `cpl_pipeline on GitHub <https://github.com/FlynnOConnell/clustersort/>`_
 
 It is recommended to install using `mambaforge <https://mamba.readthedocs.io/en/latest/mamba-installation.html#mamba-install>`_ this will drastically speed up environment creation:
 

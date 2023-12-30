@@ -12,7 +12,7 @@ setup(
     description="Signal extract utilities.",
     author="Flynn OConnell",
     author_email="Flynnoconnell@gmail.com",
-    url="https://www.github.com/Flynnoconnell/spk2extract",
+    url="https://www.github.com/Flynnoconnell/cpl_pipeline",
     packages=find_packages(),
     include_package_data=True,
     zip_safe=False,

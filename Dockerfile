@@ -23,7 +23,7 @@ COPY environment.yml .
 RUN conda env create -f environment.yml
 
 # Make RUN commands use the new environment
-RUN echo "conda activate spk2extract" >> ~/.bashrc
+RUN echo "conda activate cpl_pipeline" >> ~/.bashrc
 SHELL ["/bin/bash", "--login", "-c"]
 
 # The entrypoint script so that conda activate works

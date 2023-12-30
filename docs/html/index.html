@@ -9,7 +9,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
 
-    <title>spk2extract Documentation &#8212; clustersort  documentation</title>
+    <title>cpl_pipeline Documentation &#8212; clustersort  documentation</title>
   
   
   
@@ -289,8 +289,8 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article" role="main">
                   
-  <section id="spk2extract-documentation">
-<h1>spk2extract Documentation<a class="headerlink" href="#spk2extract-documentation" title="Permalink to this heading">#</a></h1>
+  <section id="cpl_pipeline-documentation">
+<h1>cpl_pipeline Documentation<a class="headerlink" href="#cpl_pipeline-documentation" title="Permalink to this heading">#</a></h1>
 <p>Clustersort is a python utility for extracting spike waveforms from raw Spike2 data files. It gives
 some more transparency to what exactly the SonPy module is doing when it extracts spikes, and provides
 some utilities for extracting thresholded spikes, dejittering and cleaning up the data, and saving the resulting
@@ -311,20 +311,20 @@ data to hdf5 files.</p>
 <ol class="arabic simple">
 <li><p>Using pip:</p></li>
 </ol>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>spk2extract
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>cpl_pipeline
 </pre></div>
 </div>
 <ol class="arabic simple" start="2">
 <li><p>Conda/Mamba (coming soon)</p></li>
 </ol>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>spk2extract
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>conda<span class="w"> </span>install<span class="w"> </span>cpl_pipeline
 </pre></div>
 </div>
 <ol class="arabic simple" start="3">
 <li><p>From source:</p></li>
 </ol>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/FlynnOConnell/spk2extract.git
-<span class="nb">cd</span><span class="w"> </span>spk2extract
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/FlynnOConnell/cpl_pipeline.git
+<span class="nb">cd</span><span class="w"> </span>cpl_pipeline
 python<span class="w"> </span>setup.py<span class="w"> </span>install
 </pre></div>
 </div>
@@ -333,11 +333,11 @@ python<span class="w"> </span>setup.py<span class="w"> </span>install
 <h3>Usage<a class="headerlink" href="#usage" title="Permalink to this heading">#</a></h3>
 <p>For more complete usage instructions, see <a class="reference internal" href="usage.html#usage"><span class="std std-ref">usage</span></a>.
 For more complete api instructions, see <span class="xref std std-ref">api</span>.</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">spk2extract</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">cpl_pipeline</span>
 <span class="kn">from</span> <span class="nn">pathlib</span> <span class="kn">import</span> <span class="n">Path</span>
 
 <span class="n">my_smr_file</span> <span class="o">=</span> <span class="n">Path</span><span class="p">()</span><span class="o">.</span><span class="n">home</span><span class="p">()</span> <span class="o">/</span> <span class="s1">&#39;data&#39;</span> <span class="o">/</span> <span class="s1">&#39;my_smr_file.smr&#39;</span>
-<span class="n">spike_data</span> <span class="o">=</span> <span class="n">spk2extract</span><span class="o">.</span><span class="n">SpikeData</span><span class="p">(</span><span class="n">my_smr_file</span><span class="p">)</span>
+<span class="n">spike_data</span> <span class="o">=</span> <span class="n">cpl_pipeline</span><span class="o">.</span><span class="n">SpikeData</span><span class="p">(</span><span class="n">my_smr_file</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>
@@ -354,7 +354,7 @@ For more complete api instructions, see <span class="xref std std-ref">api</span
 <section id="contact">
 <span id="id3"></span><h2>Contact<a class="headerlink" href="#contact" title="Permalink to this heading">#</a></h2>
 <ul class="simple">
-<li><p>GitHub: <a class="github reference external" href="https://github.com/flynnoconnell/spk2extract">flynnoconnell/spk2extract</a></p></li>
+<li><p>GitHub: <a class="github reference external" href="https://github.com/flynnoconnell/cpl_pipeline">flynnoconnell/cpl_pipeline</a></p></li>
 <li><p>Email: <a class="reference external" href="mailto:Flynnoconnell&#37;&#52;&#48;gmail&#46;com">Flynnoconnell<span>&#64;</span>gmail<span>&#46;</span>com</a></p></li>
 </ul>
 </section>

@@ -3,9 +3,9 @@
 
 int main()
 {
-    std::string activateCommand = "source ~/miniconda3/bin/activate spk2extract";
+    std::string activateCommand = "source ~/miniconda3/bin/activate cpl_pipeline";
 
-    std::string pythonCommand = "python ~/repos/spk2extract";
+    std::string pythonCommand = "python ~/repos/cpl_pipeline";
 
     std::string fullCommand = activateCommand + " && " + pythonCommand;
 

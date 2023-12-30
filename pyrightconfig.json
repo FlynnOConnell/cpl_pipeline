@@ -1,6 +1,6 @@
 {
   "include": [
-    "spk2extract/**/*.py",
+    "cpl_pipeline/**/*.py",
   ],
 
   "exclude": [
@@ -31,7 +31,7 @@
 
   "executionEnvironments": [
     {
-      "root": "spk2extract"
+      "root": "cpl_pipeline"
     }
   ]
 }

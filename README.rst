@@ -1,9 +1,9 @@
 ==================
-spk2extract
+cpl_pipeline
 ==================
 
-.. image:: https://readthedocs.org/projects/spk2extract/badge/?version=latest
-    :target: https://spk2extract.readthedocs.io/en/latest/?badge=latest
+.. image:: https://readthedocs.org/projects/cpl_pipeline/badge/?version=latest
+    :target: https://cpl_pipeline.readthedocs.io/en/latest/?badge=latest
     :alt: ReadTheDocs
 
 Data extraction pipeline for spike2 electrophysiological data.

@@ -12,7 +12,7 @@ IFS=$'\n\t' # Set IFS to newline and tab.
 # Temporarily disable strict mode and activate conda:
 set +euo pipefail
 conda update conda
-conda activate spk2extract
+conda activate cpl_pipeline
 
 # Re-enable strict mode:
 set -euo pipefail
