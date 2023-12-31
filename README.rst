@@ -112,7 +112,8 @@ Recommended processing steps:
     dat.make_PSTH_plots() #optional: make PSTH plots for all units 
     dat.make_raster_plots() #optional: make raster plots for all units
 
-The pipeline is run by being given a directory. Via the shell or GUI, a base directory is chosen that should contain a raw datafile.
+To set up your raw data files, move each individual session to its own folder.
+To merge two files, simply put both raw data files in the same folder, one with "_pre" and one with "_post" at the end of the filename. Via the shell or GUI, a base directory is chosen that should contain a raw datafile.
 
 Data is stored in a temporary HDF5 file during initialisation, detection and extraction. During clustering, these stores are replaced with .npy files
 in the spike_sorting / electrode_# folders.
