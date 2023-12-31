@@ -26,22 +26,36 @@ This pipeline requires Python 3.9+ (SonPy dependency), and numpy <= 1.3.5 (numba
 
 It is recommended to install using miniconda `miniconda <https://docs.conda.io/en/latest/miniconda.html>`_.
 
+New minconda/anaconda users on windows users should install `git bash <https://gitforwindows.org/>`_ and follow the recommended settings..
+
 .. code-block:: bash
 
- if [ ! -d "$HOME/miniconda3" ]; then
+    if [ ! -d "$HOME/miniconda3" ]; then
         echo "Downloading Miniconda for ARM64..."
         wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-aarch64.sh -O /tmp/miniconda.sh
         echo "Installing Miniconda..."
         bash /tmp/miniconda.sh -b -p $HOME/miniconda3
     fi
+
+
     echo "Initializing Miniconda..."
     $HOME/miniconda3/bin/conda init
 
     echo "Installing miniconda environment packages..."
     $HOME/miniconda3/bin/conda env create -f $HOME/repos/cpl_pipeline/environment.yml
 
-    $ conda activate cpl_pipeline
-    $ pip install cpl_pipeline
+
+    # If you're on a Macbook M1, you need to configure miniconda to compile binaries for x86_64 CPU architecture because
+    # SonPy doesn't compile for ARM and has no intentions to.
+    conda config --env --set subdir osx-arm64
+
+    If you're getting ``conda: command not found``, you need to add ``conda`` to your path.
+    Look in your home directory, you should have a mambaforge or miniforge3 folder, depending on
+    your method of installation. Add that folder/bin to your path:
+    `export PATH="/home/username/mambaforge/bin:$PATH"`
+
+    On linus, If you're getting ``ImportError: libopenblas.so.0: cannot open shared object file: No such file or directory``, you need to install the openblas library:
+    ``sudo apt install libopenblas-dev``
 
 .. note::
     Macbook M1 chips also need to configure miniconda to compile binaries for x86_64 CPU architecture because

@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.abspath(".."))
 # Minimum version, enforced by sphinx
 needs_sphinx = "4.3"
 
-project = "clustersort"
+project = "cpl_pipeline"
 copyright = "2023, Flynn OConnell"
 author = "Flynn OConnell"
 

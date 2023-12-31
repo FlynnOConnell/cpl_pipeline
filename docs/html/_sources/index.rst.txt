@@ -2,7 +2,7 @@
 cpl_pipeline Documentation
 =========================
 
-Clustersort is a python utility for extracting spike waveforms from raw Spike2 data files. It gives
+cpl_pipeline is a python utility for extracting spike waveforms from raw Spike2 data files. It gives
 some more transparency to what exactly the SonPy module is doing when it extracts spikes, and provides
 some utilities for extracting thresholded spikes, dejittering and cleaning up the data, and saving the resulting
 data to hdf5 files.
