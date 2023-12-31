@@ -614,12 +614,12 @@ class SpikeDetection:
         if self._file_dir.suffix == ".h5":
             self._file_dir = self._file_dir.parent
         self._electrode = electrode
-        self._out_dir = Path(file_dir) / "spike_detection" / f"electrode_{electrode}"
+        self._out_dir = Path(file_dir) / "detect_spikes" / f"electrode_{electrode}"
         self._out_dir.mkdir(parents=True, exist_ok=True)
         self._data_dir = self._out_dir / "data"
         self._plot_dir = self._out_dir / "plots"
         self._files = {
-            "params": self._out_dir / "analysis_params" / "spike_detection_params.json",
+            "params": self._out_dir / "analysis_params" / "detect_spikes_params.json",
             "spike_waveforms": self._data_dir / "spike_waveforms.npy",
             "spike_times": self._data_dir / "spike_times.npy",
             "energy": self._data_dir / "energy.npy",
@@ -664,7 +664,7 @@ class SpikeDetection:
             self.params = read_dict_from_json(str(self._files["params"]))
         elif params is None:
             raise FileNotFoundError(
-                "params must be provided if spike_detection_params.json does not exist."
+                "params must be provided if detect_spikes_params.json does not exist."
             )
         else:
             self.params = {}
@@ -714,7 +714,8 @@ class SpikeDetection:
 
         ic(f"Running spike detection on electrode {electrode}")
         raw_trace = h5io.get_raw_trace(rec_dir=file_dir, chan_idx=electrode)
-        if not raw_trace:
+        print(raw_trace)
+        if raw_trace is None or len(raw_trace) == 0:
             raise FileNotFoundError(f"Could not find data for {electrode} in {file_dir}")
 
         # Filter electrode trace
@@ -1050,7 +1051,7 @@ class CplClust:
             ValueError("Existing rec_key not found and no_write is enabled")
 
         # Check to see if spike detection is already completed on all recording directories
-        spike_check = self._check_spike_detection()
+        spike_check = self._check_detect_spikes()
         if not all(spike_check):
             invalid = [rec_dirs[i] for i, x in enumerate(spike_check) if x == False]
             error_str = "\n\t".join(invalid)
@@ -1357,7 +1358,7 @@ class CplClust:
 
         return out
 
-    def _check_spike_detection(self):
+    def _check_detect_spikes(self):
         out = []
         for rec in self.rec_dirs:
             try:

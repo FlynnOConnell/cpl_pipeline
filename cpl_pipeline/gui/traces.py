@@ -21,7 +21,7 @@ from tests.test_traces import DummyDataLoader
 from PyQt5.QtCore import QThread, pyqtSignal
 from pathlib import Path
 
-PROCESSING_STEPS = ['analysis_params', 'spike_detection', 'spike_sorting']
+PROCESSING_STEPS = ['analysis_params', 'detect_spikes', 'spike_sorting']
 
 class DataLoader(QThread):
     dataLoaded = pyqtSignal(object)

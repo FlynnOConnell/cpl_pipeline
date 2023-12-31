@@ -428,7 +428,7 @@ class experiment(data_object):
         spike_detect = True
         for rd in rec_dirs:
             dat = load_dataset(rd)
-            if dat.process_status["spike_detection"] == False:
+            if dat.process_status["detect_spikes"] == False:
                 raise FileNotFoundError("Spike detection has not been run on %s" % rd)
 
             dat.clustering_params = clustering_params

@@ -22,8 +22,8 @@ class DummyDataLoader:
         self.npy_files = list(self.base_path.glob('*.npy'))
         self.dirs = [folder for folder in self.base_path.iterdir() if folder.is_dir()]
 
-        if 'spike_detection' in self.dirs:
-            self.status['spike_detection'] = True
+        if 'detect_spikes' in self.dirs:
+            self.status['detect_spikes'] = True
 
         if 'spike_clustering' in self.dirs:
             self.status['spike_clustering'] = True

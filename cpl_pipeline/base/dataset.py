@@ -766,7 +766,7 @@ class Dataset(objects.data_object):
         em["cutoff_time"] = em["electrode"].map(cutoffs)
         em["clustering_result"] = em["electrode"].map(clust_res)
         self.electrode_mapping = em.copy()
-        self.process_status["spike_detection"] = True
+        self.process_status["detect_spikes"] = True
         write_electrode_map_to_h5(self.h5_file, em)
         self.save()
         print("Spike Detection Complete\n------------------")
@@ -787,7 +787,7 @@ class Dataset(objects.data_object):
             set to True in order to skip popup confirmation of parameters when
             running
         """
-        if not self.process_status["spike_detection"]:
+        if not self.process_status["detect_spikes"]:
             raise FileNotFoundError("Must run spike detection before clustering.")
 
         if data_quality:
@@ -1162,7 +1162,7 @@ class Dataset(objects.data_object):
         # except AttributeError:
         #     pass
 
-        if "spike_detection" in args:
+        if "detect_spikes" in args:
             self.detect_spikes()
 
         if not status["spike_clustering"]:
@@ -1171,7 +1171,7 @@ class Dataset(objects.data_object):
         if not status["cleanup_clustering"]:
             self.cleanup_clustering()
 
-        if not status['spike_detection']:
+        if not status['detect_spikes']:
             self.detect_spikes()
 
     def extract_and_circus_cluster(self, dead_channels=None, shell=True):
@@ -1403,7 +1403,7 @@ def port_in_dataset(rec_dir=None, shell=False):
                 os.path.join(dat.root_dir, "spike_times", f"electrode{el}", "spike_times.npy"),
             ]
             clust_dir = os.path.join(dat.root_dir, "BlechClust", f"electrode_{el}")
-            detect_dir = os.path.join(dat.root_dir, "spike_detection", f"electrode_{el}")
+            detect_dir = os.path.join(dat.root_dir, "detect_spikes", f"electrode_{el}")
             dest = [
                 os.path.join(clust_dir, "clustering_results"),
                 os.path.join(clust_dir, "plots"),
@@ -1424,7 +1424,7 @@ def port_in_dataset(rec_dir=None, shell=False):
             # Make params files
             params = dat.clustering_params.copy()
 
-            sd_fn = os.path.join(dat.root_dir, "analysis_params", "spike_detection_params.json")
+            sd_fn = os.path.join(dat.root_dir, "analysis_params", "detect_spikes_params.json")
             if not os.path.isfile(sd_fn):
                 sd_params = {}
                 sd_params["voltage_cutoff"] = params["data_params"][
