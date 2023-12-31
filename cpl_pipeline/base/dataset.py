@@ -569,7 +569,7 @@ class Dataset(objects.data_object):
 
         print("\nData Extraction Complete\n--------------------")
 
-    def _process_spike2data(self, merge=False):
+    def _process_spike2data(self):
         """
         Extract all data from Spike2 file and save to h5 file.
 
@@ -772,7 +772,7 @@ class Dataset(objects.data_object):
         print("Spike Detection Complete\n------------------")
         return results
 
-    def cluster_spikes(self, data_quality=None, multi_process=False, n_cores=None, umap=True, accept_params=False):
+    def cluster_spikes(self, data_quality=None, multi_process=False, n_cores=None, umap=True):
         """
         Write clustering parameters to file and
         Run process on each electrode using GNU parallel
@@ -783,9 +783,9 @@ class Dataset(objects.data_object):
             set if you want to change the data quality parameters for cutoff
             and spike detection before running clustering. These parameters are
             automatically set as "clean" during initial parameter setup
-        accept_params : bool, False (default)
-            set to True in order to skip popup confirmation of parameters when
-            running
+        multi_process : bool
+        n_cores :
+        umap :
         """
         if not self.process_status["detect_spikes"]:
             raise FileNotFoundError("Must run spike detection before clustering.")
