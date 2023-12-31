@@ -469,7 +469,6 @@ def write_spike2_array_to_h5(h5_file, electrode, waves, fs=None):
     with tables.open_file(h5_file, "r+") as hf5:
         if "/raw" in hf5 and "/raw/electrode%i" % electrode in hf5:
             node = hf5.root.raw["electrode%i" % electrode]
-            node._v_attrs["has_data"] = True
             if fs is not None:
                 node._v_attrs["sampling_rate"] = fs
             node.append(waves)
