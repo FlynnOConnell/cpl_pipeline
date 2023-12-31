@@ -112,7 +112,9 @@ Recommended processing steps:
     dat.make_PSTH_plots() #optional: make PSTH plots for all units 
     dat.make_raster_plots() #optional: make raster plots for all units
 
-The pipeline is run by being given a directory. Via the shell or GUI, a base directory is chosen that should contain a raw datafile. 
+The pipeline is run by being given a directory. Via the shell or GUI, a base directory is chosen that should contain a raw datafile.
 
+Data is stored in a temporary HDF5 file during initialisation, detection and extraction. During clustering, these stores are replaced with .npy files
+in the spike_sorting / electrode_# folders.
 
-
+This h5 file can be opened and inspected using a variety of tools such as `h5pyviewer <https://myhdf5.hdfgroup.org/>`_.
