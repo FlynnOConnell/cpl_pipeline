@@ -563,7 +563,7 @@ class Dataset(objects.data_object):
             )
 
         print("Extracting data from Spike2 file")
-        self._process_spike2data(merge=merge)
+        self._process_spike2data()
         self.process_status["extract_data"] = True
         self.save()
 
@@ -888,7 +888,8 @@ class Dataset(objects.data_object):
         if not self.process_status["spike_clustering"]:
             # TODO: add option to run clustering here
             dbg = None
-            raise ValueError("Must run spike clustering first.")
+            pass
+            #raise ValueError("Must run spike clustering first.")
 
         if not self.process_status["cleanup_clustering"]:
             # TODO: why cleanup

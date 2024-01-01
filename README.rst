@@ -44,7 +44,6 @@ New minconda/anaconda users on windows users should install `git bash <https://g
     echo "Installing miniconda environment packages..."
     $HOME/miniconda3/bin/conda env create -f $HOME/repos/cpl_pipeline/environment.yml
 
-
     # If you're on a Macbook M1, you need to configure miniconda to compile binaries for x86_64 CPU architecture because
     # SonPy doesn't compile for ARM and has no intentions to.
     conda config --env --set subdir osx-arm64

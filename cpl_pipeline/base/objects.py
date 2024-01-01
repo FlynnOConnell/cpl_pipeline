@@ -185,8 +185,6 @@ def load_experiment(file_dir=None, shell=False):
     return load_data("experiment", file_dir, shell=shell)
 
 
-
-
 def load_dataset(file_dir=None, shell=False):
     """Loads dataset.p file from file_dir
 
