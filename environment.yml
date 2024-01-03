@@ -60,3 +60,5 @@ dependencies:
     - psutil
     - easygui
     - prompt_toolkit
+
+setuptools~=69.0.3
