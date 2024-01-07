@@ -4,6 +4,7 @@
 #   $ conda activate cpl  # or change the name: cpl and activate that name
 
 name: cpl
+
 channels:
   - conda-forge
   - default
@@ -30,22 +31,15 @@ dependencies:
   - umap-learn
 
 # Image and IO
-  - h5py # deprecated
   - pillow
   - Opencv
   - openpyxl
   - OpenSSL
   - pytables
-
-# Compilation
-  - compilers
   - openblas
   - pip
-  - spin
 
 # For type annotations
-  - typing_extensions>=4.2.0
-  - mypy=1.5.1
   - black
 
 # Documentation
@@ -55,10 +49,10 @@ dependencies:
   - numpydoc=1.4.0
 
   - pip:
-#    - sonpy
+    - sonpy
     - termcolor
     - psutil
     - easygui
     - prompt_toolkit
+    - setuptools~=69.0.3
 
-setuptools~=69.0.3
