@@ -48,6 +48,8 @@ dependencies:
   - pydata-sphinx-theme=0.13.3
   - numpydoc=1.4.0
 
+  - icecream # debugging
+
   - pip:
     - sonpy
     - termcolor
