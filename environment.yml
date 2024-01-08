@@ -52,6 +52,8 @@ dependencies:
 
   - pip:
     - sonpy
+    - mne # pip because we don't need all of the deps
+    - mne_connectivity
     - termcolor
     - psutil
     - easygui
