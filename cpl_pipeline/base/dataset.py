@@ -19,8 +19,8 @@ from tqdm import tqdm
 from cpl_pipeline import spk_io, write_dict_to_json
 from cpl_pipeline.analysis import cluster as clust
 from cpl_pipeline.analysis import spike_analysis
-from cpl_pipeline.analysis.circus_interface import circus_clust
-from cpl_pipeline.analysis.spike_analysis import make_rate_arrays
+# from cpl_pipeline.analysis.circus_interface import circus_clust
+# from cpl_pipeline.analysis.spike_analysis import make_rate_arrays
 from cpl_pipeline.analysis.spike_sorting import make_spike_arrays, calc_units_similarity
 from cpl_pipeline.base import objects
 from cpl_pipeline.extract import Spike2Data
@@ -896,8 +896,7 @@ class Dataset(objects.data_object):
             self.cleanup_clustering()
 
         sorter = clust.SpikeSorter(rec_dirs=self.root_dir, electrode=electrode, shell=shell)
-        if not shell:
-            root, sorting_GUI = launch_sorter_GUI(sorter)
+        root, sorting_GUI = launch_sorter_GUI(sorter)
         self.process_status["spike_sorting"] = True
 
     def units_similarity(self, similarity_cutoff=50, shell=False):

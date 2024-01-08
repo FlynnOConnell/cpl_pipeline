@@ -1,7 +1,6 @@
 import numpy as np
 import configparser
 import os
-import h5py
 import shutil
 import subprocess
 import pylab as plt
@@ -282,39 +281,40 @@ class circus_clust(object):
             ].values[0]
 
         out = []
-        with h5py.File(self._cluster_file, "r") as f:
-            clusters = f["clusters_%i" % channel_num][:]
-            all_times = f["times_%i" % channel_num][:]
-            ref_el = h5io.get_referenced_trace(self._rec_dir, electrode_num)
-            if ref_el is None:
-                raise ValueError(
-                    "Referenced Trace for electrode %i not found" % electrode_num
-                )
-
-            for c in np.unique(clusters):
-                cluster_name = "E%i_cluster%i" % (electrode_num, c)
-                idx = np.where(clusters == c)[0]
-                spike_times = all_times[idx]
-                spike_waveforms, new_fs = get_waveforms(ref_el, spike_times)
-                ISI, violations1, violations2 = get_ISI_and_violations(spike_times, fs)
-                # TODO: Actually make cluster data matrix
-                data = None
-                cluster = {
-                    "Cluster_Name": cluster_name,
-                    "electrode": electrode_num,
-                    "solution": channel_num,
-                    "cluster_id": str(c),
-                    "data": data,
-                    "spike_times": spike_times,
-                    "spike_waveforms": spike_waveforms,
-                    "ISI": ISI,
-                    "1ms_violations": violations1,
-                    "2ms_violations": violations2,
-                    "single_unit": 0,
-                    "fast_spiking": 0,
-                    "regular_spiking": 0,
-                    "manipulations": "",
-                }
-                out.append(cluster)
-
-        return out
+        raise NotImplementedError
+        # with h5py.File(self._cluster_file, "r") as f:
+        #     clusters = f["clusters_%i" % channel_num][:]
+        #     all_times = f["times_%i" % channel_num][:]
+        #     ref_el = h5io.get_referenced_trace(self._rec_dir, electrode_num)
+        #     if ref_el is None:
+        #         raise ValueError(
+        #             "Referenced Trace for electrode %i not found" % electrode_num
+        #         )
+        #
+        #     for c in np.unique(clusters):
+        #         cluster_name = "E%i_cluster%i" % (electrode_num, c)
+        #         idx = np.where(clusters == c)[0]
+        #         spike_times = all_times[idx]
+        #         spike_waveforms, new_fs = get_waveforms(ref_el, spike_times)
+        #         ISI, violations1, violations2 = get_ISI_and_violations(spike_times, fs)
+        #         # TODO: Actually make cluster data matrix
+        #         data = None
+        #         cluster = {
+        #             "Cluster_Name": cluster_name,
+        #             "electrode": electrode_num,
+        #             "solution": channel_num,
+        #             "cluster_id": str(c),
+        #             "data": data,
+        #             "spike_times": spike_times,
+        #             "spike_waveforms": spike_waveforms,
+        #             "ISI": ISI,
+        #             "1ms_violations": violations1,
+        #             "2ms_violations": violations2,
+        #             "single_unit": 0,
+        #             "fast_spiking": 0,
+        #             "regular_spiking": 0,
+        #             "manipulations": "",
+        #         }
+        #         out.append(cluster)
+        #
+        # return out

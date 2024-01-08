@@ -1,17 +1,15 @@
 import argparse
 from pathlib import Path
 
-from icecream import ic
-
-from cpl_pipeline import Dataset, load_dataset, load_pickled_object
+import cpl_pipeline as cpl
 
 def main():
 
     # data = load_dataset()
 
-    #data = Dataset(Path().home() / 'data' / 'r35_session_1')
-    data = load_dataset(Path().home() / 'data' / 'r35_session_1')
-    data.initialize_parameters()
+    # data = cpl.Dataset(Path().home() / 'data' / 'r35' / 'session_1')
+    data = cpl.load_dataset(Path().home() / 'data' / 'r35' / 'session_1')
+    # data.initialize_parameters()
 
     data.extract_data()
     data.detect_spikes()

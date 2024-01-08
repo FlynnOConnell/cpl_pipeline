@@ -1198,8 +1198,9 @@ class PoissonHMM(object):
         return logl
 
     def get_best_paths(self, spikes, dt, recompute=False):
-        if "best_sequences" is self.stat_arrays.keys() and recompute == False:
-            return self.stat_arrays["best_sequences"], self.max_log_prob
+        # The is statement is causing issues here
+        # if "best_sequences" is self.stat_arrays.keys() and recompute == False:
+        #     return self.stat_arrays["best_sequences"], self.max_log_prob
 
         PI = self.initial_distribution
         A = self.transition
