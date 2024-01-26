@@ -2,16 +2,14 @@
 cpl_pipeline Documentation
 ==========================
 
+
+
 .. toctree::
     :maxdepth: 2
     :caption: Getting Started
     :name: gettingstarted
 
     cpl_pipeline
-    Installation <install>
-    Guide <guide/index>
-    Api <api/index>
-    Preprocessing <preprocessing>
 
 .. _quickstart:
 

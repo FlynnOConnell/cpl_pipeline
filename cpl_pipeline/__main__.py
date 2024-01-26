@@ -21,5 +21,11 @@ def main():
     data.post_sorting()
     data.make_unit_plots()
 
+def sort(data):
+    data.cluster_spikes()
+    data.sort_spikes()
+
 if __name__ == "__main__":
-    main()
+    # main()
+    data = cpl.load_dataset(Path().home() / 'data' / 'r35' / 'session_1')
+    sort(data)

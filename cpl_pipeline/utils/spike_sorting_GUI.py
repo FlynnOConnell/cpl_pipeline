@@ -657,4 +657,5 @@ class DummySorter:
 def launch_sorter_GUI(sorter):
     root = tk.Tk()
     sorter_GUI = SpikeSorterGUI(root, sorter)
+    root.mainloop()
     return root, sorter_GUI

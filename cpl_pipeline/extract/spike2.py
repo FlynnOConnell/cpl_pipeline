@@ -283,6 +283,55 @@ class Spike2Data:
                     all(char in string.printable for char in code) for code in char_codes
                 ]
 
+                # exclude null terminated strings, spaces, etc
+                filtered_codes = list(compress(char_codes, is_printable_mask))
+                ticks = [mark.Tick for mark in marks]
+                filtered_ticks = np.array(list(compress(ticks, is_printable_mask)))
+
+                # convert the filtered clock ticks to seconds
+                event_time = np.round(ticks_to_time(filtered_ticks, self._time_base()), 3)
+                events = np.vstack((filtered_codes, event_time)).T
+
+                yield events
+
+            elif event_type == "wave":
+                chunk_data = self.sonfile.ReadFloats(channel_index, num_items, start_idx)
+                yield chunk_data
+            start_idx = end_idx
+
+
+    def read_all_data(self, channel_index, event_type, chunk_size=None):
+        """
+        Read all data in one chunk. 
+
+        To get this working with Darius' data again.
+        """
+        chunk_size = chunk_size if chunk_size else 32 * 1024
+        item_byte_size = self.sonfile.ItemSize(channel_index)
+        total_bytes = self.sonfile.ChannelBytes(channel_index)
+        total_items = total_bytes // item_byte_size  # approximate number of items
+
+        start_idx = 0
+
+        while start_idx < total_items:
+            end_idx = min(start_idx + chunk_size, total_items)
+            num_items = end_idx - start_idx
+            if event_type == "event":
+
+                marks = self.sonfile.ReadMarkers(channel_index, num_items, start_idx)
+
+                # spike2 sends a 4-byte ascii-encoded int for each character in the string
+                # convert those ints to a string
+                char_codes = [
+                    codes_to_string([mark.Code1, mark.Code2, mark.Code3, mark.Code4])
+                    for mark in marks
+                ]
+
+                # create a boolean mask for filtering both char_codes and ticks
+                is_printable_mask = [
+                    all(char in string.printable for char in code) for code in char_codes
+                ]
+
                 # filter char_codes and ticks based on the boolean mask
                 filtered_codes = list(compress(char_codes, is_printable_mask))
                 ticks = [mark.Tick for mark in marks]
@@ -300,6 +349,10 @@ class Spike2Data:
             start_idx = end_idx
 
     def load_metadata(self):
+        """ 
+        I made this because of how the dataset() class works. The class first needs access to the sampling rates and electrodes before the actual data is extracted. 
+        So this loads that metadata without actually loading the spikes into memory.
+        """
 
         channel_indices = range(self._max_channels())
 
@@ -348,7 +401,7 @@ class Spike2Data:
         self._flush_sonfile()
         return self.data
 
-    # below are most wrappers for sonfile methods with additional information
+    # below are wrappers for sonfile methods with additional information
     def _channel_interval(self, channel: int):
         """
         Get the waveform sample interval, in clock ticks.
